@@ -46,6 +46,8 @@ class TabManager {
       active: t.id === this.activeId,
       locked: !!t.locked,
       pinned: !!t.pinned,
+      canGoBack: t.view.webContents.canGoBack(),
+      canGoForward: t.view.webContents.canGoForward(),
     }));
     // Pinned tabs float to the front of the strip, exactly like Safari/Chrome.
     // Array.prototype.sort is stable in V8, so relative order within each

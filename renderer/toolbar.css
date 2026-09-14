@@ -1,0 +1,56 @@
+:root {
+  color-scheme: dark;
+  --bg: #14171c;
+  --line: #2a3038;
+  --text: #e5e7eb;
+  --muted: #8b949e;
+  --accent: #7aa2f7;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: 13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  height: 100%;
+  overflow: hidden;
+}
+button, input { font: inherit; }
+button {
+  background: #20252c;
+  color: var(--text);
+  border: 1px solid #3a424c;
+  border-radius: 6px;
+  padding: 5px 9px;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+button:hover { background: #292f38; }
+button:disabled { opacity: .4; cursor: default; }
+input {
+  background: #101318;
+  color: var(--text);
+  border: 1px solid #343b45;
+  border-radius: 6px;
+  outline: none;
+  padding: 5px 7px;
+}
+input:focus { border-color: #5979b8; }
+
+#navbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 100%;
+  padding: 0 6px;
+  border-bottom: 1px solid var(--line);
+}
+#addr { flex: 1 1 auto; min-width: 0; }
+.lock-indicator {
+  flex: 0 0 auto;
+  font-size: 11px;
+  opacity: 0;
+  padding: 0 2px;
+  color: #d4a017;
+}
+.lock-indicator.visible { opacity: 1; }

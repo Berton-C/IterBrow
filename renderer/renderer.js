@@ -1,5 +1,4 @@
 const tabstrip = document.getElementById('tabstrip');
-const addr = document.getElementById('addr');
 const chat = document.getElementById('chat');
 const chatInput = document.getElementById('chat-input');
 const statusDot = document.getElementById('status-dot');
@@ -18,7 +17,6 @@ function renderTabs(list) {
   tabsCache = list;
   const active = list.find((t) => t.active);
   activeTabId = active ? active.id : null;
-  if (active) addr.value = active.url;
 
   tabstrip.innerHTML = '';
   for (const tab of list) {
@@ -42,6 +40,14 @@ function renderTabs(list) {
       if (tab.locked) return; // must release the lock first
       window.iterApi.closeTab(tab.id);
     });
+    // Right-click / two-finger click -- a native menu with Close Tab and
+    // friends, so closing (or managing) a tab never depends on the small
+    // 'x' being reachable, e.g. when a long tab title pushes it tight
+    // against the pill's max-width. Added 2026-09-14.
+    pill.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      window.iterApi.showTabContextMenu(tab.id);
+    });
     tabstrip.appendChild(pill);
   }
   const newBtn = document.createElement('button');
@@ -57,22 +63,11 @@ function escapeHtml(s) {
 
 window.iterApi.onTabsUpdate(renderTabs);
 window.iterApi.listTabs().then(renderTabs);
-
-document.getElementById('btn-back').addEventListener('click', () => activeTabId && window.iterApi.back(activeTabId));
-document.getElementById('btn-forward').addEventListener('click', () => activeTabId && window.iterApi.forward(activeTabId));
-document.getElementById('btn-reload').addEventListener('click', () => activeTabId && window.iterApi.reload(activeTabId));
-document.getElementById('btn-go').addEventListener('click', go);
-document.getElementById('btn-dashboards').addEventListener('click', () => window.iterApi.openDashboards());
-addr.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
-
-function go() {
-  if (!activeTabId) return;
-  let url = addr.value.trim();
-  if (!/^[a-z]+:\/\//i.test(url)) {
-    url = url.includes('.') && !url.includes(' ') ? 'https://' + url : 'https://www.google.com/search?q=' + encodeURIComponent(url);
-  }
-  window.iterApi.navigate(activeTabId, url);
-}
+// Back/forward/reload/address-bar/Go/Dashboards controls now live in the
+// dedicated full-width toolbar view (renderer/toolbar.html + toolbar.js),
+// which sits directly above the browsed page like a normal browser's nav
+// bar, instead of being crammed into this sidebar. See main.js's
+// toolbarView.
 
 // ---------------------------------------------------------------------
 // Chat
