@@ -3,7 +3,12 @@
 <title>Iter Browser — control panel</title>
 <link rel="stylesheet" href="style.css">
 <div id="app-shell">
-<div id="tabstrip"></div>
+<div id="tabstrip">
+  <div id="tabstrip-scroll"></div>
+  <button id="tab-all" title="Show all open tabs">tabs ▾</button>
+  <button id="tab-new" title="New tab">+</button>
+</div>
+<div id="tab-all-menu" hidden></div>
 
 <div id="chat"><div class="msg sys"><div class="bubble">Iter is stopped. Open Settings below, choose a provider, then press Start.</div></div></div>
 <div id="chat-input-row">
@@ -60,6 +65,23 @@
       <button id="btn-reset-state">Reset</button>
     </div>
     <div id="state-mgmt-status" style="font-size:10px;color:var(--muted)"></div>
+  </div>
+</details>
+
+<details id="tab-groups">
+  <summary>Tab Groups</summary>
+  <div class="settings-body">
+    <div style="font-size:10px;color:var(--muted)">
+      Save your currently open tabs as a named group, then reopen, switch to, or close that group later.
+      Switch closes your current unpinned/unlocked tabs first; Open just adds the group's tabs alongside
+      what's already open; Close removes any currently open tab that belongs to the group. Pinned and
+      locked tabs are never touched by these.
+    </div>
+    <div class="row">
+      <input id="tab-group-name" placeholder="New group name…" />
+      <button id="btn-save-tab-group">Save current tabs</button>
+    </div>
+    <div id="tab-groups-list"></div>
   </div>
 </details>
 

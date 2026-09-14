@@ -1,4 +1,7 @@
 const tabstrip = document.getElementById('tabstrip');
+const tabstripScroll = document.getElementById('tabstrip-scroll');
+const tabAllBtn = document.getElementById('tab-all');
+const tabAllMenu = document.getElementById('tab-all-menu');
 const chat = document.getElementById('chat');
 const chatInput = document.getElementById('chat-input');
 const statusDot = document.getElementById('status-dot');
@@ -9,6 +12,7 @@ const logView = document.getElementById('log-view');
 
 let activeTabId = null;
 let tabsCache = [];
+let dragTabId = null;
 
 // ---------------------------------------------------------------------
 // Tabs
@@ -18,13 +22,14 @@ function renderTabs(list) {
   const active = list.find((t) => t.active);
   activeTabId = active ? active.id : null;
 
-  tabstrip.innerHTML = '';
+  tabstripScroll.innerHTML = '';
   for (const tab of list) {
     const pill = document.createElement('div');
     pill.className = 'tab-pill' + (tab.active ? ' active' : '') + (tab.locked ? ' locked' : '') + (tab.pinned ? ' pinned' : '');
     pill.title = tab.locked
       ? tab.url + ' (locked — Iter cannot alter or close this tab until you click the lock)'
       : tab.url;
+    pill.draggable = true;
     pill.innerHTML = `<span class="pin" title="${tab.pinned ? 'Pinned — click to unpin' : 'Click to pin this tab (protects it from Close Other Tabs / Close Tabs to the Right)'}">${tab.pinned ? '📌' : '📍'}</span><span class="lock" title="${tab.locked ? 'Locked — click to release' : 'Click to lock this tab against Iter'}">${tab.locked ? '🔒' : '🔓'}</span><span class="title">${escapeHtml(tab.title || 'New Tab')}</span><span class="x">✕</span>`;
     pill.querySelector('.title').addEventListener('click', () => window.iterApi.switchTab(tab.id));
     pill.querySelector('.pin').addEventListener('click', (e) => {
@@ -48,14 +53,85 @@ function renderTabs(list) {
       e.preventDefault();
       window.iterApi.showTabContextMenu(tab.id);
     });
-    tabstrip.appendChild(pill);
+    // Drag-to-reorder: drop a dragged pill onto another to swap them into
+    // that position. Added 2026-09-14 per user request.
+    pill.addEventListener('dragstart', (e) => {
+      dragTabId = tab.id;
+      e.dataTransfer.effectAllowed = 'move';
+      pill.classList.add('dragging');
+    });
+    pill.addEventListener('dragend', () => pill.classList.remove('dragging'));
+    pill.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      if (dragTabId != null && dragTabId !== tab.id) pill.classList.add('drag-over');
+    });
+    pill.addEventListener('dragleave', () => pill.classList.remove('drag-over'));
+    pill.addEventListener('drop', (e) => {
+      e.preventDefault();
+      pill.classList.remove('drag-over');
+      if (dragTabId == null || dragTabId === tab.id) return;
+      const ids = tabsCache.map((t) => t.id);
+      const from = ids.indexOf(dragTabId);
+      const to = ids.indexOf(tab.id);
+      if (from === -1 || to === -1) return;
+      ids.splice(to, 0, ids.splice(from, 1)[0]);
+      window.iterApi.reorderTabs(ids);
+      dragTabId = null;
+    });
+    tabstripScroll.appendChild(pill);
   }
-  const newBtn = document.createElement('button');
-  newBtn.id = 'tab-new';
-  newBtn.textContent = '+';
-  newBtn.addEventListener('click', () => window.iterApi.newTab('https://www.google.com'));
-  tabstrip.appendChild(newBtn);
+  renderAllTabsMenu(list);
 }
+
+// Lets a vertical two-finger swipe / mouse wheel scroll the tab strip
+// sideways too, matching how most browsers' tab strips behave -- without
+// this, reaching tabs off to the side required an explicit horizontal
+// swipe, which is easy to fumble on a trackpad. Added 2026-09-14.
+tabstripScroll.addEventListener(
+  'wheel',
+  (e) => {
+    if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+      e.preventDefault();
+      tabstripScroll.scrollLeft += e.deltaY;
+    }
+  },
+  { passive: false }
+);
+
+// "tabs ▾" button -- always visible regardless of how many tabs are open
+// or how far the strip is scrolled, so every open tab can always be seen
+// and closed/switched-to, even far past what fits in the narrow sidebar.
+// Added 2026-09-14 per user feedback ("cannot see/access all open tabs").
+function renderAllTabsMenu(list) {
+  tabAllBtn.textContent = `${list.length} tab${list.length === 1 ? '' : 's'} \u25be`;
+  tabAllMenu.innerHTML = '';
+  for (const tab of list) {
+    const row = document.createElement('div');
+    row.className = 'row-item' + (tab.active ? ' active' : '');
+    row.title = tab.url;
+    row.innerHTML = `<span class="title">${tab.pinned ? '📌 ' : ''}${tab.locked ? '🔒 ' : ''}${escapeHtml(tab.title || 'New Tab')}</span><span class="x">✕</span>`;
+    row.querySelector('.title').addEventListener('click', () => {
+      window.iterApi.switchTab(tab.id);
+      tabAllMenu.hidden = true;
+    });
+    row.querySelector('.x').addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (tab.locked) return;
+      window.iterApi.closeTab(tab.id);
+    });
+    tabAllMenu.appendChild(row);
+  }
+}
+tabAllBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  tabAllMenu.hidden = !tabAllMenu.hidden;
+});
+document.addEventListener('click', (e) => {
+  if (!tabAllMenu.hidden && !tabAllMenu.contains(e.target) && e.target !== tabAllBtn) {
+    tabAllMenu.hidden = true;
+  }
+});
+document.getElementById('tab-new').addEventListener('click', () => window.iterApi.newTab('https://www.google.com'));
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -91,12 +167,31 @@ chatInput.addEventListener('keydown', (e) => {
   }
 });
 
+// Auto-grow the chat textarea as the user types, up to ~9 rows, so long
+// messages stay fully visible and editable instead of scrolling inside a
+// fixed-height box. Added 2026-09-14.
+const CHAT_INPUT_MAX_ROWS = 9;
+function autoGrowChatInput() {
+  const cs = window.getComputedStyle(chatInput);
+  const lineHeight = parseFloat(cs.lineHeight) || 16;
+  const paddingV = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
+  const borderV = (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.borderBottomWidth) || 0);
+  const maxHeight = lineHeight * CHAT_INPUT_MAX_ROWS + paddingV + borderV;
+  chatInput.style.height = 'auto';
+  const needed = chatInput.scrollHeight;
+  chatInput.style.height = Math.min(needed, maxHeight) + 'px';
+  chatInput.style.overflowY = needed > maxHeight ? 'auto' : 'hidden';
+}
+chatInput.addEventListener('input', autoGrowChatInput);
+autoGrowChatInput();
+
 function sendChat() {
   const text = chatInput.value.trim();
   if (!text) return;
   addMessage('user', text);
   window.iterApi.sendChat(text);
   chatInput.value = '';
+  autoGrowChatInput();
 }
 
 window.iterApi.onChatIncoming((content) => addMessage('iter', content));
@@ -217,6 +312,57 @@ document.getElementById('btn-reset-state').addEventListener('click', async () =>
   } catch (e) {
     stateStatus.textContent = 'Reset failed: ' + e.message;
   }
+});
+
+// ---------------------------------------------------------------------
+// Tab Groups -- save the currently open tabs under a name, then later
+// open/switch-to/close/delete that saved group. Added 2026-09-14.
+// ---------------------------------------------------------------------
+const tabGroupsList = document.getElementById('tab-groups-list');
+const tabGroupNameInput = document.getElementById('tab-group-name');
+
+function renderTabGroups(groups) {
+  tabGroupsList.innerHTML = '';
+  if (!groups.length) {
+    tabGroupsList.innerHTML = '<div style="font-size:10px;color:var(--muted)">No saved groups yet.</div>';
+    return;
+  }
+  for (const g of groups) {
+    const row = document.createElement('div');
+    row.className = 'tab-group-item';
+    row.innerHTML = `<span class="name" title="${escapeHtml(g.name)}">${escapeHtml(g.name)}</span><span class="count">${g.tabs.length} tab${g.tabs.length === 1 ? '' : 's'}</span><span class="actions"><button data-act="open">Open</button><button data-act="switch">Switch</button><button data-act="close">Close</button><button data-act="delete">Delete</button></span>`;
+    row.querySelector('[data-act="open"]').addEventListener('click', async () => {
+      await window.iterApi.openTabGroup(g.id);
+    });
+    row.querySelector('[data-act="switch"]').addEventListener('click', async () => {
+      const ok = confirm(`Switch to "${g.name}"? This closes your current unpinned/unlocked tabs first.`);
+      if (!ok) return;
+      await window.iterApi.switchToTabGroup(g.id);
+    });
+    row.querySelector('[data-act="close"]').addEventListener('click', async () => {
+      await window.iterApi.closeTabGroup(g.id);
+    });
+    row.querySelector('[data-act="delete"]').addEventListener('click', async () => {
+      const ok = confirm(`Delete the saved group "${g.name}"? This does not close any open tabs.`);
+      if (!ok) return;
+      const updated = await window.iterApi.deleteTabGroup(g.id);
+      renderTabGroups(updated);
+    });
+    tabGroupsList.appendChild(row);
+  }
+}
+
+document.getElementById('btn-save-tab-group').addEventListener('click', async () => {
+  const name = tabGroupNameInput.value.trim();
+  if (!name) return;
+  const updated = await window.iterApi.saveTabGroup(name);
+  tabGroupNameInput.value = '';
+  renderTabGroups(updated);
+});
+
+window.iterApi.listTabGroups().then(renderTabGroups);
+document.getElementById('tab-groups').addEventListener('toggle', (e) => {
+  if (e.target.open) window.iterApi.listTabGroups().then(renderTabGroups);
 });
 
 // ---------------------------------------------------------------------

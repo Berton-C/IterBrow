@@ -38,9 +38,10 @@ body {
   width: 6px;
   cursor: col-resize;
   z-index: 100;
-  background: transparent;
+  background: var(--line);
+  opacity: .35;
 }
-#resize-handle:hover { background: var(--accent); opacity: .5; }
+#resize-handle:hover { background: var(--accent); opacity: .8; }
 #drag-catcher {
   position: fixed;
   inset: 0;
@@ -71,14 +72,66 @@ input, textarea, select {
 }
 input:focus, textarea:focus, select:focus { border-color: #5979b8; }
 
+/* #tabstrip is now a row of three parts: a scrollable pill strip, then two
+   controls that stay fixed and always visible -- "tabs ▾" (opens a full
+   list of every open tab, since with many tabs the strip can only ever
+   show a handful at this sidebar width) and "+" (new tab). Previously
+   the "+" button scrolled away with the pills too, so with enough tabs
+   open there was no visible way to see or reach the rest. Fixed 2026-09-14. */
 #tabstrip {
   display: flex;
+  align-items: flex-start;
   gap: 4px;
   padding: 6px 6px 0 6px;
   background: var(--panel);
-  overflow-x: auto;
   flex: 0 0 auto;
+  position: relative;
 }
+#tabstrip-scroll {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  flex: 1 1 auto;
+  min-width: 0;
+  max-height: 64px;
+}
+#tab-all {
+  flex: 0 0 auto;
+  padding: 4px 8px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+#tab-all-menu {
+  position: absolute;
+  top: 100%;
+  right: 6px;
+  z-index: 20;
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: 0 6px 18px #000a;
+  max-height: 320px;
+  overflow-y: auto;
+  min-width: 220px;
+}
+#tab-all-menu[hidden] { display: none; }
+#tab-all-menu .row-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--line);
+}
+#tab-all-menu .row-item:last-child { border-bottom: none; }
+#tab-all-menu .row-item:hover { background: #23283056; }
+#tab-all-menu .row-item.active { background: #23283056; border-left: 2px solid var(--accent); }
+#tab-all-menu .row-item .title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#tab-all-menu .row-item .x { flex: 0 0 auto; color: var(--muted); padding: 0 2px; }
+#tab-all-menu .row-item .x:hover { color: var(--text); }
 .tab-pill {
   display: flex;
   align-items: center;
@@ -90,8 +143,8 @@ input:focus, textarea:focus, select:focus { border-color: #5979b8; }
   max-width: 140px;
   cursor: pointer;
   font-size: 11px;
-  flex: 0 1 auto;
-  min-width: 0;
+  flex: 0 1 130px;
+  min-width: 64px;
 }
 .tab-pill.active { background: #23283056; border-color: var(--accent); }
 .tab-pill.locked { border-color: #d4a017; box-shadow: inset 0 0 0 1px #d4a01766; }
@@ -119,6 +172,10 @@ input:focus, textarea:focus, select:focus { border-color: #5979b8; }
 .tab-pill .pin { padding: 0 2px; font-size: 10px; opacity: 0.75; }
 .tab-pill .pin:hover { opacity: 1; }
 #tab-new { flex: 0 0 auto; padding: 4px 8px; }
+/* Drag-to-reorder feedback -- added 2026-09-14. */
+.tab-pill[draggable="true"] { cursor: grab; }
+.tab-pill.dragging { opacity: 0.4; }
+.tab-pill.drag-over { box-shadow: inset 2px 0 0 0 var(--accent); }
 
 /* The navigation toolbar (back/forward/reload/address bar) moved out of
    this sidebar into its own full-width view -- see renderer/toolbar.css
@@ -147,7 +204,15 @@ input:focus, textarea:focus, select:focus { border-color: #5979b8; }
   border-top: 1px solid var(--line);
   flex: 0 0 auto;
 }
-#chat-input { flex: 1 1 auto; resize: none; height: 40px; }
+#chat-input {
+  flex: 1 1 auto;
+  resize: none;
+  height: 40px;
+  min-height: 40px;
+  max-height: 220px;
+  line-height: 1.35;
+  overflow-y: hidden;
+}
 
 #status-row {
   display: flex;
@@ -168,12 +233,41 @@ details {
   background: var(--panel);
 }
 details[open] { max-height: 46vh; overflow: auto; }
-summary { padding: 7px 8px; cursor: pointer; color: var(--muted); font-size: 11px; user-select: none; }
+/* Distinctly lighter than the panel behind it so the clickable
+   expand/collapse bar reads as its own control, not just a label.
+   Fixed 2026-09-14 per user feedback -- it used to be the same shade
+   as the surrounding panel and was easy to miss as clickable. */
+summary {
+  padding: 7px 8px;
+  cursor: pointer;
+  color: var(--text);
+  font-size: 11px;
+  user-select: none;
+  background: #262c35;
+  border-bottom: 1px solid var(--line);
+}
+summary:hover { background: #2e3541; }
+details[open] > summary { background: #2e3541; }
 .settings-body { padding: 8px; display: flex; flex-direction: column; gap: 8px; }
 .field { display: flex; flex-direction: column; gap: 3px; }
 .field label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
 .row { display: flex; gap: 6px; }
 .row > * { flex: 1 1 0; }
+/* Tab Groups panel -- added 2026-09-14. */
+.tab-group-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel2);
+}
+.tab-group-item .name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tab-group-item .count { color: var(--muted); font-size: 10px; flex: 0 0 auto; }
+.tab-group-item .actions { display: flex; gap: 4px; flex: 0 0 auto; }
+.tab-group-item .actions button { padding: 3px 6px; font-size: 10px; }
+#tab-groups-list { display: flex; flex-direction: column; gap: 6px; }
 #log-view {
   font-size: 10px;
   color: var(--muted);
