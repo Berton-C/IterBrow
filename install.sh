@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-#  IterBrew one-shot installer (macOS)
+#  IterBrow one-shot installer (macOS)
 # ------------------------------------------------------------------------------
 #  Sets up everything Iter Browser needs on a brand-new Mac:
 #    1. Homebrew            (package manager, if missing)
@@ -10,8 +10,8 @@
 #    5. npm install         (Electron + its native deps)
 #
 #  Usage:
-#     git clone https://github.com/Berton-C/IterBrew.git
-#     cd IterBrew
+#     git clone https://github.com/Berton-C/IterBrow.git
+#     cd IterBrow
 #     ./install.sh
 #
 #  Safe to re-run — every step checks for what's already installed and skips
@@ -37,7 +37,7 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
   exit 1
 fi
 
-bold "IterBrew installer — this will take a few minutes on a clean machine."
+bold "IterBrow installer — this will take a few minutes on a clean machine."
 
 # ------------------------------------------------------------------------------
 step "1/5  Homebrew"
@@ -129,7 +129,7 @@ ok "npm install complete."
 
 # ------------------------------------------------------------------------------
 printf "\n\033[1;32m======================================================\033[0m\n"
-printf "\033[1;32m  IterBrew is installed.\033[0m\n"
+printf "\033[1;32m  IterBrow is installed.\033[0m\n"
 printf "\033[1;32m======================================================\033[0m\n\n"
 echo "Next steps:"
 echo "  1. Run:  npm start"
@@ -138,7 +138,7 @@ echo "     paste in your own OpenRouter API key (sign up free at"
 echo "     https://openrouter.ai/keys — never share or commit this key)."
 echo "  3. Press Start, then type in the chat box to talk to Iter."
 echo
-echo "If you were given a separate iterbrew_state.tar.gz (or .zip) memory"
+echo "If you were given a separate iterbrow_state.tar.gz (or .zip) memory"
 echo "snapshot, see README.md -> 'Restoring a memory snapshot' before you"
 echo "start chatting, so Iter comes up already primed with that memory."
 echo

@@ -1,6 +1,6 @@
-# IterBrew
+# IterBrow
 
-**IterBrew** is [Iter](https://github.com/patham9/iter) — an autonomous LLM agent — running
+**IterBrow** is [Iter](https://github.com/patham9/iter) — an autonomous LLM agent — running
 as a real Python process *inside its own Chromium-based browser*, built with Electron. It's not
 a browser extension and not a sandboxed demo: it's a full multi-tab browser window you own and
 drive yourself, with an AI agent living alongside you in the same window, able to see and control
@@ -14,7 +14,7 @@ even rewrite its own tools while it runs.
 
 ## Table of contents
 
-1. [What IterBrew can actually do](#what-iterbrew-can-actually-do)
+1. [What IterBrow can actually do](#what-iterbrow-can-actually-do)
 2. [How it's built (architecture)](#how-its-built-architecture)
 3. [Installing on a new Mac](#installing-on-a-new-mac)
 4. [First run](#first-run)
@@ -28,7 +28,7 @@ even rewrite its own tools while it runs.
 
 ---
 
-## What IterBrew can actually do
+## What IterBrow can actually do
 
 - **It's a real browser.** Tab strip, address bar, back/forward, History menu with "Recently
   Closed" and reopen-last-closed, a Tabs menu (new tab to the right, duplicate, pin/unpin,
@@ -92,8 +92,8 @@ ever restrains the agent, never you.
 ## Installing on a new Mac
 
 ```bash
-git clone https://github.com/Berton-C/IterBrew.git
-cd IterBrew
+git clone https://github.com/Berton-C/IterBrow.git
+cd IterBrow
 ./install.sh
 ```
 
@@ -200,12 +200,12 @@ system access (`shell`, `python`). Every locked/disabled tool is just a file sta
   continuity, service, integrity, curiosity, resilience), used to gate risky actions and explain
   its own reasoning about a request.
 
-None of this is required to use IterBrew as a browser — it's what makes the agent side of it more
+None of this is required to use IterBrow as a browser — it's what makes the agent side of it more
 than a stateless chatbot.
 
 ## Restoring a memory snapshot
 
-If someone gave you a separate `iterbrew_state.tar.gz` (or `.zip`) alongside this repo, that file
+If someone gave you a separate `iterbrow_state.tar.gz` (or `.zip`) alongside this repo, that file
 is **not code** — it's a real accumulated memory/personality snapshot (chat history, learned
 beliefs, vector store, task history) from someone else's running instance, meant to prime a fresh
 install with that same memory instead of starting from zero. It is deliberately kept *outside* this
