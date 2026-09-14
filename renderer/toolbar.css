@@ -39,12 +39,19 @@ input:focus { border-color: #5979b8; }
 
 #navbar {
   display: flex;
-  align-items: center;
-  gap: 4px;
+  flex-direction: column;
   height: 100%;
-  padding: 0 6px;
   border-bottom: 1px solid var(--line);
 }
+#navbar-row1, #navbar-row2 {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+#navbar-row1 { border-bottom: 1px solid var(--line); }
 #addr { flex: 1 1 auto; min-width: 0; }
 .lock-indicator {
   flex: 0 0 auto;

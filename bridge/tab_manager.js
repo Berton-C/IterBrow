@@ -198,6 +198,25 @@ class TabManager {
     return this.createTabAfter(tab.id, tab.url);
   }
 
+  // Drag-to-reorder support (added 2026-09-14) -- the renderer sends the
+  // full list of tab ids in the order the user dropped them into, and we
+  // rebuild the Map to match. Any id the caller didn't mention (shouldn't
+  // happen, but be defensive) keeps its old relative position at the end
+  // rather than getting silently dropped. list()'s pinned-first sort still
+  // applies on top of this, exactly like createTabAfter -- so reordering
+  // only ever changes order *within* the pinned and unpinned groups.
+  reorder(orderedIds) {
+    const wanted = orderedIds.map(Number).filter((id) => this.tabs.has(id));
+    const seen = new Set(wanted);
+    const rest = [...this.tabs.keys()].filter((id) => !seen.has(id));
+    const finalOrder = [...wanted, ...rest];
+    const reordered = new Map();
+    for (const id of finalOrder) reordered.set(id, this.tabs.get(id));
+    this.tabs = reordered;
+    this._notify();
+    return { order: finalOrder };
+  }
+
   selectAdjacentTab(direction) {
     // direction: 1 for next, -1 for previous. Cycles through tabs in the
     // same pinned-first order the UI shows, so "next" in the menu always

@@ -3,12 +3,16 @@
 <title>Iter Browser — navigation</title>
 <link rel="stylesheet" href="toolbar.css">
 <div id="navbar">
-  <button id="btn-back" title="Back">&#8592;</button>
-  <button id="btn-forward" title="Forward">&#8594;</button>
-  <button id="btn-reload" title="Reload">&#8635;</button>
-  <span class="lock-indicator" id="lock-indicator" title="">&#128274;</span>
-  <input id="addr" placeholder="Type a URL or search…" autocomplete="off" spellcheck="false">
-  <button id="btn-go">Go</button>
-  <button id="btn-dashboards" title="Open the generated runtime / context / atomspace / gallery dashboards">Dashboards</button>
+  <div id="navbar-row1">
+    <button id="btn-back" title="Back">&#8592;</button>
+    <button id="btn-forward" title="Forward">&#8594;</button>
+    <button id="btn-reload" title="Reload">&#8635;</button>
+    <span class="lock-indicator" id="lock-indicator" title="">&#128274;</span>
+    <button id="btn-dashboards" title="Open the generated runtime / context / atomspace / gallery dashboards">Dashboards</button>
+  </div>
+  <div id="navbar-row2">
+    <input id="addr" placeholder="Type a URL or search…" autocomplete="off" spellcheck="false">
+    <button id="btn-go">Go</button>
+  </div>
 </div>
 <script src="toolbar.js"></script>

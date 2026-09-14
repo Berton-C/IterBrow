@@ -17,7 +17,11 @@ const MIN_BROWSER_WIDTH = 240; // keep the tab area from being squeezed to nothi
 // because those controls used to live squeezed inside the narrow sidebar
 // column instead of above the actual page, which is not how any
 // conventional browser (Chrome/Safari/Firefox) presents them.
-const TOOLBAR_HEIGHT = 40;
+// Split into two stacked rows on 2026-09-14: row 1 (back/forward/reload/
+// lock/Dashboards) and row 2 (address bar + Go), so the URL field always
+// has its own dedicated row instead of competing for space with the nav
+// buttons. 72px fits two ~36px button/input rows plus their 1px divider.
+const TOOLBAR_HEIGHT = 72;
 const ITER_DIR = path.join(__dirname, 'iter');
 const SETTINGS_PATH = path.join(ITER_DIR, '.runtime', 'settings.json');
 // Tab session — which tabs were open, their URLs, and their lock state.
@@ -36,6 +40,11 @@ const TABS_SESSION_PATH = path.join(ITER_DIR, '.runtime', 'tabs_session.json');
 // STATE_PATHS). Capped at CLOSED_TABS_LIMIT, newest first.
 const CLOSED_TABS_PATH = path.join(ITER_DIR, '.runtime', 'closed_tabs.json');
 const CLOSED_TABS_LIMIT = 20;
+// Named, saved sets of tabs the user can open/switch-to/close as a unit --
+// e.g. "Research" vs "Work" vs "Recipes" -- added 2026-09-14 per user
+// request. Same local-UI-state reasoning as TABS_SESSION_PATH/CLOSED_TABS_PATH
+// (not accumulated agent memory, so not in STATE_PATHS / export-import-reset).
+const TAB_GROUPS_PATH = path.join(ITER_DIR, '.runtime', 'tab_groups.json');
 const VENV_PYTHON = path.join(ITER_DIR, '.venv', 'bin', 'python3');
 const SIDEBAR_BG = '#0d0f12'; // matches renderer/style.css --bg
 
@@ -260,6 +269,81 @@ function saveClosedTabs(list) {
   } catch (err) {
     pushLog(`[tabs] failed to save closed-tabs history: ${err.message}`);
   }
+}
+
+// ---------------------------------------------------------------------
+// Tab groups -- named, saved sets of tabs the user can reopen, switch to,
+// or bulk-close as a unit. Added 2026-09-14.
+// ---------------------------------------------------------------------
+function loadTabGroups() {
+  try {
+    const raw = fs.readFileSync(TAB_GROUPS_PATH, 'utf8');
+    const list = JSON.parse(raw);
+    return Array.isArray(list) ? list : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+function saveTabGroups(list) {
+  try {
+    fs.mkdirSync(path.dirname(TAB_GROUPS_PATH), { recursive: true });
+    fs.writeFileSync(TAB_GROUPS_PATH, JSON.stringify(list, null, 2));
+  } catch (err) {
+    pushLog(`[tabs] failed to save tab groups: ${err.message}`);
+  }
+}
+
+// Snapshots every currently open tab (URL/title/pinned) under `name` and
+// appends it to the saved list. Overwrites an existing group of the same
+// name rather than creating a duplicate.
+function saveCurrentTabsAsGroup(name) {
+  if (!tabs) return loadTabGroups();
+  const snapshot = tabs.list().map((t) => ({ url: t.url, title: t.title, pinned: t.pinned }));
+  const groups = loadTabGroups().filter((g) => g.name !== name);
+  groups.push({ id: Date.now(), name, createdAt: new Date().toISOString(), tabs: snapshot });
+  saveTabGroups(groups);
+  return groups;
+}
+
+// Opens every tab in the group alongside whatever is already open --
+// deliberately non-destructive (never closes existing tabs) since
+// silently losing open tabs to "open a group" would be a nasty surprise.
+function openTabGroup(groupId) {
+  const group = loadTabGroups().find((g) => g.id === Number(groupId));
+  if (!group || !tabs) return;
+  for (const t of group.tabs) {
+    const id = tabs.createTab(t.url);
+    if (t.pinned) tabs.setPinned(id, true);
+  }
+}
+
+// Closes every currently open, unpinned, unlocked tab, then opens the
+// group -- i.e. "switch context". Pinned/locked tabs are left alone, same
+// bulk-close safety convention as closeOtherTabs/closeTabsToRight.
+function switchToTabGroup(groupId) {
+  const group = loadTabGroups().find((g) => g.id === Number(groupId));
+  if (!group || !tabs) return;
+  const victims = [...tabs.tabs.values()].filter((t) => !t.pinned && !t.locked).map((t) => t.id);
+  for (const id of victims) tabs.closeTab(id);
+  openTabGroup(groupId);
+}
+
+// Closes any currently open tab whose URL matches one saved in the group
+// (pinned/locked tabs are skipped, same convention as above). Tab ids
+// aren't stable across sessions, so URL is the only reliable match.
+function closeTabGroup(groupId) {
+  const group = loadTabGroups().find((g) => g.id === Number(groupId));
+  if (!group || !tabs) return;
+  const urls = new Set(group.tabs.map((t) => t.url));
+  const victims = [...tabs.tabs.values()].filter((t) => urls.has(t.url) && !t.pinned && !t.locked).map((t) => t.id);
+  for (const id of victims) tabs.closeTab(id);
+}
+
+function deleteTabGroup(groupId) {
+  const groups = loadTabGroups().filter((g) => g.id !== Number(groupId));
+  saveTabGroups(groups);
+  return groups;
 }
 
 // Called from tabs.onTabClosed (see TabManager.closeTab) for every close,
@@ -936,6 +1020,13 @@ ipcMain.handle('tabs:toggleLock', (_e, id) => tabs.setLocked(id, !tabs.isLocked(
 // tool, not exposed to Iter over the bridge.
 ipcMain.handle('tabs:togglePin', (_e, id) => tabs.setPinned(id, !tabs.isPinned(id)));
 ipcMain.handle('tabs:contextMenu', (_e, id) => showTabContextMenu(id));
+ipcMain.handle('tabs:reorder', (_e, orderedIds) => tabs.reorder(orderedIds));
+ipcMain.handle('tabGroups:list', () => loadTabGroups());
+ipcMain.handle('tabGroups:save', (_e, name) => saveCurrentTabsAsGroup(name));
+ipcMain.handle('tabGroups:open', (_e, groupId) => openTabGroup(groupId));
+ipcMain.handle('tabGroups:switch', (_e, groupId) => switchToTabGroup(groupId));
+ipcMain.handle('tabGroups:close', (_e, groupId) => closeTabGroup(groupId));
+ipcMain.handle('tabGroups:delete', (_e, groupId) => deleteTabGroup(groupId));
 ipcMain.handle('tabs:navigate', (_e, { id, url }) => tabs.navigate(id, url));
 ipcMain.handle('tabs:back', (_e, id) => {
   const tab = tabs.tabs.get(id);
