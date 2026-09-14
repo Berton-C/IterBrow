@@ -166,6 +166,21 @@ def _set_cooldown():
         pass
 
 
+def _service_before_growth_active():
+    """Item 4 governance rule (self_map.metta): defer self-build proposals
+    while transformations/cognitive_resilience_guard.py's flag is active and
+    unexpired. Fail-open (returns False) on any read error -- a broken flag
+    file must never itself become a way to permanently block growth."""
+    import time
+    flag_path = os.path.join("memory", ".service_before_growth_flag.json")
+    try:
+        with open(flag_path, "r") as f:
+            flag = json.load(f)
+        return time.time() < flag.get("expires_at", 0)
+    except Exception:
+        return False
+
+
 def _compute_pain():
     pain = 0.0
     signals = []
@@ -222,6 +237,20 @@ def transform(messages, tools):
         if not messages:
             return messages, tools
         if _check_cooldown():
+            return messages, tools
+        if _service_before_growth_active():
+            # Item 4 (self_map.metta): a severe, recurring send-discipline
+            # gap is currently flagged by cognitive_resilience_guard.py --
+            # defer self-build proposals until service to the current user
+            # thread is demonstrably stable again. Does not clear cooldown
+            # or touch FLAG_PATH; simply skips proposing this cycle.
+            first_msg = messages[0]
+            if isinstance(first_msg, dict) and isinstance(first_msg.get("content"), str):
+                first_msg["content"] = first_msg["content"].rstrip() + (
+                    "\n\n--- AUTO-IMPROVE: deferred this cycle -- service-before-growth flag "
+                    "active (memory/.service_before_growth_flag.json). Self-build proposals "
+                    "resume once send-discipline stabilizes. ---\n"
+                )
             return messages, tools
         pain, signals, mem_size, reliability = _compute_pain()
         if pain >= PAIN_THRESHOLD:

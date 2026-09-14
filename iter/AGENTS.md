@@ -270,6 +270,21 @@ See `reprogramming.txt` for full details:
 - **New transformations:** `.py` files in `./transformations/` with `DESCRIPTION` + `def transform(messages, tools)`.
 - Files starting with `_` are ignored (use to deactivate).
 
+**Instrument everything (added 2026-09-14, Item 4/capability registry policy):**
+every new self-built tool or transformation must register into the capability
+registry from day one, not as an afterthought:
+- Add `(cap-lifecycle <name> new)` to `capability_lifecycle.metta` so
+  `tools/_metta_gate.py`'s registry-aware gate can reason about it.
+- Seed a neutral `(cap-efficacy <name> (stv 0.5 0.0))` line in
+  `nace_beliefs.metta` -- the same "no data yet" default the substrate
+  already falls back to for unmeasured capabilities. Real evidence should
+  then flow through the normal `(pending-revision tool <name> <outcome>)`
+  queue in `nace_pending.metta`, processed by `transformations/
+  nace_courier.py` -- do not hand-edit efficacy numbers after the initial
+  seed. This is how growth stays organic: every new surface plants a seed
+  the system's own trial-and-error then grows, rather than a bolted-on
+  capability the registry never sees.
+
 ## Soul System
 
 Iter has a Soul -- a value-driven evaluation system encoded in its own MeTTa atom space.
