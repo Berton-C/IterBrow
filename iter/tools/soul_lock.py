@@ -8,7 +8,21 @@ import json, os, time
 DESCRIPTION = "Soul namespace mutation lock: transactional protocol for soul changes. begin â verify â commit/rollback."
 
 LOCK_PATH = "memory/soul_lock.json"
-SOUL_FILES = ["space.metta", "tools/soul_eval.py", "transformations/soul_check.py", "transformations/soul_voice.py"]
+# STAGE 4 (2026-09-14): dropped "space.metta" -- that file doesn't exist in
+# this repo, so it was a dead reference that made every single verify() call
+# report a false "missing" issue regardless of real soul state. Added
+# nace_beliefs.metta and capability_lifecycle.metta: belief/lifecycle
+# mutations (nace_courier.py's belief writes, capability trust-stage
+# overrides) are as load-bearing to the Soul's real behavior as the four
+# files already protected here, so they get the same backup/rollback
+# discipline instead of being plain unprotected writes.
+SOUL_FILES = [
+    "tools/soul_eval.py",
+    "transformations/soul_check.py",
+    "transformations/soul_voice.py",
+    "nace_beliefs.metta",
+    "capability_lifecycle.metta",
+]
 
 def _load_lock():
     try:

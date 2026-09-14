@@ -4,6 +4,7 @@ in Python (same formula as the MeTTa substrate), writes updated beliefs back.
 Uses pure string parsing for MicroPython compatibility.
 """
 
+import json
 import os
 import sys
 
@@ -350,12 +351,38 @@ def process_revisions():
             new_content += "(" + prefix + " " + name + " (stv " + \
                 str(val[0]) + " " + str(val[1]) + "))\n"
 
+    # STAGE 4 (2026-09-14): route the actual belief mutation through
+    # soul_lock's begin/commit so it gets the same backup discipline as the
+    # other soul-namespace files -- this was previously a plain unprotected
+    # write. Deliberately fails OPEN: if soul_lock is unavailable, or
+    # already locked by something else, the belief write still happens
+    # (never let instrumentation block the courier's actual job) -- it just
+    # runs without a backup/rollback safety net for this one cycle, and
+    # says so in the returned summary so it's visible rather than silent.
+    lock_note = ""
+    lock_active = False
+    try:
+        import soul_lock
+        begin_result = json.loads(soul_lock.run(action="begin", holder="nace_courier"))
+        lock_active = "error" not in begin_result
+        if not lock_active:
+            lock_note = " | soul_lock unavailable this cycle (%s) -- writing without backup" % begin_result.get("error", "unknown")
+    except Exception as e:
+        lock_note = " | soul_lock unavailable this cycle (%s) -- writing without backup" % type(e).__name__
+
     _write_file(BELIEFS_PATH, new_content)
     _write_file(PENDING_PATH, ";; NACE Pending â Queue cleared\n")
+
+    if lock_active:
+        try:
+            soul_lock.run(action="commit", holder="nace_courier")
+        except Exception:
+            pass
 
     summary = "NACE: " + str(revised) + " beliefs revised"
     if len(low_efficacy) > 0:
         summary += " | LOW EFFICACY: " + ", ".join(low_efficacy)
+    summary += lock_note
     return summary, validation_candidates
 
 
