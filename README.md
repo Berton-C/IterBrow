@@ -1,2 +1,2 @@
 # IterBrew
-Iter running in it's own web browser
+Iter running in its own Electron web browser
