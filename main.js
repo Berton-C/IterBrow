@@ -25,10 +25,12 @@ const TOOLBAR_HEIGHT = 72;
 const ITER_DIR = path.join(__dirname, 'iter');
 const SETTINGS_PATH = path.join(ITER_DIR, '.runtime', 'settings.json');
 // Tab session — which tabs were open, their URLs, and their lock state.
-// Kept alongside settings.json (same .runtime/ folder, same reasoning: this
-// is local-machine UI state, not accumulated agent memory, so it's
-// deliberately NOT in STATE_PATHS / export-import-reset below). Added
-// 2026-09-14 because before this, restarting Iter Browser for ANY code
+// Kept alongside settings.json (same .runtime/ folder). This is
+// local-machine UI state rather than accumulated agent memory, so it stays
+// out of STATE_PATHS / resetState (resetting the agent's memory should
+// never wipe your open tabs) -- but it IS carried along by export/import
+// via TAB_STATE_PATHS below, so tabs travel with you between machines.
+// Added 2026-09-14 because before this, restarting Iter Browser for ANY code
 // change silently threw away every open tab with no way to recover them --
 // discovered while adding the tab-lock feature, which itself needs a
 // restart to load.
@@ -36,14 +38,16 @@ const TABS_SESSION_PATH = path.join(ITER_DIR, '.runtime', 'tabs_session.json');
 // Ring buffer of recently-closed tabs, independent of TABS_SESSION_PATH (which
 // only ever holds what's CURRENTLY open). Backs the History menu's "Recently
 // Closed" submenu and "Reopen Last Closed Tab" -- added 2026-09-14 alongside
-// the menu system, same local-UI-state reasoning as TABS_SESSION_PATH (not in
-// STATE_PATHS). Capped at CLOSED_TABS_LIMIT, newest first.
+// the menu system, same local-UI-state reasoning as TABS_SESSION_PATH (kept
+// out of STATE_PATHS/resetState, included in export/import via
+// TAB_STATE_PATHS). Capped at CLOSED_TABS_LIMIT, newest first.
 const CLOSED_TABS_PATH = path.join(ITER_DIR, '.runtime', 'closed_tabs.json');
 const CLOSED_TABS_LIMIT = 20;
 // Named, saved sets of tabs the user can open/switch-to/close as a unit --
 // e.g. "Research" vs "Work" vs "Recipes" -- added 2026-09-14 per user
 // request. Same local-UI-state reasoning as TABS_SESSION_PATH/CLOSED_TABS_PATH
-// (not accumulated agent memory, so not in STATE_PATHS / export-import-reset).
+// (kept out of STATE_PATHS/resetState, included in export/import via
+// TAB_STATE_PATHS).
 const TAB_GROUPS_PATH = path.join(ITER_DIR, '.runtime', 'tab_groups.json');
 const VENV_PYTHON = path.join(ITER_DIR, '.venv', 'bin', 'python3');
 const SIDEBAR_BG = '#0d0f12'; // matches renderer/style.css --bg
@@ -154,6 +158,16 @@ const STATE_PATHS = [
   'nace_substrate.metta', 'space.metta', 'chat.txt', 'transcript.txt',
   '.improve_cooldown', '.stall_state.json', '.history_state', '.transcript_state',
 ];
+// Local-machine UI state -- open tabs, recently-closed history, saved tab
+// groups. Kept separate from STATE_PATHS so Reset State (which wipes
+// STATE_PATHS to clear the agent's accumulated memory/personality) never
+// touches your tabs. Export and Import bundle STATE_PATHS + TAB_STATE_PATHS
+// together, so moving to a new machine (or restoring a snapshot) brings
+// your open tabs, tab groups, and closed-tab history along with the agent's
+// memory. Added 2026-09-14 per user request.
+const TAB_STATE_PATHS = [
+  '.runtime/tabs_session.json', '.runtime/closed_tabs.json', '.runtime/tab_groups.json',
+];
 
 function runCLI(cmd, args, cwd) {
   return new Promise((resolve, reject) => {
@@ -173,7 +187,11 @@ async function exportState() {
   });
   if (canceled || !filePath) return { canceled: true };
 
-  const existing = STATE_PATHS.filter((p) => fs.existsSync(path.join(ITER_DIR, p)));
+  // Flush the latest tab session synchronously first -- saveTabSession is
+  // normally debounced 400ms after the last tab change, so without this an
+  // export taken right after opening/closing a tab could bundle stale data.
+  saveTabSession();
+  const existing = [...STATE_PATHS, ...TAB_STATE_PATHS].filter((p) => fs.existsSync(path.join(ITER_DIR, p)));
   if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
   await runCLI('zip', ['-r', filePath, ...existing], ITER_DIR);
   return { exported: filePath };
@@ -204,7 +222,7 @@ async function importState() {
       const innerEntries = fs.readdirSync(inner);
       if (innerEntries.some((e) => STATE_PATHS.includes(e))) sourceRoot = inner;
     }
-    for (const rel of STATE_PATHS) {
+    for (const rel of [...STATE_PATHS, ...TAB_STATE_PATHS]) {
       const src = path.join(sourceRoot, rel);
       if (!fs.existsSync(src)) continue;
       const dest = path.join(ITER_DIR, rel);
@@ -214,6 +232,21 @@ async function importState() {
     }
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+
+  // An imported tabs_session.json won't take effect until the tab manager
+  // re-reads it, which only happens at window creation -- if Iter Browser's
+  // window is already open (import doesn't restart the window, only the
+  // agent process), reload the saved session into the live tab bar now so
+  // the imported tabs show up without requiring a full app restart.
+  const importedSession = loadTabSession();
+  if (importedSession && tabs) {
+    for (const id of [...tabs.tabs.keys()]) tabs.closeTab(id);
+    for (const t of importedSession.tabs) {
+      const id = tabs.createTab(t.url);
+      if (t.pinned) tabs.setPinned(id, true);
+      if (t.locked) tabs.setLocked(id, true);
+    }
   }
 
   if (wasRunning) startIter();
