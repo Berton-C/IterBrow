@@ -46,6 +46,14 @@ def _file_size(path):
     except OSError:
         return 0
 
+# Binary/media extensions excluded from the text-memory measure -- kept in
+# sync with transformations/auto_improve.py's _dir_size_chars (2026-09-14 fix).
+_BINARY_EXTS = (
+    ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".ico",
+    ".pdf", ".zip", ".gz", ".tar", ".tgz", ".mp4", ".mp3", ".wav",
+)
+
+
 def _dir_size(path):
     total = 0
     try:
@@ -57,6 +65,8 @@ def _dir_size(path):
                 st = os.stat(full)
                 if st[0] & 0x4000:
                     total += _dir_size(full)
+                elif entry.lower().endswith(_BINARY_EXTS):
+                    continue
                 else:
                     total += st[6]
             except OSError:
