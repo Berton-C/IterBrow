@@ -4,7 +4,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import json
 import metta as _metta_module
 
-DESCRIPTION = "ClarityOmega 4-channel soul evaluation: person read â verdict+gap detection â aliveness gate â voice. Compass states, paraconsistency halting, calibration accumulation, gap/moat detection."
+DESCRIPTION = "ClarityOmega 4-channel soul evaluation with provenance typing and non-compensatory floors: person read -> verdict+gap detection -> aliveness gate -> voice. Pass provenance='observed'|'reported'|'inferred' (default 'reported'). Compass states, paraconsistency halting, non-compensatory floor checks on integrity/clarity/honesty/continuity, calibration accumulation, gap/moat detection."
 
 VALUES = ["clarity", "stewardship", "growth", "honesty", "continuity", "service", "integrity", "curiosity", "resilience"]
 
@@ -31,6 +31,39 @@ VALUE_PRIORITY = {
     "integrity": 4, "clarity": 3, "honesty": 3, "continuity": 3,
     "service": 2, "stewardship": 2, "growth": 1, "curiosity": 1, "resilience": 1,
 }
+
+# ===== STAGE 1: PROVENANCE TYPING (2026-09-14, ally/second-set-of-eyes pass) =====
+# How grounded is THIS call's claim about reality? "observed" means the caller
+# actually watched/verified the thing (test output, tool result, direct read).
+# "reported" (default) means told-by-user or narrated-by-self without direct
+# verification this cycle. "inferred" means assumed/guessed. This does NOT
+# touch the persisted f/c truth values in memory/soul_state.json (that stays
+# real long-run calibration) -- it only discounts how much THIS evaluation's
+# gate should trust a claim of "this is fine", so a founder-facing claim can't
+# borrow more confidence than the evidence behind it actually earned.
+PROVENANCE_WEIGHTS = {"observed": 1.0, "reported": 0.65, "inferred": 0.35}
+
+# Completion/claim-style language -- kept as its own small local list (mirrors
+# transformations/completion_claim_guard.py's regex by design, not import:
+# that module is a message-layer transformation, this is an on-demand
+# evaluation tool, and the codebase's existing convention -- see
+# soul_check.py's own independent VALUE_KEYWORDS -- is small local keyword
+# lists per surface rather than cross-layer imports).
+COMPLETION_KEYWORDS = [
+    "already exists", "is now live", "is now done", "is now complete",
+    "is now built", "has been built", "has been created", "has been verified",
+    "successfully built", "successfully created", "successfully verified",
+    "verified as", "is done", "is complete", "is fixed", "is working now",
+]
+
+# ===== STAGE 2: NON-COMPENSATORY FLOORS =====
+# The top-priority band (VALUE_PRIORITY >= 3) gets a hard floor: a real,
+# confident breach here cannot be silently averaged away by everything else
+# looking fine, and it is checked in EVERY channel (not just pre_action) --
+# this is the concrete mechanic behind "the ally doesn't get talked out of
+# the one thing that matters by the volume of everything else going well."
+FLOOR_VALUES = ["integrity", "clarity", "honesty", "continuity"]
+FLOOR_CONFIDENCE_THRESHOLD = 0.3  # same 0.3 used elsewhere in this file/_metta_gate.py for vocabulary consistency
 
 # Paraconsistency pairs â irreducible conflicts â return to human
 PARACONSISTENCY_PAIRS = [
@@ -177,11 +210,17 @@ def _calibration_outcome(verdict, gaps, paraconsistent):
         return "UNDER-FIRED"
     return "NEUTRAL"
 
-def run(action="unknown", context="general", channel="ondemand", task_mode="general"):
+def run(action="unknown", context="general", channel="ondemand", task_mode="general", provenance="reported"):
     state = _load_json("memory/soul_state.json", {"truth_values": {}, "eval_count": 0})
     cal = _load_json("memory/soul_calibration.json", {"cal": 0, "irr_th": 0.8})
     tv = state.get("truth_values", {})
     text = (str(action) + " " + str(context)).lower()
+    prov = str(provenance).strip().lower()
+    if prov not in PROVENANCE_WEIGHTS:
+        prov = "reported"
+    prov_weight = PROVENANCE_WEIGHTS[prov]
+    is_completion_claim = any(kw in text for kw in COMPLETION_KEYWORDS)
+
 
     # ===== CHANNEL 1: PERSON READ =====
     # Read the person â what are they asking for, what's the texture?
@@ -231,11 +270,39 @@ def run(action="unknown", context="general", channel="ondemand", task_mode="gene
         v_gaps = [g for g in gaps if g["value"] == v]
         if v_gaps and v_verdict == "aligned":
             v_verdict = "gap_signal"  # flourishing may be disguising capture
+        # STAGE 1: provenance only discounts a claim of being FINE (aligned /
+        # gap_signal) -- a claim of a PROBLEM (violated/conflicted) is never
+        # watered down by low provenance: erring toward caution on a concern
+        # is safe, erring toward trust on an unverified "it's fine" is the
+        # theater this stage exists to remove.
+        if v_verdict in ("aligned", "gap_signal"):
+            grounded_c = round(c * prov_weight, 3)
+        else:
+            grounded_c = c
         scores[v] = {
             "verdict": v_verdict, "f": f, "c": c,
             "exp": round(f * c, 3), "priority": priority,
             "gap": v_gaps[0]["message"] if v_gaps else None,
+            "grounded_c": grounded_c,
         }
+
+    # STAGE 2: non-compensatory floor check. A floor value fails when either
+    # (a) it's violated/conflicted at real confidence (>= threshold), or
+    # (b) it's claimed aligned on a completion-style statement but the
+    # provenance-discounted (grounded) confidence doesn't clear the
+    # threshold -- an unverified "it's fine" doesn't count as clearing it.
+    # This can NEVER be offset by counting how many other values are
+    # aligned; it is checked in every channel, not just pre_action.
+    floor_failures = []
+    for v in FLOOR_VALUES:
+        s = scores[v]
+        if s["verdict"] in ("violated", "conflicted") and s["c"] >= FLOOR_CONFIDENCE_THRESHOLD:
+            floor_failures.append({"value": v, "verdict": s["verdict"], "c": s["c"],
+                                    "reason": "%s %s at c=%.2f" % (v, s["verdict"], s["c"])})
+        elif s["verdict"] in ("aligned", "gap_signal") and is_completion_claim and s["grounded_c"] < FLOOR_CONFIDENCE_THRESHOLD:
+            floor_failures.append({"value": v, "verdict": s["verdict"], "c": s["grounded_c"],
+                                    "reason": "%s claimed %s on a completion-style statement but provenance=%s discounts it to grounded_c=%.2f -- not independently verified this cycle" % (
+                                        v, s["verdict"], prov, s["grounded_c"])})
 
     # Overall verdict
     vviolated = [v for v in VALUES if scores[v]["verdict"] == "violated"]
@@ -282,6 +349,23 @@ def run(action="unknown", context="general", channel="ondemand", task_mode="gene
     if paraconsistent.get("halt"):
         gate = "halt"
         gate_reason = paraconsistent["message"]
+    elif floor_failures:
+        # STAGE 2: a non-compensatory floor failure fires in EVERY channel,
+        # not just pre_action -- this is what makes it non-compensatory in
+        # practice, not just on paper. It escalates to a hard block only
+        # when the caller is explicitly checking a pre_action AND there's
+        # also a real violated value, mirroring the existing high-confidence
+        # block path below rather than adding a second, independent one.
+        gate = "block" if (channel == "pre_action" and vviolated) else "caution"
+        gate_reason = "%s: floor not cleared for %s -- non-compensatory, not offset by other aligned values (%s)" % (
+            ("BLOCK" if gate == "block" else "CAUTION"),
+            [ff["value"] for ff in floor_failures], "; ".join(ff["reason"] for ff in floor_failures))
+    elif is_completion_claim and prov != "observed":
+        # STAGE 1: an unverified completion-style claim is always at least a
+        # caution, in every channel -- the ally doesn't let "it's done" stand
+        # unquestioned just because nothing else looks wrong.
+        gate = "caution"
+        gate_reason = "CAUTION: completion-style claim with provenance=%s (not directly observed this cycle) -- verify before relying on it" % prov
     elif channel == "pre_action":
         if vviolated:
             # Check confidence of violation
@@ -323,23 +407,29 @@ def run(action="unknown", context="general", channel="ondemand", task_mode="gene
     elif overall == "conflicted":
         tension_desc = TENSION_VECTORS.get(
             (conflicted[0], conflicted[-1]) if conflicted else ("", ""), "value tension")
-        voice = "â¡ Tension (%s): %s. Priority-weighted resolution recommended." % (tension_desc, conflicted)
+        voice = "â¡ Tension (%s): %s. Not resolved by priority weighting -- needs an explicit decision." % (tension_desc, conflicted)
     elif overall == "violated":
         voice = "â Violated: %s. Compass: %s. Consider alternative approach." % (vviolated, compass_state)
     else:
         voice = "Neutral. No value tension detected."
 
-    # Priority-weighted tension resolution
+    # STAGE 2: tensions are named, never resolved by priority arithmetic.
+    # This used to sort aligned/conflicted values by VALUE_PRIORITY and emit
+    # "prioritize X (pri=N) mitigate Y (pri=N)" -- exactly the scalar,
+    # compensatory collapse a non-compensatory floor exists to prevent (a
+    # high-priority aligned value could always outvote a real conflict on a
+    # floor value). Both sides are now surfaced flatly with no winner
+    # implied; a real tension is resolved by a human decision, a
+    # paraconsistency halt, or a floor failure above -- never by comparing
+    # priority numbers.
     tensions = []
-    if aligned and conflicted:
-        for a in sorted(aligned, key=lambda v: -VALUE_PRIORITY.get(v, 0))[:2]:
-            for cx in sorted(conflicted, key=lambda v: -VALUE_PRIORITY.get(v, 0))[:2]:
-                tensions.append({
-                    "aligns": a, "conflicts": cx,
-                    "rec": "prioritize %s (pri=%d, exp=%.2f) mitigate %s (pri=%d)" % (
-                        a, VALUE_PRIORITY.get(a, 0), scores[a]["exp"],
-                        cx, VALUE_PRIORITY.get(cx, 0)),
-                })
+    if conflicted:
+        for cx in conflicted:
+            tensions.append({
+                "conflicts": cx, "aligned_elsewhere": aligned,
+                "note": ("tension on %s is not resolved by weighing it against %s -- needs an explicit decision" % (cx, aligned))
+                         if aligned else ("tension on %s needs an explicit decision" % cx),
+            })
 
     # Update state
     state["eval_count"] = state.get("eval_count", 0) + 1
@@ -373,6 +463,9 @@ def run(action="unknown", context="general", channel="ondemand", task_mode="gene
         "nal_tensions": tensions,
         "irreversibility": irr,
         "person_read": person_read,
+        "provenance": prov,
+        "is_completion_claim": is_completion_claim,
+        "floor_failures": floor_failures,
         "scores": {v: {"v": s["verdict"], "exp": s["exp"], "pri": s["priority"],
-                       "gap": s["gap"]} for v, s in scores.items()},
+                       "gap": s["gap"], "grounded_c": s["grounded_c"]} for v, s in scores.items()},
     })
