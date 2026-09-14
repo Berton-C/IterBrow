@@ -270,11 +270,15 @@ See `reprogramming.txt` for full details:
 - **New transformations:** `.py` files in `./transformations/` with `DESCRIPTION` + `def transform(messages, tools)`.
 - Files starting with `_` are ignored (use to deactivate).
 
-**Instrument everything (added 2026-09-14, Item 4/capability registry policy):**
+**Instrument everything (added 2026-09-14, Item 4/capability registry policy;
+updated 2026-09-14 Stage 3 -- `new` renamed to `candidate`):**
 every new self-built tool or transformation must register into the capability
 registry from day one, not as an afterthought:
-- Add `(cap-lifecycle <name> new)` to `capability_lifecycle.metta` so
-  `tools/_metta_gate.py`'s registry-aware gate can reason about it.
+- Add `(cap-lifecycle <name> candidate)` to `capability_lifecycle.metta` so
+  `tools/_metta_gate.py`'s registry-aware gate always treats it as advisory
+  until real evidence promotes it (see the Stage 3 trust-lifecycle note in
+  the Soul System section below -- `candidate` is one of only two values
+  ever hand-written here; everything past it is derived automatically).
 - Seed a neutral `(cap-efficacy <name> (stv 0.5 0.0))` line in
   `nace_beliefs.metta` -- the same "no data yet" default the substrate
   already falls back to for unmeasured capabilities. Real evidence should
@@ -316,13 +320,48 @@ Grounded in Iter's lived experience (E1-E18), not abstract philosophy:
 6. **soul_check** (transformations/soul_check.py): Tier A (self-model brief) + Tier B (live efficacy + growth trajectory) + compass state + calibration drift + task guidance. Injected every cycle.
 7. **soul_voice** (transformations/soul_voice.py): Aliveness-gated voice directive. SILENT when no evaluations, ALIVE when soul is active.
 8. **NACE Beliefs** (nace_beliefs.metta): Value-efficacy + tool-efficacy + compass-pattern-efficacy beliefs with NAL truth values. Updated by courier.
-9. **NACE Courier** (transformations/nace_courier.py): Processes pending NAL belief revisions, writes to nace_beliefs.metta.
-10. **Soul Lock** (tools/soul_lock.py): Transactional mutation lock for soul namespace. begin â verify â commit/rollback. Backs up all soul files before mutation.
+9. **NACE Courier** (transformations/nace_courier.py): Processes pending NAL belief revisions, writes to nace_beliefs.metta -- as of 2026-09-14 (Stage 4 below), that write itself now goes through Soul Lock begin/commit, not a plain unprotected write.
+10. **Soul Lock** (tools/soul_lock.py): Transactional mutation lock for soul namespace. begin -> verify -> commit/rollback. Backs up all soul files before mutation -- as of 2026-09-14 (Stage 4 below), the protected file set actually covers nace_beliefs.metta and capability_lifecycle.metta (a dead space.metta reference that doesn't exist in this repo was removed).
 
 **Compass States:** flourishing â captured_disguised (gap signal) â gap_signal (tension) â failure_mode (violation).
 **Paraconsistency Pairs:** curiosity/stewardship, growth/integrity, service/honesty, clarity/resilience â irreducible tensions return choice to human.
 **Calibration:** AGREE / OVER-FIRED / UNDER-FIRED / IRREDUCIBLE outcomes tracked in soul_gate_log.json.
 **Skill Registry:** 10 skills tracked with maturity stages (fuzzy â emerging â nars_pln). Self-authoring enabled.
+
+### 2026-09-14 theater-to-governance pass (Stages 1-5)
+
+This project's background research describes a much larger, more philosophical "Soul" (provenance,
+memory fragments, flourishing frameworks). **What shipped on 2026-09-14 is deliberately not that --
+it's the smallest slice of it that closes real, previously-documented gaps between what the Soul
+claimed to do and what the code actually did**, framed as a founder's second set of eyes rather than
+an extensive philosophical build. Each stage below is independently tested (per-stage test scripts
+under `tools/_test_*.py` and `transformations/_test_*.py`, plus a 9-check combined/integration test
+in `tools/_test_all_stages_combined.py`) rather than just written and assumed to work:
+
+1. **Provenance typing (soul_eval.py).** Claims now carry an explicit provenance tag --
+   `observed` (1.0x), `reported` (0.65x), `inferred` (0.35x) -- that discounts confidence only for
+   aligned/gap_signal verdicts, never for violated/conflicted ones.
+2. **Non-compensatory floors (soul_eval.py).** integrity/clarity/honesty/continuity can force at
+   least caution -- or a hard pre-action block -- on their own, independent of channel, including on
+   unverified completion-style language with low grounded confidence. The old priority-weighted
+   tension "resolution" arithmetic (which silently auto-resolved genuine value conflicts by a fixed
+   ranking) is removed in favor of an explicit, unranked list that says a decision is needed.
+3. **Real 4-stage trust lifecycle (capability_lifecycle.metta + tools/_metta_gate.py).**
+   `candidate` -> `probe_eligible` -> `authoritative` -> `durable`, derived automatically from each
+   capability's own accumulated confidence (`quarantined` remains a manual override that always
+   wins). Only `candidate` and `quarantined` are ever hand-written; everything else is derived. Every
+   candidate/probe-stage decision is logged to a size-capped probe log.
+4. **Soul Lock actually protects the right files (tools/soul_lock.py + transformations/
+   nace_courier.py).** Dropped the dead `space.metta` reference (it doesn't exist in this repo, and
+   was making every `verify()` call falsely report a missing file); added `nace_beliefs.metta` and
+   `capability_lifecycle.metta` to the protected set; wrapped the courier's actual belief write in
+   begin/commit -- fails open (write proceeds, with a visible note) if the lock is already held,
+   rather than blocking the pipeline.
+5. **completion_claim_guard has real severing power (transformations/completion_claim_guard.py).**
+   Previously advisory-only. Now, on an unverified completion claim, it removes `send` from the
+   tools offered for the next model call until a real step is taken. Bounded to avoid deadlocking
+   `iter.py`'s own `HARD_SEND_STREAK` check-in safety net: it estimates the current silent-streak
+   from the messages it's given and refuses to strip `send` once that safety net is close to firing.
 
 ### Usage
 - soul_eval(action="backup before changing code", context="refactoring") returns verdict + guidance

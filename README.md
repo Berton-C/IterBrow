@@ -380,6 +380,59 @@ mutation to the soul's own files, so a bad self-edit can always be rolled back c
 None of this is required to use IterBrow as a browser — it's what makes the agent side of it more
 than a stateless chatbot.
 
+### Being honest about scope: an ally, not the whole Soul
+
+There's a much larger, more philosophical "Soul" concept in this project's background research —
+provenance, memory fragments, flourishing frameworks, the works. **This build is not that, and
+doesn't claim to be.** What's below is a deliberately small, load-bearing slice of it: five concrete
+governance mechanisms, each grounded in a real incident, each independently tested. The framing is
+practical — a second set of eyes for a founder or small team, quietly making sure someone's got your
+back — not an extensive philosophical build. If it ever feels like it's getting in the way instead of
+helping, that's a sign it's drifted from what it's actually for.
+
+**What's real as of 2026-09-14 (verified with passing test scripts, not just written):**
+
+1. **Provenance-typed claims (`soul_eval.py`).** Every evaluated claim now carries a provenance tag
+   — `observed` (full weight), `reported` (0.65×), or `inferred` (0.35×) — and that weight discounts
+   confidence for *aligned* or *gap_signal* verdicts only, never for *violated*/*conflicted* ones
+   (erring toward caution is safe; erring toward trusting an unverified "it's fine" is exactly the
+   theater this removes).
+2. **Non-compensatory floors, not averaged scores (`soul_eval.py`).** Four floor values — integrity,
+   clarity, honesty, continuity — can now force at least caution, or a hard pre-action block, on their
+   own, regardless of how well everything else scores. This also directly catches unverified
+   completion-style language ("is now live," "has been verified") against a low grounded confidence
+   score. The old "priority-weighted tension resolution" arithmetic — which quietly auto-resolved
+   genuine value conflicts by a fixed priority ranking — is gone; conflicts are now surfaced as an
+   explicit, unranked list that says plainly "not resolved by priority weighting, needs an explicit
+   decision," instead of pretending a formula had settled something a person should decide.
+3. **A real 4-stage trust lifecycle for capabilities (`capability_lifecycle.metta` +
+   `tools/_metta_gate.py`).** Beyond the old binary new/quarantined split, every capability now
+   derives a stage — `candidate` → `probe_eligible` → `authoritative` → `durable` — automatically
+   from its own accumulated confidence data. A brand-new `candidate` capability always gets advisory
+   treatment (never a silent allow) until it earns real evidence; a fully proven `durable` one gets a
+   small extra floor discount. Every candidate/probe-stage decision is logged to a size-capped probe
+   log for visibility.
+4. **The lock actually covers the data that matters (`tools/soul_lock.py` +
+   `transformations/nace_courier.py`).** `soul_lock`'s protected-file list used to reference a
+   `space.metta` file that doesn't exist in this repo — a dead reference that made every single
+   `verify()` call falsely report a missing file. That's fixed, and the protection now actually
+   extends to `nace_beliefs.metta` and `capability_lifecycle.metta`: the courier's real belief-file
+   write is wrapped in the same begin/commit discipline as the rest of the soul namespace, so a bad
+   belief write can be rolled back like anything else — and it fails open (writes proceed, with a
+   visible note) rather than blocking the pipeline if the lock is already held.
+5. **`completion_claim_guard` can actually say no (`transformations/completion_claim_guard.py`).**
+   It used to only append an advisory note nobody was forced to read. Now, when it detects an
+   unverified completion claim, it removes `send` from the tools offered for the very next model
+   call — the model has to take a real step (verify, correct itself, record the task phase) before
+   it's allowed to repeat that claim to the user. This is bounded on purpose: it's recomputed fresh
+   every cycle (so it clears itself the moment a real step is taken) and it refuses to strip `send`
+   once `iter.py`'s own `HARD_SEND_STREAK` check-in safety net is close to firing, so the two
+   mechanisms can never deadlock each other.
+
+None of the five is a large build — that's the point. Each one closes a specific, previously-real
+gap between what the Soul claimed to do and what the code actually did, without turning it into a
+heavier system than a founder actually wants running alongside them.
+
 ## NACE — the self-improvement and governance loop
 
 **NACE** (the belief-revision + self-improvement substrate) is what actually lets IterBrow change
@@ -397,12 +450,16 @@ each turn and surfaces a short efficacy summary to the model — fail-open by de
 MeTTa engine degrades gracefully instead of breaking anything else.
 
 **The capability registry and gate (`iter/capability_lifecycle.metta` + `tools/_metta_gate.py`).**
-Every tool has a lifecycle entry (`new` / active / `quarantined`) and a live efficacy expectation
-computed from its beliefs. The gate consults the lifecycle registry first (an explicit quarantine
-always wins), then a live MeTTa query where available, falling back to a pure-Python read of
-`nace_beliefs.metta` directly if the MeTTa engine isn't installed — plus a priority floor so
-genuinely critical tools (`websearch`, `send`, `shell`, `python`, ...) are never blocked purely on
-a still-low confidence score while evidence accumulates.
+Every tool derives a real 4-stage trust lifecycle automatically from its own accumulated confidence
+data — `candidate` (no evidence yet, or hand-declared: always advisory, never a silent allow) →
+`probe_eligible` (some evidence, still under the standard threshold) → `authoritative` (proven, the
+default steady state) → `durable` (heavily proven, gets a small extra floor discount) — plus a
+manual `quarantined` override for confirmed repeated failures that always wins regardless of the
+live number. The gate falls back to a pure-Python read of `nace_beliefs.metta` directly if the MeTTa
+engine isn't installed, and every candidate/probe-stage decision is logged to a size-capped probe
+log for visibility. A priority floor still applies so genuinely critical tools (`websearch`, `send`,
+`shell`, `python`, ...) are never blocked purely on a still-low confidence score while evidence
+accumulates.
 
 **Recurring-pattern detection and resilience (`idle_cycle_detector` + `cognitive_resilience_guard`).**
 A single missed instruction is one thing; the same gap recurring across many cycles is a real
@@ -419,18 +476,22 @@ constantly. When the service-before-growth flag above is active, self-build prop
 entirely: the system prioritizes fixing what it's doing wrong for the person in front of it before
 it's allowed to grow itself further.
 
-**Completion-claim discipline (`task_state` + `completion_claim_guard`).** `task_state` lets the
-agent (or a future extension) explicitly record a task's phase — planning / building / verifying /
+**Completion-claim discipline with real teeth (`task_state` + `completion_claim_guard`).**
+`task_state` lets the agent explicitly record a task's phase — planning / building / verifying /
 complete. `completion_claim_guard` scans the agent's own outgoing messages for completion-style
-language ("already exists," "is now live," "verified") and, if no matching `verifying`/`complete`
-phase was actually recorded, injects a warning before that claim goes out — directly targeting a
-real incident where a "the tab already exists" claim was sent before the tab was actually built.
+language ("already exists," "is now live," "verified") against that recorded phase — and if nothing
+verifying/complete was actually recorded, it doesn't just inject a warning, it removes `send` from
+the tools offered for the next call, so the model has to take a real step before it can repeat the
+claim. Bounded so it can never collide with `iter.py`'s own silent-streak check-in safety net (see
+[the Soul section](#the-soul-system--value-grounded-self-evaluation) above for the exact mechanism)
+— directly targeting a real incident where a "the tab already exists" claim was sent before the tab
+was actually built.
 
 **Instrument everything.** Per the policy in `iter/AGENTS.md`, every new self-built capability
-registers a `cap-lifecycle` entry and a neutral `cap-efficacy` seed *from day one*, with real
-evidence then flowing through the same pending-revision queue everything else uses — so growth
-compounds through the same organic, evidence-based mechanism rather than being hand-edited in
-after the fact.
+registers a `(cap-lifecycle <name> candidate)` entry and a neutral `cap-efficacy` seed *from day
+one*, with real evidence then flowing through the same pending-revision queue everything else uses
+— so growth compounds through the same organic, evidence-based mechanism rather than being
+hand-edited in after the fact.
 
 ## Live dashboards
 
@@ -531,12 +592,13 @@ git-ignored — it is never written into any file this repo tracks.
 - **New channels:** a `.py` file in `iter/channels/` with `receive()` and optionally `send(content)`.
 - Files starting with `_` are ignored — the standard way to deactivate something without deleting
   it. Nothing here needs a restart; the next loop iteration picks it up.
-- **Instrument everything:** every new capability should register a `(cap-lifecycle <name> new)`
+- **Instrument everything:** every new capability should register a `(cap-lifecycle <name> candidate)`
   entry in `capability_lifecycle.metta` and a neutral `(cap-efficacy <name> (stv 0.5 0.0))` seed in
   `nace_beliefs.metta` from day one, then let real evidence flow through the normal
-  `(pending-revision ...)` queue rather than hand-editing efficacy numbers later. See
-  [NACE](#nace--the-self-improvement-and-governance-loop) above. Full details in
-  `iter/reprogramming.txt` and `iter/AGENTS.md`.
+  `(pending-revision ...)` queue rather than hand-editing efficacy numbers later — `candidate` is
+  always treated as advisory-only until it earns its way to `probe_eligible`/`authoritative`/`durable`
+  on real evidence (see [NACE](#nace--the-self-improvement-and-governance-loop) above). Full details
+  in `iter/reprogramming.txt` and `iter/AGENTS.md`.
 
 ## Restoring a memory snapshot
 
