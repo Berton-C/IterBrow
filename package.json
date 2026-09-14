@@ -1,0 +1,38 @@
+{
+  "name": "iter-browser",
+  "version": "0.1.0",
+  "description": "Iter agent embedded in its own Chromium shell (Electron) — full CDP access, no extension required.",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist:mac": "electron-builder --mac --dir",
+    "dist:mac:dmg": "electron-builder --mac"
+  },
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.iter.browser",
+    "productName": "Iter Browser",
+    "asar": false,
+    "files": [
+      "main.js",
+      "preload.js",
+      "bridge/**/*",
+      "renderer/**/*",
+      "iter/**/*",
+      "!iter/**/__pycache__",
+      "!iter/.venv"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false
+    },
+    "extraResources": []
+  }
+}

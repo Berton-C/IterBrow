@@ -1,0 +1,125 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Iter Browser — control panel</title>
+<link rel="stylesheet" href="style.css">
+<div id="app-shell">
+<div id="tabstrip"></div>
+<div id="toolbar">
+  <button id="btn-back" title="Back">&#8592;</button>
+  <button id="btn-forward" title="Forward">&#8594;</button>
+  <button id="btn-reload" title="Reload">&#8635;</button>
+  <input id="addr" placeholder="Type a URL or search…">
+  <button id="btn-go">Go</button>
+  <button id="btn-dashboards" title="Open the generated runtime / context / atomspace / gallery dashboards">Dashboards</button>
+</div>
+
+<div id="chat"><div class="msg sys"><div class="bubble">Iter is stopped. Open Settings below, choose a provider, then press Start.</div></div></div>
+<div id="chat-input-row">
+  <textarea id="chat-input" placeholder="Message Iter… (Enter to send, Shift+Enter for newline)"></textarea>
+  <button id="btn-send">Send</button>
+</div>
+
+<div id="status-row">
+  <span class="dot" id="status-dot"></span>
+  <span id="status-text">stopped</span>
+  <span style="flex:1 1 auto"></span>
+  <button id="btn-start">Start</button>
+  <button id="btn-stop" disabled>Stop</button>
+</div>
+
+<details id="settings">
+  <summary>Settings — model provider</summary>
+  <div class="settings-body">
+    <div class="field">
+      <label>Provider</label>
+      <select id="provider">
+        <option value="openrouter">OpenRouter (cloud)</option>
+        <option value="lmstudio">LM Studio (local — works offline)</option>
+      </select>
+    </div>
+    <div id="panel-openrouter" class="settings-body" style="padding:0">
+      <div class="field"><label>Endpoint</label><input id="or-endpoint" value="https://openrouter.ai/api/v1"></div>
+      <div class="field"><label>Model</label><input id="or-model" value="z-ai/glm-5.3"></div>
+      <div class="field"><label>API key</label><input id="or-key" type="password"></div>
+    </div>
+    <div id="panel-lmstudio" class="settings-body" style="padding:0">
+      <div class="field"><label>Endpoint (use 127.0.0.1, not a LAN IP, for offline use)</label><input id="lm-endpoint" value="http://127.0.0.1:1234/v1"></div>
+      <div class="field"><label>Model (must match LM Studio's Developer panel exactly)</label><input id="lm-model" value="qwen/qwen3.8-27b"></div>
+      <div style="font-size:10px;color:var(--muted)">Requires: LM Studio server running, "Enable CORS" is not needed here (Electron talks to it directly, not via a web page's fetch), context length ≥ 32768, and tool_choice="required" support (llama.cpp engine).</div>
+    </div>
+    <div class="row">
+      <button id="btn-save-settings">Save settings</button>
+    </div>
+  </div>
+</details>
+
+<details id="state-mgmt">
+  <summary>State — Export / Import / Reset</summary>
+  <div class="settings-body">
+    <div style="font-size:10px;color:var(--muted)">
+      Export saves Iter's accumulated memory, vector store, backups, and knowledge files (not the
+      tool/transformation code) to a zip you choose. Import restores that state from a zip (stopping
+      Iter first if it's running). Reset permanently deletes all accumulated state and starts fresh —
+      your tools/transformations code is never touched by any of these.
+    </div>
+    <div class="row">
+      <button id="btn-export-state">Export…</button>
+      <button id="btn-import-state">Import…</button>
+      <button id="btn-reset-state">Reset</button>
+    </div>
+    <div id="state-mgmt-status" style="font-size:10px;color:var(--muted)"></div>
+  </div>
+</details>
+
+<details id="termfiles">
+  <summary>Terminal &amp; Files</summary>
+  <div class="settings-body">
+    <div style="font-size:10px;color:var(--muted)">
+      Browse and edit files under <code>iter/</code>, and run shell commands in a real bash
+      process rooted there. This is a plain (non-pty) shell — interactive full-screen programs
+      like <code>vim</code> or a bare <code>python3</code> REPL won't render correctly; use
+      the ^C button to recover if a command hangs.
+    </div>
+    <div id="termfiles-grid">
+      <div id="tf-tree-pane" class="tf-pane">
+        <div class="tf-pane-head">
+          <span id="tf-breadcrumb">/</span>
+          <button id="tf-up" title="Up one level">↑</button>
+          <button id="tf-refresh" title="Refresh">&#8635;</button>
+        </div>
+        <div id="tf-tree" class="tf-pane-body"></div>
+      </div>
+      <div id="tf-editor-pane" class="tf-pane">
+        <div class="tf-pane-head">
+          <span id="tf-current-file">Select a file</span>
+          <button id="tf-save" disabled>Save</button>
+        </div>
+        <textarea id="tf-editor" class="tf-pane-body" placeholder="Select a file to view or edit…" disabled></textarea>
+      </div>
+      <div id="tf-term-pane" class="tf-pane">
+        <div class="tf-pane-head">
+          <span>just-bash</span>
+          <span id="tf-term-cwd" class="tf-muted">/work</span>
+          <button id="tf-term-interrupt" title="Send Ctrl+C">^C</button>
+          <button id="tf-term-stop" title="Stop the shell process">■ Stop</button>
+        </div>
+        <div id="tf-term-output" class="tf-pane-body"></div>
+        <div id="tf-term-input-row">
+          <span class="tf-prompt">$</span>
+          <input id="tf-term-input" placeholder="Type a command and press Enter">
+        </div>
+      </div>
+    </div>
+  </div>
+</details>
+
+<details id="activity">
+  <summary>Activity log (Iter process output)</summary>
+  <div id="log-view"></div>
+</details>
+</div>
+
+<div id="drag-catcher"></div>
+<div id="resize-handle" title="Drag to resize"></div>
+
+<script src="renderer.js"></script>

@@ -1,0 +1,28 @@
+body { margin:0; font-family: ui-monospace, Menlo, monospace; background:#0d1117; color:#c9d1d9; overflow:hidden; }
+#svg { width:100vw; height:100vh; display:block; cursor:grab; }
+#svg.panning { cursor:grabbing; }
+#svg line { stroke:#30363d; stroke-width:1.2; }
+#svg line.implies { stroke:#bc8cff; }
+#svg line.is-a { stroke:#58a6ff; }
+#svg line.class { stroke:#f0883e; }
+#svg circle { fill:#21262d; stroke:#58a6ff; stroke-width:1.5; cursor:pointer; }
+#svg circle.atom { stroke:#3fb950; }
+#svg circle.class { stroke:#f0883e; }
+#svg circle.has-stv { stroke:#e3b341; fill:#2d2226; }
+#svg circle.selected { stroke:#f85149; stroke-width:3; }
+#svg text { fill:#c9d1d9; font-size:11px; text-anchor:middle; pointer-events:none; }
+#panel { position:fixed; top:0; right:0; width:320px; max-width:45vw; height:100vh; background:#161b22ee; border-left:1px solid #30363d; padding:14px; overflow-y:auto; display:none; box-sizing:border-box; }
+#panel.open { display:block; }
+#panel h2 { margin:0 0 8px; color:#58a6ff; font-size:14px; word-break:break-all; padding-right:22px; }
+#panel .close { position:absolute; top:8px; right:10px; cursor:pointer; color:#8b949e; font-size:16px; }
+#panel .close:hover { color:#f85149; }
+#panel .tag { display:inline-block; background:#30363d; border-radius:4px; padding:2px 8px; font-size:11px; margin:0 6px 6px 0; color:#8b949e; }
+#panel .kv { margin:6px 0; font-size:12px; line-height:1.5; }
+#panel .kv b { color:#7ee787; }
+#panel .section { margin-top:12px; border-top:1px solid #30363d; padding-top:8px; }
+#hud { position:fixed; top:10px; left:10px; background:#161b22cc; padding:8px 12px; border-radius:6px; font-size:11px; border:1px solid #30363d; color:#8b949e; max-width:60vw; }
+#zoomer { position:fixed; bottom:12px; left:12px; display:flex; gap:6px; align-items:center; }
+#zoomer button { background:#21262d; color:#c9d1d9; border:1px solid #30363d; border-radius:6px; font-size:16px; width:34px; height:34px; cursor:pointer; font-family:inherit; }
+#zoomer button:hover { background:#30363d; }
+#zoomer .wide { width:auto; padding:0 10px; font-size:12px; }
+#zl { background:#161b22cc; border:1px solid #30363d; border-radius:6px; padding:5px 10px; font-size:12px; color:#c9d1d9; }

@@ -1,0 +1,8 @@
+const DATA = __PAYLOAD__;
+const svg = document.getElementById('svg');
+const panel = document.getElementById('panel');
+const zl = document.getElementById('zl');
+let view = { x: 0, y: 0, k: 1 };
+let selected = null;
+const NS = 'http://www.w3.org/2000/svg';
+function el(tag, attrs) {

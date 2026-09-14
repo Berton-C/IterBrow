@@ -1,0 +1,136 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><script>setTimeout(function(){window.location.reload();},15000);</script><style>
+:root{
+  color-scheme:dark;
+  --bg:#0b0d10;--panel:#111419;--panel3:#0f1217;
+  --line:#2a3039;--text:#d8dee9;--strong:#eef2f7;
+  --muted:#808a98;--dim:#5f6977;--blue:#6ea8fe;--green:#7ccf91;
+  --orange:#e7a86e;--violet:#b8a1e3;--red:#e98686;--cyan:#79c7d3;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono",monospace;
+  --sans:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif
+}
+*{box-sizing:border-box}html{background:var(--bg)}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);font-size:13px}
+code,pre,table{font-family:var(--mono)}
+.c{width:min(1600px,calc(100% - 32px));margin:0 auto;padding:24px 0 54px}
+.page-head{display:flex;justify-content:space-between;align-items:flex-end;gap:24px;padding-bottom:17px;border-bottom:1px solid var(--line);margin-bottom:14px}
+.page-title{margin:0;color:var(--strong);font:600 21px/1.2 var(--mono);letter-spacing:-.02em}
+.page-subtitle{margin-top:5px;color:var(--muted);font:11px/1.4 var(--mono)}
+.clock{text-align:right;color:var(--blue);font:600 15px/1.2 var(--mono);white-space:nowrap}
+.clock-label{display:block;margin-bottom:4px;color:var(--dim);font:9px/1.2 var(--mono);letter-spacing:.08em;text-transform:uppercase}
+.grid{display:grid;grid-template-columns:1fr;gap:12px;margin:12px 0}
+.card{min-width:0;overflow:hidden;background:var(--panel);border:1px solid var(--line)}
+.card-head{min-height:43px;padding:11px 13px;display:flex;align-items:baseline;justify-content:space-between;gap:12px;background:var(--panel3);border-bottom:1px solid var(--line)}
+.card-title{margin:0;color:var(--strong);font:700 11px/1.2 var(--mono);letter-spacing:.07em;text-transform:uppercase}
+.card-note{color:var(--muted);font:9px/1.2 var(--mono);white-space:nowrap}.card-body{padding:12px}
+.label,.empty{color:var(--muted);font:10px/1.45 var(--mono)}
+.f{margin-top:22px;color:#424a55;font:9px/1.3 var(--mono);text-align:center}
+.sys-group+.sys-group{margin-top:14px}.sys-group-head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:6px}
+.sys-label{color:#aab3bf;font:700 10px/1.2 var(--mono);letter-spacing:.05em;text-transform:uppercase}.sys-count{color:var(--dim);font:9px var(--mono)}
+.tags{display:flex;flex-wrap:wrap;gap:5px}.tag{display:inline-flex;align-items:center;min-height:24px;padding:3px 8px;background:#131820;border:1px solid #29313b;color:#aeb7c3;font:10px/1.2 var(--mono)}
+.tag-tool{color:#9ec9ff}.tag-channel{color:#99d9a8}.tag-transform{color:#cbb9eb}
+.sysinfo{overflow:visible;border:1px solid #252c35;background:#0e1116}
+.memory-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:14px;padding:5px 8px;border-bottom:1px solid #222831;align-items:baseline}.memory-row:last-child{border-bottom:0}
+.memory-name{min-width:0;color:#bcc4cf;font-size:9px;overflow-wrap:anywhere}.memory-size{color:var(--dim);font:9px var(--mono);white-space:nowrap}
+.table-wrap{width:100%;overflow:visible}.reliability{width:100%;border-collapse:collapse;font-size:10px}.reliability th,.reliability td{padding:7px 9px;border-bottom:1px solid #252c35;white-space:nowrap}
+.reliability th{background:#12171d;color:var(--muted);font-size:9px;letter-spacing:.05em;text-transform:uppercase;text-align:right}.reliability th:first-child,.reliability td:first-child{text-align:left}
+.reliability td{text-align:right;color:#aeb7c2}.reliability tbody tr:hover td{background:#151a21}.tool-cell{color:#d1d7df!important;font-weight:600}.ok{color:var(--green)!important}.warn{color:var(--orange)!important}.fail{color:var(--red)!important}
+.alarm-list{display:grid;gap:7px;overflow:visible}.alarm{border:1px solid #313640;background:#14171d}.alarm-head{display:flex;justify-content:space-between;gap:10px;padding:7px 9px;border-bottom:1px solid #252b33}.alarm-trigger{color:var(--orange);font:700 9px var(--mono)}.alarm-meta{color:var(--muted);font:8px var(--mono);text-align:right}.alarm-message{padding:8px 9px;color:#c9d0d9;white-space:pre-wrap;overflow-wrap:anywhere;font:10px/1.45 var(--mono)}
+.tasks{overflow:visible}.source-pre{margin:0;color:#c9d1d9;white-space:pre-wrap;overflow-wrap:anywhere;font:10px/1.5 var(--mono)}
+@media(max-width:980px){.c{width:min(100% - 18px,1600px);padding-top:12px}.page-head{align-items:flex-start;flex-direction:column;gap:8px}.clock{text-align:left}}
+</style></head><body><main class="c"><header class="page-head"><div><h1 class="page-title">Eray Index <span style="color:#66707d;font-weight:400">/ Runtime Dashboard</span></h1><div class="page-subtitle">Runtime inventory, reliability, alarms, and active work.</div></div><div class="clock"><span class="clock-label">Local snapshot</span>2026-09-13 19:17:57</div></header><div class="grid"><section class="card"><div class="card-head"><h2 class="card-title">System State</h2><span class="card-note">runtime inventory</span></div><div class="card-body"><div class="sys-group"><div class="sys-group-head"><span class="sys-label">Tools</span><span class="sys-count">74</span></div><div class="tags"><span class="tag tag-tool">_browser_bridge</span><span class="tag tag-tool">_browser_cdp</span><span class="tag tag-tool">_browser_close_tab</span><span class="tag tag-tool">_browser_detach</span><span class="tag tag-tool">_browser_read_text</span><span class="tag tag-tool">_browser_scroll</span><span class="tag tag-tool">_browser_switch_tab</span><span class="tag tag-tool">_component_museum</span><span class="tag tag-tool">_contradict</span><span class="tag tag-tool">_formalize_metta</span><span class="tag tag-tool">_link_episode</span><span class="tag tag-tool">_memory_guard</span><span class="tag tag-tool">_metta_gate</span><span class="tag tag-tool">_metta_substrate</span><span class="tag tag-tool">_petta_db</span><span class="tag tag-tool">_self_improve</span><span class="tag tag-tool">_soul_skill_registry</span><span class="tag tag-tool">_start_new_task</span><span class="tag tag-tool">_support</span><span class="tag tag-tool">_test_soul_absent</span><span class="tag tag-tool">_token_awareness</span><span class="tag tag-tool">_unlink_episode</span><span class="tag tag-tool">browser_attach</span><span class="tag tag-tool">browser_cdp</span><span class="tag tag-tool">browser_click</span><span class="tag tag-tool">browser_close_tab</span><span class="tag tag-tool">browser_detach</span><span class="tag tag-tool">browser_eval</span><span class="tag tag-tool">browser_navigate</span><span class="tag tag-tool">browser_new_tab</span><span class="tag tag-tool">browser_patch_live</span><span class="tag tag-tool">browser_read_text</span><span class="tag tag-tool">browser_screenshot</span><span class="tag tag-tool">browser_scroll</span><span class="tag tag-tool">browser_switch_tab</span><span class="tag tag-tool">browser_tab_variants</span><span class="tag tag-tool">browser_tabs</span><span class="tag tag-tool">browser_type</span><span class="tag tag-tool">chroma_query</span><span class="tag tag-tool">contradict</span><span class="tag tag-tool">episodes</span><span class="tag tag-tool">eval</span><span class="tag tag-tool">export_component</span><span class="tag tag-tool">forget</span><span class="tag tag-tool">formalize_metta</span><span class="tag tag-tool">link_episode</span><span class="tag tag-tool">lm_studio_chat</span><span class="tag tag-tool">memory_journal</span><span class="tag tag-tool">memory_update</span><span class="tag tag-tool">metta</span><span class="tag tag-tool">museum_list</span><span class="tag tag-tool">museum_recall</span><span class="tag tag-tool">museum_vote</span><span class="tag tag-tool">nop</span><span class="tag tag-tool">pin</span><span class="tag tag-tool">preview</span><span class="tag tag-tool">python</span><span class="tag tag-tool">rebuild_tiers</span><span class="tag tag-tool">remember</span><span class="tag tag-tool">reminder</span><span class="tag tag-tool">search_transcript</span><span class="tag tag-tool">self_improve</span><span class="tag tag-tool">send</span><span class="tag tag-tool">shell</span><span class="tag tag-tool">soul_eval</span><span class="tag tag-tool">soul_lock</span><span class="tag tag-tool">soul_skill_registry</span><span class="tag tag-tool">start_new_task</span><span class="tag tag-tool">support</span><span class="tag tag-tool">test_soul_absent</span><span class="tag tag-tool">token_awareness</span><span class="tag tag-tool">tool_reliability</span><span class="tag tag-tool">unlink_episode</span><span class="tag tag-tool">websearch</span></div></div><div class="sys-group"><div class="sys-group-head"><span class="sys-label">Channels</span><span class="sys-count">1</span></div><div class="tags"><span class="tag tag-channel">electron_ui</span></div></div><div class="sys-group"><div class="sys-group-head"><span class="sys-label">Transformations</span><span class="sys-count">28</span></div><div class="tags"><span class="tag tag-transform">agents_md_inject</span><span class="tag tag-transform">alarms</span><span class="tag tag-transform">append_last_transcript_lines</span><span class="tag tag-transform">atom_space_update</span><span class="tag tag-transform">auto_consolidation</span><span class="tag tag-transform">auto_improve</span><span class="tag tag-transform">browser_vision</span><span class="tag tag-transform">dashboard_atomspace</span><span class="tag tag-transform">dashboard_context</span><span class="tag tag-transform">dashboard_gallery</span><span class="tag tag-transform">dashboard_runtime</span><span class="tag tag-transform">dynamic_tool_budget</span><span class="tag tag-transform">history</span><span class="tag tag-transform">metta_reasoning</span><span class="tag tag-transform">nace_courier</span><span class="tag tag-transform">recap</span><span class="tag tag-transform">skill_bundles</span><span class="tag tag-transform">soul_check</span><span class="tag tag-transform">soul_voice</span><span class="tag tag-transform">staleness_check</span><span class="tag tag-transform">stall_detect</span><span class="tag tag-transform">tiered_memory</span><span class="tag tag-transform">tool_reliability_tracker</span><span class="tag tag-transform">trajectory</span><span class="tag tag-transform">transcript</span><span class="tag tag-transform">workbench_scroll</span><span class="tag tag-transform">zz_context_budget</span><span class="tag tag-transform">zz_quota_guard</span></div></div><div class="sys-group"><div class="sys-group-head"><span class="sys-label">Memory Files</span><span class="sys-count">41 · 1047.3KB</span></div><div class="sysinfo"><div class="memory-row"><code class="memory-name">memory/.improve_cooldown</code><span class="memory-size">1B</span></div>
+<div class="memory-row"><code class="memory-name">memory/.improve_needed</code><span class="memory-size">473B</span></div>
+<div class="memory-row"><code class="memory-name">memory/.metta_circuit_breaker.json</code><span class="memory-size">186B</span></div>
+<div class="memory-row"><code class="memory-name">memory/.stall_state.json</code><span class="memory-size">275B</span></div>
+<div class="memory-row"><code class="memory-name">memory/champion.json</code><span class="memory-size">4.8KB</span></div>
+<div class="memory-row"><code class="memory-name">memory/component_museum.jsonl</code><span class="memory-size">3.0KB</span></div>
+<div class="memory-row"><code class="memory-name">memory/component_museum/comp-4d337eca50f1/html.html</code><span class="memory-size">8.0KB</span></div>
+<div class="memory-row"><code class="memory-name">memory/component_museum/comp-4d337eca50f1/screenshot.png</code><span class="memory-size">161.2KB</span></div>
+<div class="memory-row"><code class="memory-name">memory/component_museum/comp-626afb89bbb5/html.html</code><span class="memory-size">62.1KB</span></div>
+<div class="memory-row"><code class="memory-name">memory/component_museum/comp-626afb89bbb5/screenshot.png</code><span class="memory-size">398.2KB</span></div>
+<div class="memory-row"><code class="memory-name">memory/component_museum/comp-e99684f1cb4a/html.html</code><span class="memory-size">61.0KB</span></div>
+<div class="memory-row"><code class="memory-name">memory/component_museum/comp-e99684f1cb4a/screenshot.png</code><span class="memory-size">289.3KB</span></div>
+<div class="memory-row"><code class="memory-name">memory/consolidation_notes.txt</code><span class="memory-size">1.5KB</span></div>
+<div class="memory-row"><code class="memory-name">memory/journal.jsonl</code><span class="memory-size">38.6KB</span></div>
+<div class="memory-row"><code class="memory-name">memory/ltm_pending_links.txt</code><span class="memory-size">271B</span></div>
+<div class="memory-row"><code class="memory-name">memory/recap/.recap_needed</code><span class="memory-size">532B</span></div>
+<div class="memory-row"><code class="memory-name">memory/recap/.recap_state</code><span class="memory-size">4B</span></div>
+<div class="memory-row"><code class="memory-name">memory/recap/episode_0026.json</code><span class="memory-size">35B</span></div>
+<div class="memory-row"><code class="memory-name">memory/recap/episode_0027.json</code><span class="memory-size">35B</span></div>
+<div class="memory-row"><code class="memory-name">memory/recap/episode_0028.json</code><span class="memory-size">112B</span></div>
+<div class="memory-row"><code class="memory-name">memory/recap/episode_0029.json</code><span class="memory-size">111B</span></div>
+<div class="memory-row"><code class="memory-name">memory/recap/episode_0030.json</code><span class="memory-size">109B</span></div>
+<div class="memory-row"><code class="memory-name">memory/recap/episode_0031.json</code><span class="memory-size">729B</span></div>
+<div class="memory-row"><code class="memory-name">memory/recap/episode_0032.json</code><span class="memory-size">324B</span></div>
+<div class="memory-row"><code class="memory-name">memory/recap/episode_0033.json</code><span class="memory-size">505B</span></div>
+<div class="memory-row"><code class="memory-name">memory/recap/episode_0034.json</code><span class="memory-size">686B</span></div>
+<div class="memory-row"><code class="memory-name">memory/regression_tests.json</code><span class="memory-size">633B</span></div>
+<div class="memory-row"><code class="memory-name">memory/self_improve_backups/.gitkeep</code><span class="memory-size">1B</span></div>
+<div class="memory-row"><code class="memory-name">memory/self_improve_log.json</code><span class="memory-size">9.2KB</span></div>
+<div class="memory-row"><code class="memory-name">memory/skill_bundles.json</code><span class="memory-size">358B</span></div>
+<div class="memory-row"><code class="memory-name">memory/soul_calibration.json</code><span class="memory-size">26B</span></div>
+<div class="memory-row"><code class="memory-name">memory/soul_gate_log.json</code><span class="memory-size">234B</span></div>
+<div class="memory-row"><code class="memory-name">memory/soul_lock.json</code><span class="memory-size">2B</span></div>
+<div class="memory-row"><code class="memory-name">memory/soul_skills.json</code><span class="memory-size">1.7KB</span></div>
+<div class="memory-row"><code class="memory-name">memory/soul_state.json</code><span class="memory-size">17B</span></div>
+<div class="memory-row"><code class="memory-name">memory/tab_autonomy_policy.txt</code><span class="memory-size">608B</span></div>
+<div class="memory-row"><code class="memory-name">memory/tasks/current_tasks.txt</code><span class="memory-size">1.4KB</span></div>
+<div class="memory-row"><code class="memory-name">memory/tiers/tier3.txt</code><span class="memory-size">851B</span></div>
+<div class="memory-row"><code class="memory-name">memory/tiers/tier4.txt</code><span class="memory-size">0B</span></div>
+<div class="memory-row"><code class="memory-name">memory/tiers/tier5.txt</code><span class="memory-size">32B</span></div>
+<div class="memory-row"><code class="memory-name">memory/user_feedback.txt</code><span class="memory-size">314B</span></div></div></div></div></section><section class="card"><div class="card-head"><h2 class="card-title">Tool Reliability</h2><span class="card-note">47 tracked tools</span></div><div class="card-body"><div class="table-wrap"><table class="reliability"><thead><tr><th>Tool</th><th>f</th><th>c</th><th>Calls</th><th>OK</th><th>Fail</th></tr></thead><tbody>
+<tr><td class="tool-cell">shell</td><td class="ok">0.9352</td><td>0.993</td><td>3,383</td><td class="ok">3,124</td><td class="fail">259</td></tr>
+<tr><td class="tool-cell">chroma_query</td><td class="ok">0.9929</td><td>0.993</td><td>1,024</td><td class="ok">934</td><td class="fail">90</td></tr>
+<tr><td class="tool-cell">nop</td><td class="ok">1.0</td><td>0.993</td><td>527</td><td class="ok">527</td><td class="fail">0</td></tr>
+<tr><td class="tool-cell">send</td><td class="ok">0.9901</td><td>0.993</td><td>358</td><td class="ok">353</td><td class="fail">5</td></tr>
+<tr><td class="tool-cell">support</td><td class="ok">1.0</td><td>0.993</td><td>312</td><td class="ok">312</td><td class="fail">0</td></tr>
+<tr><td class="tool-cell">python</td><td class="ok">0.9117</td><td>0.993</td><td>261</td><td class="ok">245</td><td class="fail">16</td></tr>
+<tr><td class="tool-cell">episodes</td><td class="ok">1.0</td><td>0.993</td><td>207</td><td class="ok">207</td><td class="fail">0</td></tr>
+<tr><td class="tool-cell">pin</td><td class="ok">1.0</td><td>0.993</td><td>162</td><td class="ok">162</td><td class="fail">0</td></tr>
+<tr><td class="tool-cell">start_new_task</td><td class="ok">1.0</td><td>0.993</td><td>138</td><td class="ok">138</td><td class="fail">0</td></tr>
+<tr><td class="tool-cell">formalize_metta</td><td class="ok">1.0</td><td>0.9927</td><td>129</td><td class="ok">129</td><td class="fail">0</td></tr>
+<tr><td class="tool-cell">websearch</td><td class="warn">0.8312</td><td>0.9911</td><td>112</td><td class="ok">44</td><td class="fail">65</td></tr>
+<tr><td class="tool-cell">remember</td><td class="ok">0.9241</td><td>0.9905</td><td>107</td><td class="ok">99</td><td class="fail">8</td></tr>
+<tr><td class="tool-cell">soul_eval</td><td class="warn">0.7834</td><td>0.9895</td><td>97</td><td class="ok">76</td><td class="fail">21</td></tr>
+<tr><td class="tool-cell">tool_reliability</td><td class="ok">1.0</td><td>0.9884</td><td>86</td><td class="ok">86</td><td class="fail">0</td></tr>
+<tr><td class="tool-cell">link_episode</td><td class="ok">1.0</td><td>0.9883</td><td>85</td><td class="ok">85</td><td class="fail">0</td></tr>
+<tr><td class="tool-cell">metta</td><td class="ok">0.9298</td><td>0.9883</td><td>85</td><td class="ok">79</td><td class="fail">6</td></tr>
+<tr><td class="tool-cell">memory_journal</td><td class="ok">0.9854</td><td>0.9856</td><td>69</td><td class="ok">68</td><td class="fail">1</td></tr>
+<tr><td class="tool-cell">self_improve</td><td class="warn">0.8301</td><td>0.9833</td><td>59</td><td class="ok">49</td><td class="fail">10</td></tr>
+<tr><td class="tool-cell">memory_update</td><td class="ok">1.0</td><td>0.9697</td><td>32</td><td class="ok">32</td><td class="fail">0</td></tr>
+<tr><td class="tool-cell">eval</td><td class="warn">0.6397</td><td>0.9617</td><td>25</td><td class="ok">16</td><td class="fail">9</td></tr>
+<tr><td class="tool-cell">browser_tabs</td><td class="ok">1.0</td><td>0.9602</td><td>24</td><td class="ok">24</td><td class="fail">0</td></tr>
+<tr><td class="tool-cell">browser_attach</td><td class="warn">0.7498</td><td>0.9525</td><td>20</td><td class="ok">15</td><td class="fail">5</td></tr>
+<tr><td class="tool-cell">browser_eval</td><td class="ok">0.9117</td><td>0.9446</td><td>18</td><td class="ok">16</td><td class="fail">2</td></tr>
+<tr><td class="tool-cell">browser_new_tab</td><td class="ok">1.0</td><td>0.9446</td><td>17</td><td class="ok">17</td><td class="fail">0</td></tr>
+<tr><td class="tool-cell">browser_read_text</td><td class="warn">0.6472</td><td>0.9446</td><td>17</td><td class="ok">11</td><td class="fail">6</td></tr>
+<tr><td class="tool-cell">browser_close_tab</td><td class="warn">0.7501</td><td>0.9413</td><td>16</td><td class="ok">12</td><td class="fail">4</td></tr>
+<tr><td class="tool-cell">search_transcript</td><td class="ok">1.0</td><td>0.9376</td><td>15</td><td class="ok">15</td><td class="fail">0</td></tr>
+<tr><td class="tool-cell">browser_screenshot</td><td class="warn">0.8928</td><td>0.9334</td><td>15</td><td class="ok">13</td><td class="fail">2</td></tr>
+<tr><td class="tool-cell">browser_navigate</td><td class="ok">0.9286</td><td>0.9334</td><td>14</td><td class="ok">13</td><td class="fail">1</td></tr>
+<tr><td class="tool-cell">contradict</td><td class="ok">1.0</td><td>0.9286</td><td>13</td><td class="ok">13</td><td class="fail">0</td></tr>
+<tr><td class="tool-cell">soul_skill_registry</td><td class="warn">0.7272</td><td>0.9167</td><td>11</td><td class="ok">8</td><td class="fail">3</td></tr>
+<tr><td class="tool-cell">browser_detach</td><td class="ok">1.0</td><td>0.9167</td><td>11</td><td class="ok">11</td><td class="fail">0</td></tr>
+<tr><td class="tool-cell">reminder</td><td class="warn">0.6667</td><td>0.9</td><td>9</td><td class="ok">6</td><td class="fail">3</td></tr>
+<tr><td class="tool-cell">browser_scroll</td><td class="warn">0.5714</td><td>0.875</td><td>7</td><td class="ok">4</td><td class="fail">3</td></tr>
+<tr><td class="tool-cell">museum_list</td><td class="warn">0.7143</td><td>0.875</td><td>7</td><td class="ok">5</td><td class="fail">2</td></tr>
+<tr><td class="tool-cell">rebuild_tiers</td><td class="ok">1.0</td><td>0.8571</td><td>6</td><td class="ok">6</td><td class="fail">0</td></tr>
+<tr><td class="tool-cell">browser_patch_live</td><td class="warn">0.6</td><td>0.8333</td><td>5</td><td class="ok">3</td><td class="fail">2</td></tr>
+<tr><td class="tool-cell">soul_lock</td><td class="warn">0.75</td><td>0.8</td><td>4</td><td class="ok">3</td><td class="fail">1</td></tr>
+<tr><td class="tool-cell">preview</td><td class="ok">1.0</td><td>0.75</td><td>3</td><td class="ok">3</td><td class="fail">0</td></tr>
+<tr><td class="tool-cell">lm_studio_chat</td><td class="fail">0.25</td><td>0.6667</td><td>3</td><td class="ok">1</td><td class="fail">2</td></tr>
+<tr><td class="tool-cell">forget</td><td class="ok">1.0</td><td>0.6667</td><td>2</td><td class="ok">2</td><td class="fail">0</td></tr>
+<tr><td class="tool-cell">token_awareness</td><td class="ok">1.0</td><td>0.6667</td><td>2</td><td class="ok">2</td><td class="fail">0</td></tr>
+<tr><td class="tool-cell">browser_cdp</td><td class="warn">0.5</td><td>0.5</td><td>2</td><td class="ok">1</td><td class="fail">1</td></tr>
+<tr><td class="tool-cell">browser_click</td><td class="warn">0.5</td><td>0.5</td><td>2</td><td class="ok">1</td><td class="fail">1</td></tr>
+<tr><td class="tool-cell">browser_type</td><td class="warn">0.5</td><td>0.5</td><td>2</td><td class="ok">1</td><td class="fail">1</td></tr>
+<tr><td class="tool-cell">browser_switch_tab</td><td class="warn">0.5</td><td>0.5</td><td>2</td><td class="ok">1</td><td class="fail">1</td></tr>
+<tr><td class="tool-cell">test_soul_absent</td><td class="ok">1.0</td><td>0.5</td><td>1</td><td class="ok">1</td><td class="fail">0</td></tr>
+</tbody></table></div></div></section><section class="card"><div class="card-head"><h2 class="card-title">Alarms</h2><span class="card-note">0 active</span></div><div class="card-body alarm-list"><span class="empty">No active alarms</span></div></section><section class="card"><div class="card-head"><h2 class="card-title">Current Tasks</h2><span class="card-note">memory/tasks/current_tasks.txt</span></div><div class="card-body tasks"><pre class="source-pre"># Current Task (started 2026-09-13 18:55:25)
+# =============================================
+# Person:               user
+# Request Channel:      electron_ui
+# Task Content:         Diff the ORIGINAL 6 Stations workbench (user found a screen capture, claims uploaded) against TODAY&#x27;s stations.html. Add (not replace) the original&#x27;s missing features/interactive surfaces to today&#x27;s version. Steps: (1) locate the uploaded screen capture; if not found, ask user for path. (2) Recall original workbench features from memory (E29 iterWB whiteboard+kanban era). (3) Diff vs current stations.html. (4) Implement missing features as additive upgrades to stations.html. (5) Machine-verify live in tab 3 (unlocked; tab 4 is user-locked, do not touch). (6) Report.
+# Completion Criterion: Report diff of original-vs-today&#x27;s workbench features, implement the missing features as ADDITIONS to stations.html (no replacement), machine-verify the result live, and confirm with the user.
+# Original User Message: [2026-09-13 18:54:23 electron_ui] I found that I had a screen capture of the original (I uploaded it...do you see it?) interactive 6 Stations. But I don&#x27;t want to replace the one you made today with what you made previously...I think it would be more fun if you added to todays work what that original had that is not in todays work. This way we create more interactive surfaces and perhaps more utility.
+# =============================================
+</pre></div></section></div><div class="f">Generated by Iter · transformations/dashboard_runtime.py · refresh 15s</div></main></body></html>

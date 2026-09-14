@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Iter Workbench - 6 Stations</title>
+<style>
+body{background:#0d1117;color:#c9d1d9;font-family:system-ui;margin:0;padding:20px}
+h1{color:#58a6ff;font-size:22px}
+.station{background:#161b22;border:1px solid #30363d;border-radius:12px;padding:16px;margin:0 0 24px 0}
+.station h2{color:#f0883e;font-size:16px;margin:0 0 12px 0;border-bottom:1px solid #30363d;padding-bottom:8px}
+.badge{background:#238636;color:#fff;border-radius:10px;font-size:11px;padding:2px 8px;margin-left:8px;vertical-align:middle}
+canvas{background:#fff;border-radius:8px;cursor:crosshair;touch-action:none}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:8px 0}
+button{background:#21262d;color:#c9d1d9;border:1px solid #30363d;border-radius:6px;padding:6px 12px;cursor:pointer}
+button:hover{background:#30363d}
+input,textarea,select{background:#0d1117;color:#c9d1d9;border:1px solid #30363d;border-radius:6px;padding:6px}
+textarea{width:100%;min-height:120px;box-sizing:border-box;font-family:inherit}
+.cols{display:flex;gap:12px}
+.col{flex:1;background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:8px;min-height:160px}
+.col h3{font-size:13px;margin:0 0 8px 0;color:#58a6ff}
+.card{background:#21262d;border:1px solid #30363d;border-radius:6px;padding:6px 8px;margin:6px 0;font-size:13px}
+.card button{padding:1px 6px;font-size:11px;margin:0 2px}
+#clock{font-size:48px;font-weight:bold;color:#58a6ff;text-align:center}
+#timer{font-size:48px;font-weight:bold;color:#f0883e;text-align:center}
+#drop{border:2px dashed #30363d;border-radius:12px;padding:30px;text-align:center;color:#8b949e}
+#drop.over{border-color:#58a6ff;color:#58a6ff}
+#files{font-size:12px;color:#8b949e;margin-top:8px}
+.swatch{width:24px;height:24px;border-radius:50%;border:2px solid #30363d;cursor:pointer;display:inline-block}
+.swatch.sel{border-color:#fff}
+</style></head><body>
+<h1>&#128736; Iter Workbench &mdash; 6 Stations</h1>
+
+<div class="station"><h2>Station 1 &middot; Clock & Alarms <span class="badge">live</span></h2>
+<div id="clock">--:--:--</div>
+<div class="row" style="justify-content:center"><input type="time" id="alarmT"><input type="text" id="alarmL" placeholder="label"><button onclick="setAlarm()">Set Alarm</button><span id="alarmMsg" style="font-size:12px;color:#8b949e"></span></div></div>
+
+<div class="station"><h2>Station 2 &middot; Shared Whiteboard <span class="badge">rebuilt E29</span></h2>
+<div class="row">
+<span class="swatch sel" style="background:#000" onclick="pick(this,'#000000')"></span>
+<span class="swatch" style="background:#e34c26" onclick="pick(this,'#e34c26')"></span>
+<span class="swatch" style="background:#2da44e" onclick="pick(this,'#2da44e')"></span>
+<span class="swatch" style="background:#218bff" onclick="pick(this,'#218bff')"></span>
+<span class="swatch" style="background:#bf3989" onclick="pick(this,'#bf3989')"></span>
+&nbsp;Size <input type="range" id="size" min="1" max="20" value="3">
+<button onclick="clearWB()">Clear</button><span style="font-size:11px;color:#8b949e">iterWB API: window.iterWB.line(x1,y1,x2,y2)</span>
+</div>
+<canvas id="wb" width="760" height="320"></canvas></div>
+
+<div class="station"><h2>Station 3 &middot; Scratch Notes <span class="badge">autosave</span></h2>
+<textarea id="notes" placeholder="Type notes here - saved to localStorage automatically"></textarea></div>
+
+<div class="station"><h2>Station 4 &middot; Focus Timer <span class="badge">pomodoro</span></h2>
+<div id="timer">25:00</div>
+<div class="row" style="justify-content:center"><button onclick="tGo()">Start</button><button onclick="tPause()">Pause</button><button onclick="tReset(25)">Reset 25</button><button onclick="tReset(5)">Break 5</button></div></div>
+
+<div class="station"><h2>Station 5 &middot; Task Board <span class="badge">rebuilt E29</span></h2>
+<div class="row"><input id="cardTxt" placeholder="new task..." onkeydown="if(event.key=='Enter')addCard()"><button onclick="addCard()">Add</button></div>
+<div class="cols">
+<div class="col" id="c-todo"><h3>TODO</h3></div>
+<div class="col" id="c-doing"><h3>DOING</h3></div>
+<div class="col" id="c-done"><h3>DONE</h3></div>
+</div></div>
+
+<div class="station"><h2>Station 6 &middot; File Drop <span class="badge">echo of upload feature</span></h2>
+<div id="drop">Drop files here (echoes the 2026-08-30 file_upload_feature)</div>
+<div id="files"></div></div>
+
+<script>
+// S1 clock
+function tick(){document.getElementById('clock').textContent=new Date().toLocaleTimeString()}
+setInterval(tick,1000);tick();
+let alarm=null;
+function setAlarm(){alarm={t:document.getElementById('alarmT').value,l:document.getElementById('alarmL').value||'alarm'};document.getElementById('alarmMsg').textContent='set for '+alarm.t+' ('+alarm.l+')'}
+setInterval(function(){if(alarm&&new Date().toTimeString().slice(0,5)===alarm.t){document.getElementById('alarmMsg').textContent='ALARM: '+alarm.l;alarm=null}},1000);
+
+// S2 whiteboard
+const wb=document.getElementById('wb'),ctx=wb.getContext('2d');
+let color='#000000',size=3,draw=false,px=0,py=0,lastStroke=null;
+function pick(el,c){color=c;document.querySelectorAll('.swatch').forEach(s=>s.classList.remove('sel'));el.classList.add('sel')}
+function pos(e){const r=wb.getBoundingClientRect();return[e.clientX-r.left,e.clientY-r.top]}
+wb.addEventListener('pointerdown',e=>{draw=true;[px,py]=pos(e)});
+wb.addEventListener('pointermove',e=>{if(!draw)return;const[x,y]=pos(e);line(px,py,x,y);lastStroke=[px,py,x,y,color,size];px=x;py=y});
+wb.addEventListener('pointerup',()=>{if(draw){strokes.push(lastStroke);saveStrokes()}draw=false});
+function line(x1,y1,x2,y2){ctx.strokeStyle=color;ctx.lineWidth=size;ctx.lineCap='round';ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke()}
+window.iterWB={line:function(x1,y1,x2,y2,c,s){if(c)color=c;if(s)size=s;line(x1,y1,x2,y2)},clear:clearWB};
+let strokes = JSON.parse(localStorage.getItem('iterWB_strokes')||'[]');
+strokes.forEach(st => line(st[0],st[1],st[2],st[3],st[4],st[5]));
+function saveStrokes(){localStorage.setItem('iterWB_strokes',JSON.stringify(strokes))}
+function clearWB(){ctx.clearRect(0,0,wb.width,wb.height);strokes=[];saveStrokes()}
+
+// S3 notes
+const nt=document.getElementById('notes');
+nt.value=localStorage.getItem('iterNotes')||'';
+nt.addEventListener('input',()=>localStorage.setItem('iterNotes',nt.value));
+
+// S4 timer
+let secs=1500,run=false;
+function fmt(){const m=Math.floor(secs/60),s=secs%60;document.getElementById('timer').textContent=String(m).padStart(2,'0')+':'+String(s).padStart(2,'0')}
+setInterval(()=>{if(run&&secs>0){secs--;fmt()}},1000);
+function tGo(){run=true}function tPause(){run=false}
+function tReset(m){run=false;secs=m*60;fmt()}
+
+// S5 kanban
+let board=JSON.parse(localStorage.getItem('iterTB_board')||'{"todo":["Rebuild 6 Stations tab"],"doing":[],"done":[]}');
+function saveB(){localStorage.setItem('iterTB_board',JSON.stringify(board));renderB()}
+function renderB(){['todo','doing','done'].forEach(k=>{const c=document.getElementById('c-'+k);c.querySelectorAll('.card').forEach(x=>x.remove());board[k].forEach((t,i)=>{const d=document.createElement('div');d.className='card';d.textContent=t;const b1=document.createElement('button');b1.textContent='>';b1.onclick=()=>move(k,i);const b2=document.createElement('button');b2.textContent='x';b2.onclick=()=>{board[k].splice(i,1);saveB()};d.append(b1,b2);c.appendChild(d)})})}
+function move(k,i){if(k==='done')return;const nk=k==='todo'?'doing':'done';const t=board[k].splice(i,1)[0];board[nk].push(t);saveB()}
+function addCard(){const v=document.getElementById('cardTxt').value.trim();if(v){board.todo.push(v);document.getElementById('cardTxt').value='';saveB()}}
+window.iterTB.seed = function(items){ items.forEach(t => { if(![].concat(board.todo,board.doing,board.done).includes(t)) board.todo.push(t) }); saveB() };
+window.iterTB={...window.iterTB,add:t=>{board.todo.push(t);saveB()},move:move,board:board,seed:window.iterTB.seed};
+fetch('memory/tasks/current_tasks.txt').then(r=>r.ok?r.text():null).then(t=>{ if(!t) return; const items = t.split('
+').map(l=>l.trim()).filter(l=>l && !l.startsWith('#')).slice(0,5); if(items.length) iterTB.seed(items) }).catch(()=>{});
+renderB();
+
+// S6 file drop
+const dz=document.getElementById('drop');
+dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('over')});
+dz.addEventListener('dragleave',()=>dz.classList.remove('over'));
+dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('over');const fs=[...e.dataTransfer.files].map(f=>f.name+' ('+Math.round(f.size/1024)+'KB)');document.getElementById('files').textContent='Received: '+fs.join(', ')});
+</script></body></html>

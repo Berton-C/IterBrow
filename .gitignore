@@ -1,0 +1,40 @@
+node_modules/
+dist/
+
+# Python virtual envs (rebuilt by install.sh, never checked in)
+iter/.venv/
+iter/.venv*/
+
+# Iter's accumulated personal state — chat history, learned beliefs, vector
+# memory, uploads, backups, per-session trajectory logs. NEVER commit these:
+# a fresh install always starts blank. See iter/AGENTS.md "STATE_PATHS".
+iter/.runtime/
+iter/memory/
+iter/chroma_db/
+iter/backups/
+iter/uploads/
+iter/_screenshots/
+iter/.trajectory/
+iter/transformations/.runtime/
+iter/experience.json
+iter/experience.tmp
+iter/history.metta
+iter/nace_beliefs.metta
+iter/nace_pending.metta
+iter/nace_substrate.metta
+iter/space.metta
+iter/chat.txt
+iter/transcript.txt
+iter/.improve_cooldown
+iter/.stall_state.json
+iter/.history_state
+iter/.transcript_state
+iter/.context_budget_log.txt
+iter/.dashboard_cycle_state.json
+iter/_metta_validation_log.bak.json.gz
+
+*.log
+.DS_Store
+__pycache__/
+*.pyc
+iter/atomspace_data.json
