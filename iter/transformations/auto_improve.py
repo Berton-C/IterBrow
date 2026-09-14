@@ -73,6 +73,18 @@ def _read_json(path):
         return {}
 
 
+# Binary/media extensions: these bytes are never loaded into the agent's
+# text context window, so counting them against MAX_MEMORY_CHARS produces
+# a false "memory pressure" signal. Discovered 2026-09-14: component_museum
+# screenshots (~2.9MB of PNGs) were driving the pain score to ~58000 against
+# a threshold of 3.0, forcing repeated false-positive self-improve triage
+# cycles that found nothing real to fix each time.
+_BINARY_EXTS = (
+    ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".ico",
+    ".pdf", ".zip", ".gz", ".tar", ".tgz", ".mp4", ".mp3", ".wav",
+)
+
+
 def _dir_size_chars(path):
     total = 0
     try:
@@ -83,6 +95,8 @@ def _dir_size_chars(path):
             try:
                 if os.stat(full)[0] & 0x4000:
                     total += _dir_size_chars(full)
+                elif entry.lower().endswith(_BINARY_EXTS):
+                    continue
                 else:
                     total += os.stat(full)[6]
             except OSError:
