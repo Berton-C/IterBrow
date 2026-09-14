@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('iterApi', {
   switchTab: (id) => ipcRenderer.invoke('tabs:switch', id),
   toggleLockTab: (id) => ipcRenderer.invoke('tabs:toggleLock', id),
   togglePinTab: (id) => ipcRenderer.invoke('tabs:togglePin', id),
+  showTabContextMenu: (id) => ipcRenderer.invoke('tabs:contextMenu', id),
   navigate: (id, url) => ipcRenderer.invoke('tabs:navigate', { id, url }),
   back: (id) => ipcRenderer.invoke('tabs:back', id),
   forward: (id) => ipcRenderer.invoke('tabs:forward', id),

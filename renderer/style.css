@@ -89,13 +89,27 @@ input:focus, textarea:focus, select:focus { border-color: #5979b8; }
   padding: 4px 8px;
   max-width: 140px;
   cursor: pointer;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
   font-size: 11px;
+  flex: 0 1 auto;
+  min-width: 0;
 }
 .tab-pill.active { background: #23283056; border-color: var(--accent); }
 .tab-pill.locked { border-color: #d4a017; box-shadow: inset 0 0 0 1px #d4a01766; }
+/* Only the title text ellipsizes when a tab's name is long -- pin/lock/x
+   are fixed-size (flex: 0 0 auto) so they can never be pushed out of view
+   or clipped by the pill's width cap. Previously the ellipsis/overflow
+   rules lived on .tab-pill itself, which clipped whichever child
+   happened to sit at the truncated edge -- usually the 'x' close button
+   -- making long-named tabs impossible to close without first navigating
+   them back to a short URL. Fixed 2026-09-14. */
+.tab-pill .title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tab-pill .pin, .tab-pill .lock, .tab-pill .x { flex: 0 0 auto; }
 .tab-pill .x { color: var(--muted); padding: 0 2px; }
 .tab-pill .x:hover { color: var(--text); }
 .tab-pill .lock { padding: 0 2px; font-size: 10px; opacity: 0.75; }
@@ -106,15 +120,9 @@ input:focus, textarea:focus, select:focus { border-color: #5979b8; }
 .tab-pill .pin:hover { opacity: 1; }
 #tab-new { flex: 0 0 auto; padding: 4px 8px; }
 
-#toolbar {
-  display: flex;
-  gap: 4px;
-  padding: 6px;
-  background: var(--panel);
-  border-bottom: 1px solid var(--line);
-  flex: 0 0 auto;
-}
-#addr { flex: 1 1 auto; min-width: 0; }
+/* The navigation toolbar (back/forward/reload/address bar) moved out of
+   this sidebar into its own full-width view -- see renderer/toolbar.css
+   and main.js's toolbarView. */
 
 #chat {
   flex: 1 1 auto;

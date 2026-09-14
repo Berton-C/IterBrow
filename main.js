@@ -11,6 +11,13 @@ const { makeChatBridge } = require('./bridge/chat_bridge');
 const DEFAULT_SIDEBAR_WIDTH = 420;
 const MIN_SIDEBAR_WIDTH = 260;
 const MIN_BROWSER_WIDTH = 240; // keep the tab area from being squeezed to nothing
+// Height of the full-width navigation toolbar (back/forward/reload/address
+// bar) that sits directly above the browsed-page view, spanning from the
+// sidebar's right edge to the window's right edge -- added 2026-09-14
+// because those controls used to live squeezed inside the narrow sidebar
+// column instead of above the actual page, which is not how any
+// conventional browser (Chrome/Safari/Firefox) presents them.
+const TOOLBAR_HEIGHT = 40;
 const ITER_DIR = path.join(__dirname, 'iter');
 const SETTINGS_PATH = path.join(ITER_DIR, '.runtime', 'settings.json');
 // Tab session — which tabs were open, their URLs, and their lock state.
@@ -34,6 +41,7 @@ const SIDEBAR_BG = '#0d0f12'; // matches renderer/style.css --bg
 
 let win = null;
 let sidebarView = null;
+let toolbarView = null;
 let tabs = null;
 let chatBridge = null;
 let iterProcess = null;
@@ -297,9 +305,78 @@ function reopenClosedTab(index = 0) {
   return id;
 }
 
+// Right-click ('two-finger click' on a trackpad) menu for a tab pill in the
+// sidebar's tab strip -- added 2026-09-14 alongside the tab-pill overflow
+// fix, so closing/managing a tab never depends on the tiny 'x' being
+// reachable. Mirrors the same actions already in the Tabs/History menus,
+// just scoped to the tab that was actually clicked (which may not be the
+// active tab).
+function showTabContextMenu(id) {
+  if (!win || !tabs) return;
+  const tabId = Number(id);
+  const tab = tabs.tabs.get(tabId);
+  if (!tab) return;
+  const locked = tabs.isLocked(tabId);
+  const pinned = tabs.isPinned(tabId);
+  const template = [
+    {
+      label: 'Close Tab',
+      enabled: !locked,
+      click: () => tabs.closeTab(tabId),
+    },
+    {
+      label: 'Close Other Tabs',
+      click: () => tabs.closeOtherTabs(tabId),
+    },
+    {
+      label: 'Close Tabs to the Right',
+      click: () => tabs.closeTabsToRight(tabId),
+    },
+    { type: 'separator' },
+    {
+      label: pinned ? 'Unpin Tab' : 'Pin Tab',
+      click: () => tabs.setPinned(tabId, !pinned),
+    },
+    {
+      label: locked ? 'Unlock Tab' : 'Lock Tab',
+      click: () => tabs.setLocked(tabId, !locked),
+    },
+    { type: 'separator' },
+    {
+      label: 'Duplicate Tab',
+      click: () => tabs.duplicateTab(tabId),
+    },
+    {
+      label: 'New Tab to the Right',
+      click: () => tabs.createTabAfter(tabId, 'https://www.google.com'),
+    },
+    { type: 'separator' },
+    {
+      label: 'Reload',
+      click: () => tab.view.webContents.reload(),
+    },
+    {
+      label: 'Reopen Last Closed Tab',
+      enabled: loadClosedTabs().length > 0,
+      click: () => reopenClosedTab(0),
+    },
+  ];
+  Menu.buildFromTemplate(template).popup({ window: win });
+}
+
 function contentBounds() {
   const [w, h] = win.getContentSize();
-  return { x: sidebarWidth, y: 0, width: Math.max(0, w - sidebarWidth), height: h };
+  return {
+    x: sidebarWidth,
+    y: TOOLBAR_HEIGHT,
+    width: Math.max(0, w - sidebarWidth),
+    height: Math.max(0, h - TOOLBAR_HEIGHT),
+  };
+}
+
+function toolbarBounds() {
+  const [w] = win.getContentSize();
+  return { x: sidebarWidth, y: 0, width: Math.max(0, w - sidebarWidth), height: TOOLBAR_HEIGHT };
 }
 
 // ---------------------------------------------------------------------
@@ -331,6 +408,7 @@ function sidebarResizeMove(newWidth) {
   const [w] = win.getContentSize();
   const maxWidth = Math.max(MIN_SIDEBAR_WIDTH, w - MIN_BROWSER_WIDTH);
   sidebarWidth = Math.max(MIN_SIDEBAR_WIDTH, Math.min(maxWidth, Math.round(newWidth)));
+  toolbarView.setBounds(toolbarBounds());
   if (tabs) tabs.relayout();
   return { width: sidebarWidth };
 }
@@ -341,6 +419,7 @@ function sidebarResizeEnd() {
   const [, h] = win.getContentSize();
   sidebarView.setBounds({ x: 0, y: 0, width: sidebarWidth, height: h });
   sidebarView.setBackgroundColor(SIDEBAR_BG);
+  toolbarView.setBounds(toolbarBounds());
   if (tabs && tabs.activeId) tabs.switchTab(tabs.activeId); // restore normal z-order (tab on top)
   const settings = loadSettings();
   settings.sidebarWidth = sidebarWidth;
@@ -773,9 +852,24 @@ function createWindow() {
   sidebarView.setBounds({ x: 0, y: 0, width: sidebarWidth, height: win.getContentSize()[1] });
   sidebarView.webContents.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 
+  // Full-width navigation toolbar (back/forward/reload/address bar), sitting
+  // directly above the browsed-page view -- see TOOLBAR_HEIGHT above.
+  toolbarView = new WebContentsView({
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      sandbox: false,
+    },
+  });
+  win.contentView.addChildView(toolbarView);
+  toolbarView.setBackgroundColor(SIDEBAR_BG);
+  toolbarView.setBounds(toolbarBounds());
+  toolbarView.webContents.loadFile(path.join(__dirname, 'renderer', 'toolbar.html'));
+
   tabs = new TabManager(win, { getContentBounds: contentBounds });
   tabs.onTabsChanged = (list) => {
     sidebarView.webContents.send('tabs:update', list);
+    toolbarView.webContents.send('tabs:update', list);
     saveTabSessionDebounced();
   };
   // Fires just before a tab is actually removed (see TabManager.closeTab),
@@ -804,6 +898,7 @@ function createWindow() {
     if (resizingSidebar) return; // bounds are being driven by the drag handlers instead
     const [w, h] = win.getContentSize();
     sidebarView.setBounds({ x: 0, y: 0, width: sidebarWidth, height: h });
+    toolbarView.setBounds(toolbarBounds());
     tabs.relayout();
   });
 
@@ -812,6 +907,7 @@ function createWindow() {
     saveTabSession(); // flush the last state synchronously, don't rely on the debounce timer surviving shutdown
     for (const tab of tabs.tabs.values()) tab.view.webContents.close();
     sidebarView.webContents.close();
+    toolbarView.webContents.close();
     win = null;
   });
 
@@ -839,6 +935,7 @@ ipcMain.handle('tabs:toggleLock', (_e, id) => tabs.setLocked(id, !tabs.isLocked(
 // User-only, same reasoning as toggleLock: pinning is a human organizational
 // tool, not exposed to Iter over the bridge.
 ipcMain.handle('tabs:togglePin', (_e, id) => tabs.setPinned(id, !tabs.isPinned(id)));
+ipcMain.handle('tabs:contextMenu', (_e, id) => showTabContextMenu(id));
 ipcMain.handle('tabs:navigate', (_e, { id, url }) => tabs.navigate(id, url));
 ipcMain.handle('tabs:back', (_e, id) => {
   const tab = tabs.tabs.get(id);
