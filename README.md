@@ -25,8 +25,8 @@ hand-written summaries, so it stays truthful as the code changes.
 1. [What IterBrow can actually do](#what-iterbrow-can-actually-do)
 2. [How it's built (architecture)](#how-its-built-architecture)
 3. [The cognitive loop, at a glance](#the-cognitive-loop-at-a-glance)
-4. [Full tool catalog (53 tools)](#full-tool-catalog-53-tools)
-5. [Full transformation pipeline (31 stages)](#full-transformation-pipeline-31-stages)
+4. [Full tool catalog (54 tools)](#full-tool-catalog-54-tools)
+5. [Full transformation pipeline (39 stages)](#full-transformation-pipeline-39-stages)
 6. [Memory architecture](#memory-architecture)
 7. [The Soul system — value-grounded self-evaluation](#the-soul-system--value-grounded-self-evaluation)
 8. [NACE — the self-improvement and governance loop](#nace--the-self-improvement-and-governance-loop)
@@ -62,6 +62,23 @@ hand-written summaries, so it stays truthful as the code changes.
   Use this on anything sensitive — banking, email, whatever you don't want the agent touching.
 - **You can pin any tab (📌)** so it floats to the front of the tab strip and survives
   "close other tabs" / "close tabs to the right" sweeps.
+- **Tab Groups.** Save your currently open tabs as a named set from Settings → Tab Groups, then
+  later **Open** it alongside what's already open, **Switch** to it (closing your current
+  unpinned/unlocked tabs first), or **Close**/delete it. Pinned and locked tabs are never touched
+  by any of these.
+- **A built-in file browser, editor, and real terminal.** Settings → Terminal & Files gives you a
+  three-pane view onto `iter/`: a file tree, a text editor with Save, and a real (non-pty) bash
+  shell rooted there — with a ^C interrupt button and a Stop button for the shell process. Handy
+  for inspecting or hand-editing tools/transformations/memory without leaving the app.
+- **Camera and microphone access, with a visible capture tab and a human-facing Permissions
+  panel.** Iter can take a photo or record a short audio clip via `device_capture` — this always
+  opens as a real, visible tab (not a silent background request) that shows the live camera/mic
+  feed while capturing, saves the result under `iter/memory/captures/`, and leaves the tab open
+  afterward. Camera/mic access is scoped at the Electron session level to that one capture page —
+  a regular browsing tab can never piggyback on the OS-level grant. Settings → Permissions shows
+  live camera/mic status read from macOS, with a **Request access** button (triggers the system
+  prompt) and an **Open System Settings** shortcut (jumps straight to the matching Privacy pane so
+  you can revoke access any time).
 - **It remembers things, two different ways.** A vector-searchable long-term memory store for
   discrete facts/beliefs/preferences, and a separate tiered "rollup" pyramid that compresses old
   conversation into progressively coarser summaries — see [Memory architecture](#memory-architecture).
@@ -118,21 +135,21 @@ Every turn, `iter.py` runs one cycle: assemble context → call the model → di
 run transformations → wait for the next input. Two of the folders under `iter/` are where nearly
 all of this project's actual capability lives, and both are hot-reloadable at runtime:
 
-- **`iter/tools/`** (53 active) — things the model can explicitly call: browse, remember,
-  reason, self-modify, communicate. See the [full catalog](#full-tool-catalog-53-tools) below.
-- **`iter/transformations/`** (31 active) — pipeline stages that run automatically every cycle
+- **`iter/tools/`** (54 active) — things the model can explicitly call: browse, remember,
+  reason, self-modify, communicate. See the [full catalog](#full-tool-catalog-54-tools) below.
+- **`iter/transformations/`** (39 active) — pipeline stages that run automatically every cycle
   around the model call: injecting memory/context, tracking reliability, running the self-improve
-  and governance checks, updating dashboards. See the [full pipeline](#full-transformation-pipeline-31-stages)
+  and governance checks, updating dashboards. See the [full pipeline](#full-transformation-pipeline-39-stages)
   below. Transformations are invisible to the model as callable tools — they shape what the model
   *sees* and what happens *after* it acts, rather than things it decides to invoke.
 
 A file starting with `_` in either folder is deactivated without being deleted — the fastest way
 to see exactly what's currently live vs. retired is `ls iter/tools/` / `ls iter/transformations/`.
 
-## Full tool catalog (53 tools)
+## Full tool catalog (54 tools)
 
 Generated directly from each file's `DESCRIPTION` constant — this is everything the model can
-currently call, grouped by what it's for. (A further ~22 tools exist but are deactivated —
+currently call, grouped by what it's for. (A further ~28 tools exist but are deactivated —
 `_`-prefixed — inside `iter/tools/`; inspect any directly to see what it does and why it's off.)
 
 **Browser control**
@@ -153,6 +170,12 @@ currently call, grouped by what it's for. (A further ~22 tools exist but are dea
 | `browser_read_text` | Get the attached tab's visible page text (document.body.innerText, truncated to 20000 chars). Cheaper than a screenshot when you just need to read content. |
 | `browser_screenshot` | Take a screenshot of the attached browser tab's current viewport and attach it as visual context for the next model turn. Use this to see what the page actually looks like before deciding on clicks. |
 | `browser_cdp` | Advanced/raw escape hatch: send an arbitrary Chrome DevTools Protocol command to the attached tab (e.g. method='Network.enable' or method='Emulation.setDeviceMetricsOverride'). cdp_params must be a JSON object string. Only use this when the simpler browser_* tools do not cover what you need. |
+
+**Device capture**
+
+| Name | What it does |
+|---|---|
+| `device_capture` | Take a photo with the camera or record a clip with the microphone, using a visible browser tab the user can see. Args: action ('photo'\|'record'\|'close'), duration (float, optional, seconds to record audio for — only used by 'record'), tab_id (optional, to close a specific capture tab). Opens `renderer/capture.html` in a real tab, waits for it to be ready, then triggers `getUserMedia`; the tab stays open afterward so the user can see what was captured. Saves to `iter/memory/captures/`. Requires the user to have granted camera/microphone access (see the Permissions panel). |
 
 **Live UI generation & component museum**
 
@@ -238,10 +261,10 @@ currently call, grouped by what it's for. (A further ~22 tools exist but are dea
 |---|---|
 | `lm_studio_chat` | Send a chat completion request to LM Studio's local LLM server, as a side call independent of your own main model (which is configured separately via BASE_URL/LLM_MODEL). Accepts: messages (list of {role, content} dicts, or a JSON string), model (default 'qwen/qwen3.8-27b'), temperature (default 0.7), max_tokens (default 1024), stream (default False). Returns the assistant's response text, or full JSON if raw=True. LM Studio base URL defaults to http://127.0.0.1:1234 (loopback, works with or without a network) but can be overridden via base_url. |
 
-## Full transformation pipeline (31 stages)
+## Full transformation pipeline (39 stages)
 
 Also generated directly from each file's `DESCRIPTION` constant. These run automatically, in
-alphabetical order, every single cycle — the model never calls them directly. (A further ~7
+alphabetical order, every single cycle — the model never calls them directly. (A further ~4
 transformations exist but are deactivated.)
 
 **Context assembly & injection**
@@ -278,6 +301,22 @@ transformations exist but are deactivated.)
 | `tool_reliability_tracker` | Tracks reliability of tools |
 | `dynamic_tool_budget` | Dynamic tool budget: adjusts tool call limit and hides unreliable tools based on NAL reliability, stall, and memory pressure. |
 | `stall_detect` | Stall detection: detects repetitive loops and injects warnings. |
+| `provenance_guard` | Detects governed-directory code writes that are misplaced (won't be auto-loaded) or reference metadata keys nothing in the repo ever produces, and feeds real support/contradict events into the previously-dormant verify_before_claiming NAL pattern. |
+
+**Flourishing compass-pattern evidence bridges**
+
+Added to close out the 7 compass patterns that previously had no real evidence producer feeding
+them — each watches an existing subsystem's real state and turns it into genuine confirmed/violated
+NAL evidence for one specific pattern, rather than leaving it permanently unevidenced.
+
+| Name | What it does |
+|---|---|
+| `admit_uncertainty_bridge` | Feeds real confirmed/violated evidence into admit_uncertainty (Cognitive Resilience) and a second producer for verify_before_claiming (Shared Understanding), reusing completion_claim_guard's own claim-vs-phase check. |
+| `attention_stewardship_bridge` | Feeds real confirmed/violated evidence into the conserve_cycles compass pattern (Attention Stewardship) by comparing dynamic_tool_budget.py's computed budget against actual tool-call spend per cycle. |
+| `connection_depth_bridge` | Feeds real confirmed/violated evidence into the recover_gracefully compass pattern (Connection Depth) by checking whether real errors (auto_improve.py's own ERROR_PATTERNS) get surfaced to the user via send, or handled in silence. |
+| `creative_transcendence_bridge` | Feeds real confirmed/violated evidence into the learn_from_experience compass pattern (Creative Transcendence) by checking whether dynamic_tool_budget.py actually adapted (hid) a tool once tool_reliability_tracker.py accumulated enough low-reliability evidence. |
+| `time_coherence_bridge` | Feeds real confirmed/violated evidence into the backup_before_change compass pattern (Time Coherence) by watching soul_lock.json for abandoned (stuck) transactions. |
+| `wonder_preservation_bridge` | Feeds real confirmed/violated evidence into the explore_with_purpose compass pattern (Wonder Preservation) by watching stall_detect.py's own persisted state across consecutive cycles for a rigid loop that continues vs. one that gets broken. |
 
 **Soul system**
 
@@ -295,6 +334,7 @@ transformations exist but are deactivated.)
 | `dashboard_context` | Renders every tool's live OpenAI-style schema (parameters, types, required/optional) into a browsable HTML page. |
 | `dashboard_gallery` | Gallery wrapper for context, runtime, and atomspace dashboards |
 | `dashboard_runtime` | Runtime dashboard without atom-space visualization or recent messages |
+| `dashboard_beliefs_refresh` | Refreshes .runtime/pages/beliefs_layer.html's f/c meters from the real strength/confidence fields on the 5 backing chroma memories (H1-H5), instead of a static hand-typed snapshot. Fails open / no-ops on any error. |
 
 **Housekeeping**
 
@@ -580,6 +620,19 @@ git-ignored — it is never written into any file this repo tracks.
     (last 20 closed tabs, click any to reopen it).
   - **Tabs** — New Tab to the Right, Duplicate Tab, Select Next/Previous Tab (⌃Tab / ⌃⇧Tab),
     Pin/Unpin Tab, Close Other Tabs, Close Tabs to the Right (both skip pinned and locked tabs).
+- **Settings → Tab Groups:** type a name and click **Save current tabs** to snapshot your open
+  tabs as a group. Later, **Open** adds the group's tabs alongside whatever's already open,
+  **Switch** closes your current unpinned/unlocked tabs first then opens the group, and
+  **Close**/delete removes it. Pinned and locked tabs are never touched by any of these.
+- **Settings → Permissions:** shows live camera/mic status read straight from macOS. Click
+  **Request access** to trigger the system permission prompt, or **Open System Settings** to jump
+  straight to the matching Privacy pane (to grant it manually or revoke it). This governs both the
+  human-triggered case and Iter's own `device_capture` tool — either one shows the same visible
+  capture tab with a live camera/mic preview while it's running, never a silent background grab.
+- **Settings → Terminal & Files:** a three-pane file tree / editor / real bash-shell view rooted
+  at `iter/`, for browsing or hand-editing tools, transformations, and memory files, or running
+  shell commands, without leaving the app. It's a plain (non-pty) shell, so full-screen interactive
+  programs like `vim` won't render correctly — use the ^C button to recover a hung command.
 - **Activity log drawer:** shows the agent's raw stdout — every tool call, LLM response, and error
   — if you want to see exactly what it's doing and why.
 
@@ -674,6 +727,12 @@ This repo ships **unsigned** (no Apple Developer account wired in):
   since the embeddings call always goes through OpenRouter's API.
 - **A tab won't let the agent touch it:** check its lock icon (🔓/🔒) — a locked tab rejects every
   agent-driven action by design. Click the icon to unlock it.
+- **Camera/microphone capture fails or macOS never prompts:** check Settings → Permissions — if
+  status shows denied or restricted, click **Open System Settings** and re-enable it in the Privacy
+  pane (macOS won't re-prompt automatically once you've denied it once). In dev mode (`npm start`)
+  the bundled Electron.app already ships generic camera/mic usage-description strings, so the OS
+  prompt works without any extra setup; a packaged `.app` picks up the friendlier strings from
+  `package.json`'s `build.mac.extendInfo` instead (see [Packaging](#packaging-a-standalone-app)).
 - **Gatekeeper blocks the packaged .app:** see [Packaging a standalone .app](#packaging-a-standalone-app)
   above — right-click → Open once, or clear the quarantine attribute with `xattr -cr`.
 - **`npm install` fails on native deps:** make sure Xcode Command Line Tools are installed

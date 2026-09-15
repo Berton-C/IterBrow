@@ -1,0 +1,20 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Iter Device Capture</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #111318; color: #ccc; font: 12px -apple-system, BlinkMacSystemFont, sans-serif; }
+  body { display: flex; flex-direction: column; }
+  #preview { flex: 1 1 auto; width: 100%; min-height: 0; object-fit: contain; background: #000; }
+  #status { flex: 0 0 auto; padding: 10px 14px; background: #1b1e24; border-top: 1px solid #2c313a; }
+  #hint { flex: 0 0 auto; padding: 0 14px 10px; color: #7a8090; }
+</style>
+</head>
+<body>
+  <video id="preview" autoplay playsinline muted></video>
+  <div id="status">Starting device capture…</div>
+  <div id="hint">This tab is opened and controlled by Iter (your agent) to take a photo or record audio when you ask it to. Close it any time — nothing is captured unless Iter explicitly triggers it.</div>
+  <script src="capture.js"></script>
+</body>
+</html>

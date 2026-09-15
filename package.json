@@ -31,7 +31,11 @@
     "mac": {
       "category": "public.app-category.productivity",
       "hardenedRuntime": false,
-      "gatekeeperAssess": false
+      "gatekeeperAssess": false,
+      "extendInfo": {
+        "NSCameraUsageDescription": "Iter Browser uses the camera only when you or Iter open a device-capture tab to take a photo.",
+        "NSMicrophoneUsageDescription": "Iter Browser uses the microphone only when you or Iter open a device-capture tab to record audio."
+      }
     },
     "extraResources": []
   }
