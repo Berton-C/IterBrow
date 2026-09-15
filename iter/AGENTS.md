@@ -219,6 +219,7 @@ were confirmation.
 | `append_last_transcript_lines.py` | Appends last 6 transcript lines to system message |
 | `atom_space_update.py` | Auto-updates `space.metta` with formalizations from chroma_query |
 | `dashboard_*.py` | Browser dashboards (atomspace, context, gallery, runtime) |
+| `dashboard_beliefs_refresh.py` | Refreshes `.runtime/pages/beliefs_layer.html`'s f/c meters from the real `strength`/`confidence` fields on its 5 backing chroma memories (H1-H5); no-ops when nothing changed. See "Founding Epistemics beliefs layer" below. |
 | `history.py` | Stores episodes (deduped, restart-safe) |
 | `recap.py` | Episode detection + `.recap_needed` flag |
 | `screenshot.py` | Attaches screenshot as one-shot multimodal input |
@@ -369,6 +370,30 @@ in `tools/_test_all_stages_combined.py`) rather than just written and assumed to
 - soul_lock(action="begin") → modify soul files → soul_lock(action="verify") → soul_lock(action="commit"/"rollback")
 - soul_skill_registry(action="list") shows all skills + maturity
 - soul_check + soul_voice run automatically every cycle
+
+## Founding Epistemics beliefs layer (2026-09-14)
+
+A self-authored founder-facing page at `.runtime/pages/beliefs_layer.html` ("Founder
+Toolkit v2") tracks 5 hypotheses about this codebase/workflow as NAL-style (f,c)
+truth values with evidence-for/against lists, using the same frequency/confidence
+vocabulary as `nace_beliefs.metta` — but it is a separate, lighter mechanism: each
+card is backed by one real LTM memory in chroma, not a `cap-efficacy`/`value-efficacy`
+atom, and gets revised with the existing `support()`/`contradict()` tools against that
+memory's id, not through `nace_pending.metta`/`nace_courier.py`.
+
+- H1 path-fragility → memory `505c1ac3…`
+- H2 NAL-weighted reliability → memory `d7615651…`
+- H3 send-discipline → memory `05fbf5bd…`
+- H4 websearch repo-discovery → memory `0a901d47…`
+- H5 substrate compounding → memory `dc7ca12f…`
+
+`dashboard_beliefs_refresh.py` re-reads each memory's real `strength`/`confidence`
+every cycle and rewrites just the meter/timestamp markup, so the page reflects
+whatever `support()`/`contradict()` have actually recorded — it replaces an earlier
+one-off script (`refresh_beliefs_fc.py`, left at the iter/ root, never auto-run) that
+read a metadata key those tools never write and would have kept the meters frozen.
+To add real evidence for one of these hypotheses going forward, call `support()` or
+`contradict()` with the memory id above, not by hand-editing the HTML.
 
 ## Browser tabs: File/History/Tabs menu system (2026-09-14)
 
