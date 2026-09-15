@@ -220,6 +220,7 @@ were confirmation.
 | `atom_space_update.py` | Auto-updates `space.metta` with formalizations from chroma_query |
 | `dashboard_*.py` | Browser dashboards (atomspace, context, gallery, runtime) |
 | `dashboard_beliefs_refresh.py` | Refreshes `.runtime/pages/beliefs_layer.html`'s f/c meters from the real `strength`/`confidence` fields on its 5 backing chroma memories (H1-H5); no-ops when nothing changed. See "Founding Epistemics beliefs layer" below. |
+| `provenance_guard.py` | Structurally checks new code written via shell/python this session for the two 2026-09-14 beliefs_layer incident bug shapes (misplaced hook, unproduced metadata key) and feeds real evidence into the `verify_before_claiming` NAL pattern. See "Provenance Guard" below. |
 | `history.py` | Stores episodes (deduped, restart-safe) |
 | `recap.py` | Episode detection + `.recap_needed` flag |
 | `screenshot.py` | Attaches screenshot as one-shot multimodal input |
@@ -394,6 +395,59 @@ one-off script (`refresh_beliefs_fc.py`, left at the iter/ root, never auto-run)
 read a metadata key those tools never write and would have kept the meters frozen.
 To add real evidence for one of these hypotheses going forward, call `support()` or
 `contradict()` with the memory id above, not by hand-editing the HTML.
+
+## Provenance Guard (2026-09-14)
+
+`transformations/provenance_guard.py` generalizes the lesson from the incident above
+(`refresh_beliefs_fc.py`, wrong directory + wrong field name, never caught until a
+human read the page three days later) from a one-off fix into a standing check, on
+purpose without any English-phrase/keyword matching of promise-language ("will
+update once...", "is wired to...") — that path was considered and rejected as a
+long-tail bandaid: infinite ways to phrase an ungrounded claim, but exactly one
+mechanical fact underneath any of them. It checks two structural facts instead, via
+`tools/_provenance.py`:
+
+1. **`misplaced_hook_reason`** — does new shell/python-written content define
+   `transform()`/`run()` + `DESCRIPTION` (structurally a transformation/tool hook)
+   while living outside the directories `iter.py`'s own loader actually globs? The
+   hot-dir list is derived by reading `iter.py`'s own `Path(...).glob("*.py")` calls
+   at check time, not a hardcoded duplicate that could itself drift stale.
+2. **`unproduced_keys`** — does it read a `metadata`/`meta`/`md` dict key via
+   `.get(...)`/`[...]` that no other `.py` file in the repo ever writes? A key with
+   zero producers anywhere is the exact `stv`-vs-`strength`/`confidence` shape.
+
+Either check failing appends an advisory system-message note (does not withhold
+`send` — the detector's own heuristics, especially python-write content extraction,
+are not proven reliable enough yet to justify that) and — the actual point — emits a
+real `(pending-revision pattern verify_before_claiming violated|confirmed)` line into
+`nace_pending.metta`. `verify_before_claiming` is a compass pattern already declared
+in `nace_beliefs.metta` (`stv 0.5 0.2`, a frozen prior since authored) that, before
+this file, had never once received a real evidence event from anywhere in the
+codebase — of the 9 declared compass patterns, only `prioritize_user` (via
+`idle_cycle_detector.py`) was ever wired to live evidence. This closes that gap for
+the pattern most directly relevant to the incident that motivated it, through the
+same courier pipeline every other belief revision already uses — so its f/c will now
+actually move based on this team's real track record instead of sitting at a guess
+forever, and can eventually feed back into how strict a future dispatch-time gate
+(`tools/_metta_gate.py`) makes this check, the same way `capability_lifecycle`
+already scales tool-dispatch floors against real efficacy.
+
+Deliberately excluded from this pass, staying additive rather than reaching for a
+bigger rebuild: no change to `_metta_gate.py`'s dispatch gate itself (this observes
+from the transformation layer, same as `completion_claim_guard.py`, not from the
+pre-dispatch VETO/ADVISE path) and no shared import from `soul_eval.py`'s own
+provenance-typing code, matching this codebase's stated convention of small local
+logic per surface over cross-layer coupling.
+
+Test fixture caught two real false-positive shapes worth remembering: (a) the bare
+English word "metadata" inside a docstring/comment was originally enough to mark a
+file as contract-relevant — fixed by requiring an actual `metadata.`/`metadata[`
+access pattern, not just the word appearing anywhere; (b) chroma's own container-level
+keys (`"metadatas"`, `"ids"`) off a variable named `data` were originally flagged as
+unproduced — fixed by requiring the accessor variable itself look like
+`metadata`/`meta`/`md`, not any dict. Both are documented in `tools/_provenance.py`
+rather than silently fixed, since they're exactly the kind of narrow-vs-wide miss this
+whole feature exists to catch — including in itself.
 
 ## Browser tabs: File/History/Tabs menu system (2026-09-14)
 
