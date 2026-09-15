@@ -14,11 +14,37 @@ Matching logic:
   - Strips .py extension, checks if base name appears in AGENTS.md
   - Also checks full filename (with .py)
   - Handles glob patterns in AGENTS.md (e.g. dashboard_*.py matches dashboard_atomspace.py)
+
+FLOURISHING BRIDGE: AGENTS.md is this system's own persistent record of
+itself -- what it maintains, and how. Reinterpreted through the
+flourishing lens the user approved, drift between disk and AGENTS.md is
+exactly the maintain_memory pattern's non-flourishing pole (Purpose Beyond
+Utility): identity-continuity documentation going stale rather than being
+kept coherent. Tracked via a small streak counter (mirrors idle_cycle_
+detector.py's RECURRENCE_THRESHOLD convention) so a single noisy cycle
+doesn't get recorded, only a real persistent drift (3+ consecutive stale
+checks) or its resolution (drift clears after having been recorded). Feeds
+`(pending-revision pattern maintain_memory <outcome>)` into
+nace_pending.metta via tools/_provenance.record_pattern_outcome -- the
+same shared append helper provenance_guard.py already uses.
 """
 import os
+import sys
+import json
 import fnmatch
 
-DESCRIPTION = "Detect staleness in AGENTS.md by comparing disk vs documented files."
+_TOOLS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tools")
+if _TOOLS_DIR not in sys.path:
+    sys.path.insert(0, _TOOLS_DIR)
+try:
+    import _provenance as _prov
+except Exception:
+    _prov = None
+
+DESCRIPTION = "Detect staleness in AGENTS.md by comparing disk vs documented files, and feed maintain_memory (Purpose Beyond Utility) evidence on persistent-drift/repair transitions."
+
+_PATTERN_STATE_PATH = os.path.join("memory", ".staleness_pattern_state.json")
+_PATTERN_STREAK_THRESHOLD = 3  # consecutive stale checks before it's worth naming as a pattern, mirrors idle_cycle_detector's RECURRENCE_THRESHOLD convention
 
 BASE = "."
 AGENTS_MD = os.path.join(BASE, "AGENTS.md")
@@ -67,6 +93,50 @@ def _is_documented(fname, md_content):
             return True
     return False
 
+def _load_pattern_state():
+    try:
+        with open(_PATTERN_STATE_PATH, "r", encoding="utf-8") as f:
+            state = json.load(f)
+            if isinstance(state, dict):
+                return state
+    except Exception:
+        pass
+    return {"streak": 0, "recorded": False}
+
+
+def _save_pattern_state(state):
+    try:
+        os.makedirs("memory", exist_ok=True)
+        with open(_PATTERN_STATE_PATH, "w", encoding="utf-8") as f:
+            json.dump(state, f)
+    except Exception:
+        pass
+
+
+def _record_maintain_memory(is_stale):
+    """Feed maintain_memory pattern-efficacy on real streak transitions
+    only -- never every cycle. `is_stale` is this cycle's raw finding
+    (any undocumented files at all)."""
+    if _prov is None:
+        return
+    state = _load_pattern_state()
+    streak = state.get("streak", 0)
+    recorded = state.get("recorded", False)
+
+    if is_stale:
+        streak += 1
+        if streak >= _PATTERN_STREAK_THRESHOLD and not recorded:
+            _prov.record_pattern_outcome("maintain_memory", "violated")
+            recorded = True
+    else:
+        if recorded:
+            _prov.record_pattern_outcome("maintain_memory", "confirmed")
+        streak = 0
+        recorded = False
+
+    _save_pattern_state({"streak": streak, "recorded": recorded})
+
+
 def transform(messages, tools):
     try:
         if not messages:
@@ -102,6 +172,8 @@ def transform(messages, tools):
                     first_msg["content"] = fc.rstrip() + block
                 elif isinstance(fc, list):
                     first_msg["content"] = fc + [{"type": "text", "text": block}]
+
+        _record_maintain_memory(bool(warnings))
 
     except Exception:
         pass
