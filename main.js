@@ -1,4 +1,4 @@
-const { app, BaseWindow, WebContentsView, ipcMain, dialog, Menu } = require('electron');
+const { app, BaseWindow, WebContentsView, ipcMain, dialog, Menu, systemPreferences, shell, session } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -951,7 +951,35 @@ function buildAppMenu() {
   return Menu.buildFromTemplate(template);
 }
 
+// Scope camera/mic access to only the local device-capture page --
+// otherwise, once macOS has granted this app camera/mic access at the
+// process level, any regular browsing tab (a real website) could also
+// silently request it. file:// + capture.html is the only origin allowed;
+// everything else (including 'display-capture', 'geolocation', etc.) is
+// denied here regardless of what a tab asks for. Registered inside
+// createWindow() (not at module scope) because session.defaultSession is
+// only usable after app.whenReady() has fired, and createWindow only ever
+// runs via app.whenReady().then(createWindow) below.
+function isCapturePageOrigin(webContents) {
+  const url = (webContents && webContents.getURL && webContents.getURL()) || '';
+  return url.startsWith('file://') && url.includes('/renderer/capture.html');
+}
+
+const MAC_PRIVACY_PANES = {
+  camera: 'x-apple.systempreferences:com.apple.preference.security?Privacy_Camera',
+  microphone: 'x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone',
+};
+
 function createWindow() {
+  session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
+    if (permission === 'media') return callback(isCapturePageOrigin(webContents));
+    callback(false);
+  });
+  session.defaultSession.setPermissionCheckHandler((webContents, permission) => {
+    if (permission === 'media') return isCapturePageOrigin(webContents);
+    return false;
+  });
+
   const initialSettings = loadSettings();
   sidebarWidth = initialSettings.sidebarWidth || DEFAULT_SIDEBAR_WIDTH;
 
@@ -1083,6 +1111,27 @@ ipcMain.handle('settings:load', () => loadSettings());
 ipcMain.handle('settings:save', (_e, settings) => {
   saveSettings(settings);
   return { saved: true };
+});
+
+// Permissions panel -- human-facing status/grant/revoke-shortcut controls.
+// Independent of Iter's own device_capture.py tool: that tool's tab
+// triggers the same macOS getUserMedia prompt on its own the first time it
+// runs, whether or not the user has opened this panel. This panel just
+// gives the user visibility and a one-click way to (re)request or jump to
+// System Settings to revoke.
+ipcMain.handle('permissions:status', () => ({
+  camera: systemPreferences.getMediaAccessStatus('camera'),
+  microphone: systemPreferences.getMediaAccessStatus('microphone'),
+}));
+ipcMain.handle('permissions:request', async (_e, kind) => {
+  if (kind !== 'camera' && kind !== 'microphone') throw new Error('unknown permission kind: ' + kind);
+  const granted = await systemPreferences.askForMediaAccess(kind);
+  return { granted, status: systemPreferences.getMediaAccessStatus(kind) };
+});
+ipcMain.handle('permissions:openSystemSettings', (_e, kind) => {
+  const url = MAC_PRIVACY_PANES[kind];
+  if (!url) throw new Error('unknown permission kind: ' + kind);
+  return shell.openExternal(url);
 });
 
 ipcMain.handle('state:export', () => exportState());

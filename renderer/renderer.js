@@ -269,6 +269,43 @@ window.iterApi.loadSettings().then((settings) => {
 });
 
 // ---------------------------------------------------------------------
+// Permissions -- Camera & Microphone
+// ---------------------------------------------------------------------
+const PERM_LABELS = {
+  'not-determined': 'not requested yet',
+  granted: 'granted',
+  denied: 'denied',
+  restricted: 'restricted (managed by an org policy)',
+  unknown: 'unknown',
+};
+
+function paintPermStatus(el, status) {
+  el.textContent = PERM_LABELS[status] || status;
+  el.style.color = status === 'granted' ? '#4caf7d' : status === 'denied' ? '#ff6b6b' : 'var(--muted)';
+}
+
+function refreshPermissions() {
+  window.iterApi.permissionsStatus().then((s) => {
+    paintPermStatus(document.getElementById('perm-camera-status'), s.camera);
+    paintPermStatus(document.getElementById('perm-mic-status'), s.microphone);
+  });
+}
+refreshPermissions();
+
+document.getElementById('btn-perm-camera-request').addEventListener('click', () => {
+  window.iterApi.requestPermission('camera').then(refreshPermissions);
+});
+document.getElementById('btn-perm-mic-request').addEventListener('click', () => {
+  window.iterApi.requestPermission('microphone').then(refreshPermissions);
+});
+document.getElementById('btn-perm-camera-settings').addEventListener('click', () => {
+  window.iterApi.openPermissionSettings('camera');
+});
+document.getElementById('btn-perm-mic-settings').addEventListener('click', () => {
+  window.iterApi.openPermissionSettings('microphone');
+});
+
+// ---------------------------------------------------------------------
 // State: Export / Import / Reset
 // ---------------------------------------------------------------------
 const stateStatus = document.getElementById('state-mgmt-status');

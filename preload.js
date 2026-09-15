@@ -34,6 +34,10 @@ contextBridge.exposeInMainWorld('iterApi', {
   loadSettings: () => ipcRenderer.invoke('settings:load'),
   saveSettings: (settings) => ipcRenderer.invoke('settings:save', settings),
 
+  permissionsStatus: () => ipcRenderer.invoke('permissions:status'),
+  requestPermission: (kind) => ipcRenderer.invoke('permissions:request', kind),
+  openPermissionSettings: (kind) => ipcRenderer.invoke('permissions:openSystemSettings', kind),
+
   exportState: () => ipcRenderer.invoke('state:export'),
   importState: () => ipcRenderer.invoke('state:import'),
   resetState: () => ipcRenderer.invoke('state:reset'),

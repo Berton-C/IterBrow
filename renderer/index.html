@@ -85,6 +85,33 @@
   </div>
 </details>
 
+<details id="permissions">
+  <summary>Permissions — Camera &amp; Microphone</summary>
+  <div class="settings-body">
+    <div style="font-size:10px;color:var(--muted)">
+      Controls whether Iter Browser (including Iter's own device-capture tool) can use your Mac's
+      camera and microphone. Status is read live from macOS. Request opens the system prompt; Open
+      System Settings jumps straight to the matching Privacy pane so you can revoke access any time.
+    </div>
+    <div class="field">
+      <label>Camera</label>
+      <div class="row">
+        <span id="perm-camera-status" style="flex:0 0 auto;align-self:center;font-size:11px;color:var(--muted)">checking…</span>
+        <button id="btn-perm-camera-request">Request access</button>
+        <button id="btn-perm-camera-settings">Open System Settings</button>
+      </div>
+    </div>
+    <div class="field">
+      <label>Microphone</label>
+      <div class="row">
+        <span id="perm-mic-status" style="flex:0 0 auto;align-self:center;font-size:11px;color:var(--muted)">checking…</span>
+        <button id="btn-perm-mic-request">Request access</button>
+        <button id="btn-perm-mic-settings">Open System Settings</button>
+      </div>
+    </div>
+  </div>
+</details>
+
 <details id="termfiles">
   <summary>Terminal &amp; Files</summary>
   <div class="settings-body">
