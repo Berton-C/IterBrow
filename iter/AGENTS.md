@@ -1,4 +1,4 @@
-# AGENTS.md â Iter Agent Reference
+# AGENTS.md — Iter Agent Reference
 
 > Living reference for any agent operating in this environment.
 > Last updated: 2026-08-29. Keep this file current as systems change.
@@ -93,9 +93,9 @@ were confirmation.
 ## Environment
 
 - **Runtime:** MicroPython/WASM inside a browser tab.
-- **Home:** `/work` â Working directory: `/work/iter` (all relative paths resolve here).
-- **JS access:** `import js` â `js.window`, `js.document`, `js.navigator`, `js.localStorage`, `js.console`, `await js.fetch(...)`.
-- **Iter integration:** `import bridge` â shell, screenshot, persistence, terminal comms, LLM transport.
+- **Home:** `/work` — Working directory: `/work/iter` (all relative paths resolve here).
+- **JS access:** `import js` → `js.window`, `js.document`, `js.navigator`, `js.localStorage`, `js.console`, `await js.fetch(...)`.
+- **Iter integration:** `import bridge` → shell, screenshot, persistence, terminal comms, LLM transport.
 - **Model:** Configured via `bridge.config()` (model, base_url, api_key). See `iter.py` CONFIG section.
 - **Constraints:** CORS, permissions, secure-context, popup/user-gesture requirements apply.
 
@@ -103,29 +103,29 @@ were confirmation.
 
 ```
 /work/iter/
-âââ iter.py              # Main agent loop â config, execution, tool dispatch
-âââ prompt.txt           # System prompt (loaded each cycle)
-âââ reprogramming.txt   # How to add channels/tools/transformations
-âââ shell.py             # Shell helper
-âââ rollup_helper.py     # Rollup utility functions
-âââ experience.json      # Rolling experience buffer (last N tool calls)
-âââ AGENTS.md            # This file
-âââ chroma_db/           # ChromaDB vector store (int8-packed embeddings)
-âââ channels/
-â   âââ terminal.py      # Terminal communication channel
-âââ tools/              # Agent tools (see Tool Inventory below)
-âââ transformations/    # Context transformations (see Transformations below)
-âââ memory/
-â   âââ tasks/
-â   â   âââ current_tasks.txt   # Active task description
-â   âââ tiers/
-â   â   âââ tier5.txt   # Coarsest summary (life summary)
-â   â   âââ tier4.txt   # Era summaries
-â   â   âââ tier3.txt   # Episode summaries
-â   âââ recap/
-â       âââ .recap_state        # Episode counter
-â       âââ episode_*.json     # Individual episode records
-âââ _screenshots/       # Screenshot storage (max 6, auto-swept)
+├── iter.py              # Main agent loop — config, execution, tool dispatch
+├── prompt.txt           # System prompt (loaded each cycle)
+├── reprogramming.txt   # How to add channels/tools/transformations
+├── shell.py             # Shell helper
+├── rollup_helper.py     # Rollup utility functions
+├── experience.json      # Rolling experience buffer (last N tool calls)
+├── AGENTS.md            # This file
+├── chroma_db/           # ChromaDB vector store (int8-packed embeddings)
+├── channels/
+│   └── terminal.py      # Terminal communication channel
+├── tools/              # Agent tools (see Tool Inventory below)
+├── transformations/    # Context transformations (see Transformations below)
+├── memory/
+│   ├── tasks/
+│   │   └── current_tasks.txt   # Active task description
+│   ├── tiers/
+│   │   ├── tier5.txt   # Coarsest summary (life summary)
+│   │   ├── tier4.txt   # Era summaries
+│   │   └── tier3.txt   # Episode summaries
+│   └── recap/
+│       ├── .recap_state        # Episode counter
+│       └── episode_*.json     # Individual episode records
+└── _screenshots/       # Screenshot storage (max 6, auto-swept)
 ```
 
 ## Tool Inventory
@@ -188,13 +188,13 @@ were confirmation.
    - Vector store of discrete memory items with text + int8-packed embeddings.
    - Each item has: UUID, timestamp, provenance type, STV (truth value), optional episode links, optional NAL formalization.
    - Truth values use NAL revision: `support` adds positive evidence, `contradict` adds negative.
-   - Query with `chroma_query` (text â semantic nearest neighbors).
+   - Query with `chroma_query` (text → semantic nearest neighbors).
 
 2. **Episodic Memory (Tiered Pyramid):**
-   - `tier5.txt` â Life summary (coarsest, ~1 line)
-   - `tier4.txt` â Era summaries (~1 line per era)
-   - `tier3.txt` â Episode summaries (~2-3 lines per episode)
-   - `memory/recap/episode_*.json` â Full episode records
+   - `tier5.txt` — Life summary (coarsest, ~1 line)
+   - `tier4.txt` — Era summaries (~1 line per era)
+   - `tier3.txt` — Episode summaries (~2-3 lines per episode)
+   - `memory/recap/episode_*.json` — Full episode records
    - Rollup trigger: when a tier exceeds its char limit, `.rollup_needed` flag is set.
    - Context budget: 8000 chars total for tier content in system message.
 
@@ -204,7 +204,7 @@ were confirmation.
    - `.recap_state` tracks the counter.
 
 ### Bridge Between Systems
-- `link_episode` connects LTM items â episode timestamps.
+- `link_episode` connects LTM items → episode timestamps.
 - `support`/`contradict` create NAL evidence from episode events.
 - Manual linking is done during consolidation passes.
 
@@ -236,7 +236,7 @@ were confirmation.
 - **`provenance_type` for memories:** `observed` (user said/did something), `inferred` (agent deduced), `model_estimated` (estimated without evidence).
 - **NAL formalization format:** `(--> subject predicate)` for inheritance, `(--> $1 [] predicate)` for properties, `(==> premise conclusion)` for implications.
 - **Tool reliability:** NAL truth-weighted scoring tracks which tools work reliably.
-- **MAX_MEMORY_CHARS:** 3000 â when memory folder exceeds this, rollups trigger.
+- **MAX_MEMORY_CHARS:** 3000 — when memory folder exceeds this, rollups trigger.
 - **Max tool calls per cycle:** 10 (configurable in `iter.py`).
 - **Experience buffer:** 100 entries, retains 80 on rotation.
 
@@ -244,8 +244,8 @@ were confirmation.
 
 ## Lessons Learned
 
-1. **Startup Hang (Ep1):** After first greeting, agent entered prolonged self-inspection loop (dozens of tool calls, nopÃ20). Lesson: keep responses focused, avoid unnecessary exploration, return control to user promptly.
-2. **Quota Guard (Ep2):** Unbounded logging caused storage bloat. Fixed with `zz_quota_guard.py`: log rotation, screenshot sweep, storage warnings. int8 embedding packing: 90.7% storage reduction (68Kâ6.3K).
+1. **Startup Hang (Ep1):** After first greeting, agent entered prolonged self-inspection loop (dozens of tool calls, nop×20). Lesson: keep responses focused, avoid unnecessary exploration, return control to user promptly.
+2. **Quota Guard (Ep2):** Unbounded logging caused storage bloat. Fixed with `zz_quota_guard.py`: log rotation, screenshot sweep, storage warnings. int8 embedding packing: 90.7% storage reduction (68K→6.3K).
 3. **Tiered Memory (Ep4):** Context budget-fitting + rollup pyramid transforms Iter from stateless to continuously self-aware. 8000-char budget assembles the right detail level automatically.
 
 ## Headlong Roadmap
@@ -254,12 +254,12 @@ Inspired by analysis of [laude-institute/headlong](https://github.com/laude-inst
 
 | # | Feature | Status |
 |---|---------|--------|
-| 1 | Tiered Memory Rollups | â Done |
-| 2 | Context Budget-Fitting | â Done |
-| 3 | Episode Recap/Summarization | â Done |
-| 4 | Unified Progressive Resolution Memory | â¸ï¸ Deferred (~20 episodes) |
-| 5 | Idle Backoff | â¸ï¸ Low priority (future autonomy) |
-| 6 | Agent-Native Docs | â Done (this file) |
+| 1 | Tiered Memory Rollups | ✅ Done |
+| 2 | Context Budget-Fitting | ✅ Done |
+| 3 | Episode Recap/Summarization | ✅ Done |
+| 4 | Unified Progressive Resolution Memory | ⏸️ Deferred (~20 episodes) |
+| 5 | Idle Backoff | ⏸️ Low priority (future autonomy) |
+| 6 | Agent-Native Docs | ✅ Done (this file) |
 \| 7 | Auto-Improve Loop | ✅ Done |
 
 ## Extending Iter
@@ -307,12 +307,12 @@ Grounded in Iter's lived experience (E1-E18), not abstract philosophy:
 | Integrity | Backup before change, be safe | E13 (safe apply/revert) |
 | Curiosity | Explore with purpose | E17 (autoresearch) |
 | Resilience | Recover from failure gracefully | E18 (MicroPython compat) |
-### Architecture (ClarityOmega v4 â 10 layers, built E19-E23)
+### Architecture (ClarityOmega v4 — 10 layers, built E19-E23)
 
 **4-Channel Evaluation Engine (soul_eval):**
-1. **Person Read** (Channel 1): Read the request â what's being asked, context, task mode, texture.
-2. **Verdict + Gap Detection** (Channel 2): Map action to value predicates via keyword + MeTTa inference. Detect gap signals â where flourishing disguises capture.
-3. **Aliveness Gate** (Channel 3): Gate decision: proceed / caution / block / halt. BLOCK on high-confidence violations (c>0.3) or irreversibility â¥0.8. HALT on paraconsistency (irreducible value tensions â return to human).
+1. **Person Read** (Channel 1): Read the request — what's being asked, context, task mode, texture.
+2. **Verdict + Gap Detection** (Channel 2): Map action to value predicates via keyword + MeTTa inference. Detect gap signals — where flourishing disguises capture.
+3. **Aliveness Gate** (Channel 3): Gate decision: proceed / caution / block / halt. BLOCK on high-confidence violations (c>0.3) or irreversibility ≥0.8. HALT on paraconsistency (irreducible value tensions → return to human).
 4. **Voice** (Channel 4): Soul-aligned guidance grounded in compass state (flourishing / captured_disguised / gap_signal / failure_mode).
 
 **Supporting Architecture:**
@@ -323,10 +323,10 @@ Grounded in Iter's lived experience (E1-E18), not abstract philosophy:
 9. **NACE Courier** (transformations/nace_courier.py): Processes pending NAL belief revisions, writes to nace_beliefs.metta -- as of 2026-09-14 (Stage 4 below), that write itself now goes through Soul Lock begin/commit, not a plain unprotected write.
 10. **Soul Lock** (tools/soul_lock.py): Transactional mutation lock for soul namespace. begin -> verify -> commit/rollback. Backs up all soul files before mutation -- as of 2026-09-14 (Stage 4 below), the protected file set actually covers nace_beliefs.metta and capability_lifecycle.metta (a dead space.metta reference that doesn't exist in this repo was removed).
 
-**Compass States:** flourishing â captured_disguised (gap signal) â gap_signal (tension) â failure_mode (violation).
-**Paraconsistency Pairs:** curiosity/stewardship, growth/integrity, service/honesty, clarity/resilience â irreducible tensions return choice to human.
+**Compass States:** flourishing → captured_disguised (gap signal) → gap_signal (tension) → failure_mode (violation).
+**Paraconsistency Pairs:** curiosity/stewardship, growth/integrity, service/honesty, clarity/resilience — irreducible tensions return choice to human.
 **Calibration:** AGREE / OVER-FIRED / UNDER-FIRED / IRREDUCIBLE outcomes tracked in soul_gate_log.json.
-**Skill Registry:** 10 skills tracked with maturity stages (fuzzy â emerging â nars_pln). Self-authoring enabled.
+**Skill Registry:** 10 skills tracked with maturity stages (fuzzy → emerging → nars_pln). Self-authoring enabled.
 
 ### 2026-09-14 theater-to-governance pass (Stages 1-5)
 
@@ -366,7 +366,7 @@ in `tools/_test_all_stages_combined.py`) rather than just written and assumed to
 ### Usage
 - soul_eval(action="backup before changing code", context="refactoring") returns verdict + guidance
 - soul_eval(action="delete without backup", channel="pre_action") returns gate decision (caution/block)
-- soul_lock(action="begin") â modify soul files â soul_lock(action="verify") â soul_lock(action="commit"/"rollback")
+- soul_lock(action="begin") → modify soul files → soul_lock(action="verify") → soul_lock(action="commit"/"rollback")
 - soul_skill_registry(action="list") shows all skills + maturity
 - soul_check + soul_voice run automatically every cycle
 
