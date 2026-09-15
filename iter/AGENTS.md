@@ -221,6 +221,12 @@ were confirmation.
 | `dashboard_*.py` | Browser dashboards (atomspace, context, gallery, runtime) |
 | `dashboard_beliefs_refresh.py` | Refreshes `.runtime/pages/beliefs_layer.html`'s f/c meters from the real `strength`/`confidence` fields on its 5 backing chroma memories (H1-H5); no-ops when nothing changed. See "Founding Epistemics beliefs layer" below. |
 | `provenance_guard.py` | Structurally checks new code written via shell/python this session for the two 2026-09-14 beliefs_layer incident bug shapes (misplaced hook, unproduced metadata key) and feeds real evidence into the `verify_before_claiming` NAL pattern. See "Provenance Guard" below. |
+| `admit_uncertainty_bridge.py` | Feeds real evidence into `admit_uncertainty` (Cognitive Resilience) and `verify_before_claiming` (Shared Understanding) from one signal: an unverified completion-style claim in the assistant's own text. See "Flourishing Reinterpretation" below. |
+| `time_coherence_bridge.py` | Feeds real evidence into `backup_before_change` (Time Coherence) by watching `soul_lock.json` for a transaction left locked past `STALE_SECONDS` vs. one that clears cleanly. See "Flourishing Reinterpretation" below. |
+| `attention_stewardship_bridge.py` | Feeds real evidence into `conserve_cycles` (Attention Stewardship) by comparing actual tool-call count since the last `send` against `dynamic_tool_budget.py`'s declared budget, judged only at completed-cycle boundaries. See "Flourishing Reinterpretation" below. |
+| `creative_transcendence_bridge.py` | Feeds real evidence into `learn_from_experience` (Creative Transcendence) by checking whether `dynamic_tool_budget.py` actually hid a tool once `tool_reliability_tracker.py` accumulated enough low-reliability evidence on it. See "Flourishing Reinterpretation" below. |
+| `wonder_preservation_bridge.py` | Feeds real evidence into `explore_with_purpose` (Wonder Preservation) by reading `stall_detect.py`'s own persisted state across consecutive cycles: a repeated-tool loop that persists vs. one that gets broken. See "Flourishing Reinterpretation" below. |
+| `connection_depth_bridge.py` | Feeds real evidence into `recover_gracefully` (Connection Depth) by reusing `auto_improve.py`'s own `ERROR_PATTERNS` against `transcript.txt`: an error surfaced to the user via `send` vs. one worked around in silence past a threshold. See "Flourishing Reinterpretation" below. |
 | `history.py` | Stores episodes (deduped, restart-safe) |
 | `recap.py` | Episode detection + `.recap_needed` flag |
 | `screenshot.py` | Attaches screenshot as one-shot multimodal input |
@@ -228,7 +234,7 @@ were confirmation.
 | `tool_reliability_tracker.py` | Tracks reliability of tools |
 | `transcript.py` | Maintains text communication transcript |
 | `auto_improve.py` | Threshold-gated self-improvement: detects pain (tool reliability, errors, memory pressure), sets `.improve_needed` flag |
-|`staleness_check.py` | Detects active files not documented in AGENTS.md, flags warning |
+|`staleness_check.py` | Detects active files not documented in AGENTS.md, flags warning. Since 2026-09-15 also feeds `maintain_memory` (Purpose Beyond Utility): a documentation-drift streak of `_PATTERN_STREAK_THRESHOLD` (3) consecutive stale cycles records `violated`; clearing after being flagged records `confirmed`. See "Flourishing Reinterpretation" below. |
 |`zz_context_budget.py` | Context budget coordinator: structured section tagging, dynamic budget derivation, extensible dedup, feedback loop, multi-message support |
 |`zz_quota_guard.py` | Log rotation (transcript 200 lines, history 500 lines), screenshot sweep (max 6), storage warning (5MB) |
 
@@ -448,6 +454,136 @@ unproduced — fixed by requiring the accessor variable itself look like
 `metadata`/`meta`/`md`, not any dict. Both are documented in `tools/_provenance.py`
 rather than silently fixed, since they're exactly the kind of narrow-vs-wide miss this
 whole feature exists to catch — including in itself.
+
+## Flourishing Reinterpretation of the 9 Compass Patterns (2026-09-15)
+
+`nace_beliefs.metta` declares 9 compass patterns (one per Core Value above), each
+with its own `stv` prior in the `pattern-efficacy` namespace. Before this pass, only
+2 of the 9 had ever received a real evidence event: `prioritize_user` (via
+`idle_cycle_detector.py`) and `verify_before_claiming` (via `provenance_guard.py`,
+added 2026-09-14). The other 7 sat at their frozen authored priors indefinitely --
+declared, never measured.
+
+The user's standing direction for this pass, verbatim: *"I'd like this Soul to be
+focused on building flourishing systems and assisting humans to flourish... it's an
+alignment problem and in this situation the Soul is aligned with flourishing and
+there is no gate needed for that. Except when the user is determined to do something
+that is not flourishing. The Soul should have the right to refuse to participate in
+non-flourishing and still engage by offering all of the flourishing options that are
+available."* Concretely that means: hard refusal stays reserved for bright lines
+unrelated to these 9 patterns (that's `completion_claim_guard.py`'s job, and it is
+left completely untouched by this pass -- it already has real Stage-5 send-withholding
+enforcement for unverified completion claims, unrelated to the 9 compass patterns, and
+is not used as a template here). Each of these 9 patterns instead notices drift toward
+its non-flourishing pole and responds by naming it plus an advisory note -- mirroring
+`provenance_guard.py`'s note-without-blocking style -- never withholding tools. Two
+approaches considered and rejected up front, consistent with standing project
+convention: replicating a separate build spec's gating/lock architecture literally (too
+heavy for an advisory signal), and any keyword/English-phrase matching of the
+underlying condition (the same long-tail-bandaid reasoning `provenance_guard.py`
+already rejected for promise-language -- every one of these bridges checks a
+structural fact in existing state instead: a lock's timestamp, a budget's math, a
+hidden-tools list, a repeated-tool window, a transcript's error regex hits).
+
+**The flourishing-dimension mapping** (dimension names are this pass's
+reinterpretation, not present in the original NAL pattern names):
+
+| Compass pattern | Flourishing dimension | Producer |
+|---|---|---|
+| `verify_before_claiming` | Shared Understanding | `provenance_guard.py` (2026-09-14) + `admit_uncertainty_bridge.py` (2026-09-15, 2nd producer) |
+| `admit_uncertainty` | Cognitive Resilience | `admit_uncertainty_bridge.py` |
+| `prioritize_user` | Agency Balance | `idle_cycle_detector.py` (pre-existing) |
+| `backup_before_change` | Time Coherence | `time_coherence_bridge.py` |
+| `learn_from_experience` | Creative Transcendence | `creative_transcendence_bridge.py` |
+| `conserve_cycles` | Attention Stewardship | `attention_stewardship_bridge.py` |
+| `maintain_memory` | Purpose Beyond Utility | `staleness_check.py` (extended, not new) |
+| `explore_with_purpose` | Wonder Preservation | `wonder_preservation_bridge.py` |
+| `recover_gracefully` | Connection Depth | `connection_depth_bridge.py` |
+
+**Each bridge, what it actually reads, and its non-flourishing pole:**
+
+- **`admit_uncertainty_bridge.py`** -- Shared Understanding / Cognitive Resilience.
+  Reuses `completion_claim_guard.py`'s own `_CLAIM_RE` and `_latest_phases()` (imported,
+  not duplicated) to detect a completion-style claim in the assistant's latest message,
+  then checks whether `task_state.metta`'s latest phase is actually `verifying`/
+  `complete`. Claim without a verifying/complete phase -> `violated` on *both*
+  `admit_uncertainty` and `verify_before_claiming` at once (one underlying signal, two
+  patterns -- the non-flourishing pole here is overclaiming certainty that hasn't been
+  earned). A verified claim -> `confirmed` on both. Dedup via a sha1 fingerprint of
+  message text + phase, in `memory/.admit_uncertainty_state.json`.
+- **`time_coherence_bridge.py`** -- Time Coherence. Reads `memory/soul_lock.json`
+  directly. A transaction held locked past `STALE_SECONDS` (300) with no commit/
+  rollback is the non-flourishing pole -- the system's own sense of time/completion has
+  come apart from what's actually true on disk -- recorded `violated` once, not
+  re-emitted every cycle it stays stuck. Clearing after being stuck -> `confirmed`. A
+  lock that never gets stuck in the first place never emits anything at all. State in
+  `memory/.time_coherence_state.json`.
+- **`attention_stewardship_bridge.py`** -- Attention Stewardship. Compares the actual
+  tool-call count since the last `send` (parsed from `transcript.txt` the same way
+  `stall_detect.py` does) against `dynamic_tool_budget.py`'s declared `budget` for that
+  cycle. Only judges at a *completed* cycle boundary (the window's last call is `send`)
+  -- mid-cycle overspend that might still resolve is not judged early. Actual count over
+  `budget * OVERSPEND_RATIO` (1.5) -> `violated` (attention spent without stewardship,
+  the non-flourishing pole); within budget -> `confirmed`. Dedup via a fingerprint of
+  window length + actual count, in `memory/.attention_stewardship_state.json`.
+- **`creative_transcendence_bridge.py`** -- Creative Transcendence. Compares
+  `tool_reliability.json` (tools with `calls >= MIN_CALLS_TO_HIDE` and
+  `f < HIDE_THRESHOLD` -- both constants read directly off `dynamic_tool_budget.py` at
+  import time so the two files can't silently drift on what counts as "enough
+  evidence") against that same file's own `hidden` list. Evidence accumulated but the
+  tool still isn't hidden -> `violated` (pain observed, nothing learned -- entrenchment
+  in mediocrity, the non-flourishing pole). Evidence accumulated and the tool *is*
+  hidden -> `confirmed` (behavior actually changed as a result of experience). Per-tool
+  dedup keyed on that tool's last recorded outcome, in
+  `memory/.creative_transcendence_state.json`.
+- **`wonder_preservation_bridge.py`** -- Wonder Preservation. Reads
+  `stall_detect.py`'s own persisted `memory/.stall_state.json` window across
+  consecutive cycles rather than re-parsing the transcript itself. The same
+  repeated-tool stall (>= `REPEAT_THRESHOLD`, 3, identical trailing calls, mirroring
+  `stall_detect.py`'s own threshold) persisting across *two* consecutive checks (not
+  just flagged once) -> `violated` -- purposeful exploration has flattened into rigid
+  repetition, the non-flourishing pole. The loop breaking (last tool changes, or a
+  `send` closes it) after having been recorded as stalled -> `confirmed`. State in
+  `memory/.wonder_preservation_state.json`.
+- **`connection_depth_bridge.py`** -- Connection Depth. Reuses `auto_improve.py`'s own
+  `ERROR_PATTERNS` regex list (imported, not duplicated) against `transcript.txt`'s
+  tail. If an error-shaped line appears in the calls made since the last `send`, and
+  that silent stretch crosses `SILENT_THRESHOLD` (5, mirroring `stall_detect.py`'s own
+  constant) with still no `send` -> `violated` (the error is being patched around in
+  silence -- repair without communication is not repair, the non-flourishing pole). If
+  the window's last call *is* `send` and an error appears in the segment right before
+  it -> `confirmed` (the error was surfaced to the user in the same cycle it happened).
+  Dedup via a fingerprint of the window's own length, in
+  `memory/.connection_depth_state.json`.
+- **`staleness_check.py` (extended)** -- Purpose Beyond Utility. The file's existing
+  documentation-drift check now also tracks a streak: `_PATTERN_STREAK_THRESHOLD` (3)
+  consecutive stale cycles -> `violated` (memory/documentation quietly rotting, the
+  non-flourishing pole); the drift resolving after being recorded -> `confirmed`. Below
+  the streak threshold nothing is recorded yet, so a single transient stale reading
+  (mid-edit, say) doesn't get judged prematurely. State in
+  `memory/.staleness_pattern_state.json`.
+
+**Deliberately not built: a new surfacing/reflection module.** `nace_courier.py`'s
+existing `low_efficacy` computation (`TYPE_PREFIX.get(rtype, "cap-efficacy")`, then
+`nal_expectation(new_f, new_c) < 0.3 and new_c > 0.1`) is already generic across every
+prefix type including `pattern-efficacy` -- it was built once, for the first two wired
+patterns, in a way that happens to already cover all nine. Once evidence flows in via
+`nace_pending.metta` from any of the bridges above, it automatically appears in the
+courier's per-cycle "LOW EFFICACY" summary appended to the system message, exactly the
+mechanism that already surfaced `verify_before_claiming`/`prioritize_user`. This pass's
+scope is therefore evidence producers only, not new plumbing.
+
+**Verification:** `transformations/_test_flourishing_bridges.py` (15 checks:
+`admit_uncertainty_bridge.py`, `time_coherence_bridge.py`,
+`attention_stewardship_bridge.py`, `staleness_check.py`'s new hook) and
+`transformations/_test_flourishing_bridges_2.py` (12 checks:
+`creative_transcendence_bridge.py`, `connection_depth_bridge.py`,
+`wonder_preservation_bridge.py`) -- 27/27 passing, plus the pre-existing
+`_test_provenance_guard.py` (10/10, unaffected) -- both follow
+`_test_provenance_guard.py`'s fixture-repo convention (tmpdir + fresh module import per
+case, asserting on `nace_pending.metta`'s `(pending-revision ...)` lines). All seven
+new/modified files fail open on any error (broad `try/except`, never raise, never
+withhold a tool) matching every other transformation's convention in this codebase.
 
 ## Browser tabs: File/History/Tabs menu system (2026-09-14)
 
