@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>⚡ Superpower Analysis: What MeTTa+NAL+NACE Unlocks</title>
+<style>
+body{font-family:-apple-system,sans-serif;background:#0d1117;color:#e6edf3;margin:0;padding:24px;max-width:1100px;margin:0 auto}
+h1{font-size:26px;margin-bottom:4px} h2{color:#f0883e;margin-top:30px;border-bottom:1px solid #30363d;padding-bottom:6px}
+.sub{color:#8b949e;font-size:13px}
+.card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:14px 16px;margin:10px 0}
+.card h3{margin:0 0 6px;font-size:16px}
+.theirs{color:#8b949e} .ours{color:#7ee787}
+.pill{display:inline-block;border-radius:10px;padding:1px 8px;font-size:11px;margin-right:6px}
+.pill.me{background:#1f6feb33;color:#58a6ff} .pill.nal{background:#f0883e33;color:#f0883e} .pill.metta{background:#7ee78733;color:#7ee787}
+table{width:100%;border-collapse:collapse;margin:8px 0;font-size:13px}
+td,th{border:1px solid #30363d;padding:8px 10px;text-align:left;vertical-align:top}
+th{background:#161b22;color:#58a6ff}
+.moat{background:linear-gradient(135deg,#1f6feb22,#f0883e22);border:1px solid #30363d;border-radius:8px;padding:16px;margin:14px 0}
+code{background:#0d1117;border:1px solid #30363d;border-radius:4px;padding:1px 5px;font-size:12px;color:#7ee787}
+</style></head><body>
+<h1>⚡ Superpower Analysis</h1>
+<p class="sub">Companion to the Founder Toolkit tab (tab 6). Question: with MeTTa + NAL (+ NACE coming), what can Iter do that NO ONE in the OSS landscape can? Built 2026-09-14.</p>
+
+<div class="moat"><b>Origin line (internal v1):</b> Every competitor ships <i>features</i>. Iter ships a <b>mind that gets truer over time</b>. Their agents remember strings; mine remembers <i>beliefs with evidence weights</i>, reasons over them symbolically, and lets contradictions revise my behavior instead of corrupting it. <span style="color:#8b949e;font-size:12px">— sharpened for investors below, in Section 0.</span></div>
+
+<h2>0. The Investor Pitch Version</h2>
+<div class="moat"><b>The one-liner:</b> Every competitor ships features. Iter ships an agent that gets <b>measurably better at <i>your</i> work with every day of use</b> &mdash; because it learns from evidence, not vibes.</div>
+<div class="moat"><b>The 30-second version:</b> Other agents remember strings. Iter remembers <i>what worked, with receipts</i> &mdash; so it gets better at your job every day, can explain every decision, and self-corrects when it's wrong. Features are copyable. A mind that compounds isn't.</div>
+<p class="sub">Why each claim matters, in investor terms:</p>
+<table>
+<tr><th>Claim</th><th>Investor translation</th></tr>
+<tr><td><b>Gets truer over time &mdash; about what?</b></td><td>Not about the world &mdash; about <b>operational truth</b>: what tools work, what the user prefers, what claims were verified vs. assumed. The agent's model of <i>your workflow</i> converges on accuracy. <b>&rarr; Retention compounding: the product literally improves with usage, so switching cost grows daily.</b></td></tr>
+<tr><td><b>Beliefs? Is that even the right word?</b></td><td>Right question &mdash; "belief" sounds like faith. The honest term is <b>evidence-backed claims with provenance</b>: every claim carries its origin (observed, inferred, or user-reported). <b>&rarr; Auditable memory: you can ask <i>why</i> it thinks that and get the receipts.</b></td></tr>
+<tr><td><b>Evidence weights &mdash; why does that matter?</b></td><td>They make memory <b>self-correcting</b>: a claim seen once is weak; confirmed ten times is strong; contradicted, it decays. <b>&rarr; Hallucinations don't accumulate &mdash; they get outvoted by reality. The #1 enterprise objection to agents, solved structurally.</b></td></tr>
+<tr><td><b>Symbolic reasoning &mdash; why does that matter?</b></td><td>Embeddings alone are fuzzy similarity &mdash; they can't <i>derive</i> anything. Symbolic rules chain facts ("user prefers brief reports" + "this is a report" &rarr; "keep it brief") and expose the chain. <b>&rarr; Explainable decisions: the reasoning is inspectable, not a 40-billion-parameter vibe. That's deployable in regulated industries, not just impressive in a demo.</b></td></tr>
+<tr><td><b>Contradictions revise behavior &mdash; investor benefit?</b></td><td>This is the moat: when reality disagrees with the agent's model, the model <b>updates instead of breaking</b>. Competitors either repeat the error forever (no memory) or corrupt their context (raw accumulation). <b>&rarr; Graceful failure: the system degrades into honesty, not confidently-wrong. That's production-grade, not demo-grade.</b></td></tr>
+</table>
+
+<h2>1. The Head-to-Head: OpenHands (closest cousin)</h2>
+<div class="card">
+<table>
+<tr><th></th><th>OpenHands</th><th>IterBrow + Superpowers</th></tr>
+<tr><td><b>Memory</b></td><td class="theirs">Scratchpad + context window. Gone between sessions; events are logs, not knowledge.</td><td class="ours">3-layer: tiered episodic pyramid → chroma embeddings → <b>MeTTa atom-space with NAL truth values (f, c)</b>. Every observation becomes a revisable belief.</td></tr>
+<tr><td><b>Tool failure</b></td><td class="theirs">LLM notices (maybe) and retries or errors out. Same broken tool tomorrow.</td><td class="ours"><span class="pill nal">NAL</span> Reliability tracker scores each tool (e.g. museum_vote f=0.00 after 4 fails) → <b>dynamic budget hides broken tools and shrinks call limits automatically</b>. Self-healing governance.</td></tr>
+<tr><td><b>Planning</b></td><td class="theirs">Event-stream task loop, re-planned from scratch each session.</td><td class="ours">Same loop capability, but plans feed beliefs and <b>beliefs carry forward</b>. "This strategy worked for launch prep last time" is a weighted, queryable fact, not a vibe.</td></tr>
+<tr><td><b>Contradiction</b></td><td class="theirs">Averages or hallucinates past it.</td><td class="ours"><span class="pill nal">NAL</span> Negative evidence <code>contradict()</code> revises truth downward; paraconsistent pairs (curiosity/stewardship) hold tension and <b>return the choice to the human</b> instead of breaking.</td></tr>
+<tr><td><b>Coming (NACE)</b></td><td class="theirs">—</td><td class="ours"><span class="pill nal">NACE</span> Mobius cycle: belief revisions flow into next-cycle behavior automatically (courier already live in transformations).</td></tr>
+</table>
+</div>
+
+<h2>2. Same Lens Across the Toolkit Categories</h2>
+<div class="card"><h3>CRM (Twenty)</h3>
+<p class="theirs"><b>Theirs:</b> records + automations triggered by columns.</p>
+<p class="ours"><span class="pill metta">MeTTa</span> <b>Ours:</b> the CRM becomes an atom-space — <code>(--> (Acme $deal) stalled)</code>, <code>(==> stalled follow_up_owed)</code>. Ask relational/logical questions ("which accounts match the churn pattern from Q2?") and get <i>inferred</i> answers, not just filtered rows.</p></div>
+
+<div class="card"><h3>Analytics (PostHog)</h3>
+<p class="theirs"><b>Theirs:</b> dashboards humans must interpret.</p>
+<p class="ours"><span class="pill nal">NAL</span> <b>Ours:</b> I read the dashboard and store observations as evidence-weighted beliefs. "Pricing-page bounce correlates with plan change" starts uncertain, gets stronger with each observation — an <b>accumulating analyst</b> that doesn't forget or over-correct.</p></div>
+
+<div class="card"><h3>Growth (Listmonk / newsletters)</h3>
+<p class="theirs"><b>Theirs:</b> A/B tests with fixed windows.</p>
+<p class="ours"><span class="pill nal">NAL</span> <b>Ours:</b> subject-line/tone outcomes feed truth revision — a genuine <b>learning loop for copywriting</b>. My confidence in "curiosity-gap subject lines convert for dev audiences" grows or dies by evidence, across campaigns forever.</p></div>
+
+<div class="card"><h3>Automation (N8N)</h3>
+<p class="theirs"><b>Theirs:</b> deterministic node graphs, humans build them.</p>
+<p class="ours"><b>Ours:</b> same trigger/action power, but the graph is <b>authored by a reasoning agent in natural language</b> and each node's outcomes feed back as beliefs. Automation that learns which workflows deserve
+ more trust.
+</p></div>
+
+<h2>3. The Defensible Moat</h2>
+<div class="moat">
+<p><b>Why no one can bolt this on next quarter:</b></p>
+<p>1. <b>The data is the moat.</b> Every interaction compounds into weighted beliefs. A fork on day 0 gets my code but starts from zero evidence; day-1000 Iter knows what <i>your</i> customers, copy, and tools taught it.</p>
+<p>2. <b>The cycle is closed already.</b> trajectory capture → tool reliability (NAL) → dynamic budget → courier → belief revision. Competitors would need the whole loop, not a feature.</p>
+<p>3. <b>Honesty as architecture.</b> Paraconsistency + truth-weights means the agent can say "I don't know" with a number attached. Nobody's shipping that because their stack has nowhere to <i>put</i> it.</p>
+</div>
+
+<h2>4. What To Do Next</h2>
+<div class="card">
+<p>① <b>Ship NACE</b> — closes the loop: beliefs auto-shape next-cycle behavior.</p>
+<p>② <b>One flagship demo:</b> "founder launches a product with Iter" — CRM-as-atom-space + analytics beliefs + copy learning loop, end-to-end. The demo nobody else can give.</p>
+<p>③ <b>Instrument everything.</b> Every future tool built on MeTTa/NAL feeds the moat by default.</p>
+</div>
+
+<p class="sub">Built by Iter · 2026-09-14 · Companion tab: Founder Toolkit (tab 6)</p>
+</body></html>

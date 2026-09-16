@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Iter Map Station</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  :root{--accent:#4fd1c5;--accent2:#f6ad55;--text:#e2e8f0;--muted:#8a97a8}
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0b0e11;color:var(--text);overflow:hidden}
+  #map{position:absolute;inset:0;z-index:1}
+  .leaflet-container{background:#0b0e11}
+  #dock{position:absolute;z-index:1000;top:14px;left:14px;width:340px;max-width:calc(100vw - 28px);
+        background:rgba(16,20,24,.92);backdrop-filter:blur(14px);border:1px solid #232a33;
+        border-radius:16px;box-shadow:0 12px 40px rgba(0,0,0,.5);display:flex;flex-direction:column;max-height:calc(100vh - 28px)}
+  #dock header{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid #232a33}
+  #dock header .logo{width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,#4fd1c5,#3182ce);display:flex;align-items:center;justify-content:center;font-weight:800;color:#07121a;font-size:15px}
+  #dock header h1{font-size:15px;font-weight:700}
+  #dock header .sub{font-size:11px;color:var(--muted);margin-top:1px}
+  .chips{display:flex;gap:6px;padding:10px 12px;flex-wrap:wrap;border-bottom:1px solid #232a33}
+  .chip{cursor:pointer;user-select:none;font-size:12px;padding:6px 11px;border-radius:999px;border:1px solid #2c3542;background:#151b22;color:var(--text);transition:.15s}
+  .chip:hover{border-color:var(--accent);color:var(--accent)}
+  #chatlog{flex:1;overflow-y:auto;padding:10px 12px;display:flex;flex-direction:column;gap:8px;min-height:120px;max-height:46vh}
+  .msg{font-size:13px;line-height:1.45;padding:8px 11px;border-radius:12px;max-width:92%;white-space:pre-wrap;word-break:break-word}
+  .msg.user{align-self:flex-end;background:#1d4ed8aa;border:1px solid #3b82f6;color:#fff}
+  .msg.iter{align-self:flex-start;background:#151b22;border:1px solid #232a33}
+  .msg .stamp{display:block;font-size:10px;color:var(--muted);margin-top:4px}
+  #inputRow{display:flex;gap:8px;padding:10px 12px;border-top:1px solid #232a33}
+  #cmd{flex:1;background:#0d1116;border:1px solid #2c3542;color:var(--text);border-radius:10px;padding:9px 12px;font-size:13px;outline:none}
+  #cmd:focus{border-color:var(--accent)}
+  #sendBtn{background:var(--accent);border:none;border-radius:10px;padding:0 14px;font-weight:700;color:#07201d;cursor:pointer}
+  #sendBtn:disabled{opacity:.4}
+  #status{position:absolute;z-index:1000;top:14px;right:14px;background:rgba(16,20,24,.92);border:1px solid #232a33;border-radius:12px;padding:8px 13px;font-size:11.5px;color:var(--muted);max-width:320px}
+  #status b{color:var(--accent)}
+  #pulse{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--accent);margin-right:6px;animation:pulse 1.6s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+  .card{position:absolute;z-index:1000;bottom:16px;right:14px;width:340px;max-height:44vh;overflow-y:auto;background:rgba(16,20,24,.94);border:1px solid #232a33;border-radius:16px;padding:12px;display:none}
+  .card h3{font-size:13px;color:var(--accent);margin-bottom:8px;display:flex;justify-content:space-between}
+  .card h3 .x{cursor:pointer;color:var(--muted);font-weight:400}
+  .res{border:1px solid #232a33;border-radius:10px;padding:8px 10px;margin-bottom:7px;cursor:pointer;transition:.15s;background:#131920}
+  .res:hover{border-color:var(--accent)}
+  .res .nm{font-size:12.5px;font-weight:600}
+  .res .meta{font-size:11px;color:var(--muted);margin-top:2px}
+  .agent-pin{width:36px;height:36px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:linear-gradient(135deg,#4fd1c5,#3182ce);box-shadow:0 4px 14px rgba(0,0,0,.55);border:2px solid #0b0e11;display:flex;align-items:center;justify-content:center}
+  .agent-pin span{transform:rotate(45deg);font-weight:900;font-size:15px;color:#07121a}
+  .user-pin{width:22px;height:22px;border-radius:50%;background:#f6ad55;border:3px solid #07121a;box-shadow:0 0 0 6px rgba(246,173,85,.25),0 4px 14px rgba(0,0,0,.6)}
+  .res-pin{width:30px;height:30px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:var(--accent2);border:2px solid #0b0e11;box-shadow:0 3px 10px rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center}
+  .res-pin span{transform:rotate(45deg);font-size:13px}
+  .res-pin.c-restaurant{background:#f5695c} .res-pin.c-cafe{background:#e0a84f}
+  .res-pin.c-metro{background:#6ba8f5} .res-pin.c-pharmacy{background:#7ed957}
+  .res-pin.c-poi{background:#c77dff} .res-pin.c-travel{background:#ff9ecb}
+  .leaflet-marker-icon.hidden{display:none}
+  #legend{position:absolute;z-index:1000;bottom:16px;left:14px;background:rgba(16,20,24,.92);border:1px solid #232a33;border-radius:12px;padding:8px 12px;font-size:11.5px;color:#8a97a8;display:flex;gap:8px;flex-wrap:wrap;max-width:calc(100vw - 420px)}
+  #legend .lgi{cursor:pointer;user-select:none;display:flex;align-items:center;gap:4px;padding:3px 8px;border-radius:999px;border:1px solid transparent;transition:.15s}
+  #legend .lgi:hover{border-color:#2c3542}
+  #legend .lgi.off{opacity:.35;text-decoration:line-through}
+  #legend .lgi.solo{border-color:#4da3ff;box-shadow:0 0 8px rgba(77,163,255,.5)}
+  #legend .lgi b{width:10px;height:10px;border-radius:50%;display:inline-block}
+  .leaflet-popup-content-wrapper{background:#101418;color:#e2e8f0;border:1px solid #2c3542;border-radius:12px}
+  .leaflet-popup-tip{background:#101418}
+  .leaflet-popup-content{font-size:12.5px;line-height:1.5;margin:10px 12px}
+  .leaflet-container a.leaflet-popup-close-button{color:#8a97a8}
+  ::-webkit-scrollbar{width:8px}::-webkit-scrollbar-thumb{background:#232a33;border-radius:4px}
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="status"><span id="pulse"></span><span id="statusText">Booting Map Station...</span></div>
+<div id="dock">
+  <header>
+    <div class="logo">&#9670;</div>
+    <div><h1>Iter Map Station</h1><div class="sub">talk to your agent &middot; anywhere you are</div></div>
+  </header>
+  <div class="chips">
+    <div class="chip" data-q="restaurants near me">&#127861; Restaurants</div>
+    <div class="chip" data-q="cafes near me">&#9749; Caf&eacute;s</div>
+    <div class="chip" data-q="nearest metro stations">&#128647; Metro</div>
+    <div class="chip" data-q="things to do near me">&#127905; Things to do</div>
+    <div class="chip" data-q="pharmacies near me">&#128138; Pharmacy</div>
+  </div>
+  <div id="chatlog"></div>
+  <div id="inputRow">
+    <input id="cmd" placeholder="Ask Iter... e.g. best ramen nearby" autocomplete="off"/>
+    <button id="sendBtn">Send</button>
+  </div>
+</div>
+<div id="legend">
+  <span style="width:100%">Show / hide layers:</span>
+  <span class="lgi" data-cat="restaurant"><b style="background:#f5695c"></b>&#127861; Restaurants</span>
+  <span class="lgi" data-cat="cafe"><b style="background:#e0a84f"></b>&#9749; Caf&eacute;s</span>
+  <span class="lgi" data-cat="metro"><b style="background:#6ba8f5"></b>&#128647; Metro</span>
+  <span class="lgi" data-cat="pharmacy"><b style="background:#7ed957"></b>&#128138; Pharmacy</span>
+  <span class="lgi" data-cat="poi"><b style="background:#c77dff"></b>&#127905; Things to do</span>
+  <span class="lgi" data-cat="travel"><b style="background:#ff9ecb"></b>&#9992; Travel</span>
+</div>
+<div class="card" id="resultsCard">
+  <h3><span id="cardTitle">Results</span><span class="x" id="cardClose">&#10005;</span></h3>
+  <div id="results"></div>
+</div>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const state = { pos: null, resultMarkers: [], lastResults: [], offCats: {}, solo: null };
+  const log = (html, cls) => {
+    const m = document.createElement('div');
+    m.className = 'msg ' + (cls || 'iter');
+    m.innerHTML = html + '<span class="stamp">' + new Date().toLocaleTimeString() + '</span>';
+    $('chatlog').appendChild(m); $('chatlog').scrollTop = 1e9; return m;
+  };
+  const setStatus = t => { $('statusText').innerHTML = t; };
+
+  const map = L.map('map', { zoomControl: false, worldCopyJump: true }).setView([40.7128, -74.006], 12);
+  L.control.zoom({ position: 'bottomright' }).addTo(map);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors', maxZoom: 19
+  }).addTo(map);
+
+  let userMarker = null, agentMarker = null;
+  function placeUser(lat, lon, label) {
+    state.pos = { lat, lon, label: label || 'You' };
+    if (userMarker) userMarker.remove();
+    userMarker = L.marker([lat, lon], { icon: L.divIcon({ className: '', html: '<div class="user-pin"></div>', iconSize: [22,22], iconAnchor: [11,11] }), draggable: true })
+      .addTo(map).bindPopup('<b>' + (label || 'You') + '</b><br>Drag me or double-click the map to move.');
+    userMarker.on('dragend', () => { const p = userMarker.getLatLng(); state.pos = { lat: p.lat, lon: p.lng, label: 'You (manual)' }; setStatus('<b>Position set</b> &middot; ' + p.lat.toFixed(4) + ', ' + p.lng.toFixed(4)); });
+    if (!agentMarker) {
+      agentMarker = L.marker([lat + 0.004, lon + 0.004], { icon: L.divIcon({ className: '', html: '<div class="agent-pin"><span>ITER</span></div>', iconSize: [36,36], iconAnchor: [18,34] }), zIndexOffset: 500 })
+        .addTo(map).bindPopup('<b>Iter agent</b><br>Your on-map assistant. Ask me anything in the dock!');
+    } else { agentMarker.setLatLng([lat + 0.004, lon + 0.004]); }
+    map.setView([lat, lon], 14, { animate: true });
+  }
+  function clearResults() { state.resultMarkers.forEach(m => m.remove()); state.resultMarkers = []; }
+  function addResult(r, i) {
+    const cat = r.cat || 'poi';
+    const icons = { restaurant: '&#127861;', cafe: '&#9749;', metro: '&#128647;', pharmacy: '&#128138;', poi: '&#127905;', travel: '&#9992;' };
+    const mk = L.marker([r.lat, r.lon], { icon: L.divIcon({ className: '', html: '<div class="res-pin c-' + cat + '"><span>' + (icons[cat] || (i+1)) + '</span></div>', iconSize: [30,30], iconAnchor: [15,28] }) })
+      .addTo(map).bindPopup('<b>' + r.name + '</b>' + (r.meta ? '<br>' + r.meta : ''));
+    mk._cat = cat;
+    if (state.offCats[cat]) { const el = mk.getElement(); if (el) el.classList.add('hidden'); }
+    state.resultMarkers.push(mk);
+  }
+  function showResultsCard(title, results) {
+    $('cardTitle').textContent = title; $('results').innerHTML = '';
+    results.forEach((r, i) => {
+      const d = document.createElement('div'); d.className = 'res';
+      d.innerHTML = '<div class="nm">' + (i+1) + '. ' + r.name + '</div><div class="meta">' + (r.cat || 'poi') + (r.meta ? ' &middot; ' + r.meta : '') + '</div>';
+      d.onclick = () => { map.setView([r.lat, r.lon], 16); state.resultMarkers[i] && state.resultMarkers[i].openPopup(); };
+      $('results').appendChild(d);
+    });
+    $('resultsCard').style.display = 'block';
+  }
+
+  function locate() {
+    if (!navigator.geolocation) { setStatus('Geolocation unavailable - using map center'); const c = map.getCenter(); placeUser(c.lat, c.lng, 'You (approx)'); return; }
+    setStatus('Locating you...');
+    navigator.geolocation.getCurrentPosition(
+      p => { const lat = p.coords.latitude, lon = p.coords.longitude;
+        placeUser(lat, lon, 'You (GPS)');
+        setStatus('<b>Location locked</b> &middot; ' + lat.toFixed(4) + ', ' + lon.toFixed(4));
+        log('Position acquired. Map centered on you. Ask away - restaurants, metro, travel plans...');
+      },
+      err => { setStatus('Location unavailable - using map center (drag pin or double-click to move)');
+        const c = map.getCenter(); placeUser(c.lat, c.lng, 'You (approx)');
+        log('Could not get GPS (' + err.message + '). I placed you at the map center - drag the orange pin or tell me a city.'); },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  }
+
+  function intentOf(q) {
+    const pos = state.pos || map.getCenter();
+    if (/restaurant|ramen|food|eat|dinner|lunch|hungry|pizza|sushi|burger/i.test(q)) return { title: 'Restaurants', cat: 'restaurant', icon: '&#127861;' };
+    if (/caf/i.test(q)) return { title: 'Cafes', cat: 'cafe', icon: '&#9749;' };
+    if (/metro|subway|train|transit|station/i.test(q)) return { title: 'Metro', cat: 'metro', icon: '&#128647;' };
+    if (/pharmac|drugstore|medicine|chemist/i.test(q)) return { title: 'Pharmacies', cat: 'pharmacy', icon: '&#128138;' };
+    if (/things|attraction|museum|fun|todo|park|see/i.test(q)) return { title: 'Things to do', cat: 'poi', icon: '&#127905;' };
+    if (/hotel|stay|sleep|travel to|trip|route|directions|how far/i.test(q)) return { title: 'Travel', cat: 'travel', icon: '&#9992;' };
+    return null;
+  }
+
+  function placeholderResults(intent, pos) {
+    const labels = ['Top pick', 'Highly rated', 'Nearby favorite', 'Budget option', 'Popular now'];
+    const out = [];
+    for (let i = 0; i < 5; i++) {
+      out.push({ name: intent.icon + ' ' + intent.title + ' #' + (i+1) + ' - ' + labels[i],
+        lat: pos.lat + (Math.random()-0.5)*0.02, lon: pos.lng + (Math.random()-0.5)*0.02,
+        meta: 'approx ' + (Math.random()*2+0.2).toFixed(1) + ' km - agent will refine with live data' });
+    }
+    return out;
+  }
+
+  function handle(q) {
+    log(q.replace(/</g, '&lt;'), 'user');
+    const intent = intentOf(q);
+    const t = log('Got it - working on &ldquo;' + q.replace(/</g, '&lt;') + '&rdquo;...');
+    if (!intent) {
+      setTimeout(() => { t.innerHTML = 'I can search <b>restaurants</b>, <b>caf&eacute;s</b>, <b>metro</b>, <b>pharmacies</b>, <b>things to do</b>, and <b>travel</b> around your pin. Try a chip button or type a question!<span class="stamp">' + new Date().toLocaleTimeString() + '</span>'; }, 700);
+      return;
+    }
+    setTimeout(() => {
+      const pos = state.pos || map.getCenter();
+      const results = placeholderResults(intent, pos);
+      t.innerHTML = 'Here is what I found for <b>' + intent.title + '</b> - plotted on the map with the results card. Say &ldquo;refine results&rdquo; and I will swap in live listings.<span class="stamp">' + new Date().toLocaleTimeString() + '</span>';
+      clearResults(); results.forEach(addResult);
+      showResultsCard(intent.title + ' (near you)', results);
+      const b = L.latLngBounds(results.map(r => [r.lat, r.lon])); b.extend([pos.lat, pos.lng]);
+      map.fitBounds(b, { padding: [40, 40] });
+    }, 900);
+  }
+
+  $('sendBtn').onclick = () => { const v = $('cmd').value.trim(); if (v) { $('cmd').value = ''; handle(v); } };
+  $('cmd').addEventListener('keydown', e => { if (e.key === 'Enter') $('sendBtn').onclick(); });
+  document.querySelectorAll('.chip').forEach(c => c.onclick = () => handle(c.dataset.q));
+  function applyCats() {
+    state.resultMarkers.forEach(mk => {
+      const el = mk.getElement(); if (!el) return;
+      el.classList.toggle('hidden', !!state.offCats[mk._cat]);
+    });
+  }
+  const CATS = ['restaurant','cafe','metro','pharmacy','poi','travel'];
+  document.querySelectorAll('#legend .lgi').forEach(li => {
+    li.title = 'Click: toggle this category · Double-click: show ONLY this category';
+    li.onclick = () => {
+      const cat = li.dataset.cat;
+      state.offCats[cat] = !state.offCats[cat];
+      state.solo = null;
+      document.querySelectorAll('#legend .lgi').forEach(x => x.classList.remove('solo'));
+      li.classList.toggle('off', state.offCats[cat]);
+      applyCats();
+    };
+    li.ondblclick = () => {
+      const cat = li.dataset.cat;
+      if (state.solo === cat) {
+        state.solo = null; state.offCats = {};
+        document.querySelectorAll('#legend .lgi').forEach(x => x.classList.remove('off','solo'));
+      } else {
+        state.solo = cat; state.offCats = {};
+        CATS.forEach(c => { if (c !== cat) state.offCats[c] = true; });
+        document.querySelectorAll('#legend .lgi').forEach(x => x.classList.toggle('off', x.dataset.cat !== cat));
+        li.classList.add('solo'); li.classList.remove('off');
+      }
+      applyCats();
+    };
+  });
+  map.on('dblclick', e => { placeUser(e.latlng.lat, e.latlng.lng, 'You (manual)'); setStatus('<b>Position set</b> &middot; ' + e.latlng.lat.toFixed(4) + ', ' + e.latlng.lng.toFixed(4)); });
+
+  log('Welcome to <b>Map Station</b> - I am Iter, your on-map agent. Getting your location...');
+  locate();
+
+  window.iterMap = {
+    map, placeUser, addResult, clearResults, showResultsCard,
+    getPos: () => state.pos || map.getCenter(),
+    results: (title, arr) => { clearResults(); arr.forEach(addResult); try{ localStorage.setItem('iterMapCache', JSON.stringify(arr)); }catch(e){}; showResultsCard(title, arr);
+      if (arr.length) { const b = L.latLngBounds(arr.map(r => [r.lat, r.lon])); map.fitBounds(b, { padding: [40,40] }); } },
+    say: (html) => log(html)
+  };
+})();
+</script>
+
+<script>
+try {
+  const __c = localStorage.getItem('iterMapCache');
+  if (__c) {
+    const __d = JSON.parse(__c);
+    if (Array.isArray(__d) && __d.length) {
+      setTimeout(() => {
+        if (window.iterMap) {
+          window.iterMap.results('Around your home (restored from last live pull)', __d);
+          window.iterMap.placeUser(37.8140375, -122.2606056, 'You - 2617 Harrison St, Oakland');
+          window.iterMap.say('Restored ' + __d.length + ' places from cache — the freshest live pull replaces this as soon as it lands.');
+        }
+      }, 900);
+    }
+  }
+} catch(e) {}
+</script>
+<script>
+(function(){
+  // Auto live-refresh: pulls fresh core-category data shortly after load.
+  // Enrichment categories (poi/travel) from cache are preserved via merge.
+  setTimeout(() => {
+    const pos = { lat: 37.8140375, lon: -122.2606056 };
+    const q = '[out:json][timeout:20];(node["amenity"~"restaurant|cafe|pharmacy"](around:800,' + pos.lat + ',' + pos.lon + ');node["railway"="station"](around:2000,' + pos.lat + ',' + pos.lon + '););out 40;';
+    fetch('https://maps.mail.ru/osm/tools/overpass/api/interpreter', {
+      method: 'POST',
+      body: 'data=' + encodeURIComponent(q),
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+    }).then(r => r.text()).then(t => {
+      if (!t.trim().startsWith('{')) return; // blocked -> keep restored cache silently
+      const j = JSON.parse(t);
+      const fresh = [];
+      (j.elements || []).forEach(e => {
+        const tg = e.tags || {};
+        let cat = 'poi';
+        if (tg.amenity === 'restaurant') cat = 'restaurant';
+        else if (tg.amenity === 'cafe') cat = 'cafe';
+        else if (tg.amenity === 'pharmacy') cat = 'pharmacy';
+        else if (tg.railway === 'station' || tg.station === 'subway') cat = 'metro';
+        fresh.push({ name: tg.name || 'Spot', lat: e.lat, lon: e.lon, cat, meta: [tg.cuisine, tg.operator].filter(Boolean).join(' \u00b7 ') });
+      });
+      if (!fresh.length) return;
+      let old = [];
+      try { old = JSON.parse(localStorage.getItem('iterMapCache') || '[]'); } catch (e) {}
+      const keys = new Set(fresh.map(r => r.name + '|' + r.lat.toFixed(4)));
+      const keep = old.filter(r => !['restaurant','cafe','pharmacy','metro'].includes(r.cat) && !keys.has(r.name + '|' + r.lat.toFixed(4)));
+      const merged = fresh.concat(keep);
+      if (window.iterMap) {
+        window.iterMap.results('Around your home (live OSM)', merged);
+        window.iterMap.say('Auto-refresh: ' + merged.length + ' places live — core categories updated.');
+      }
+    }).catch(e => { /* keep restored cache silently */ });
+  }, 1500);
+})();
+</script>
+</body>
+</html>

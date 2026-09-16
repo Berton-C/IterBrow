@@ -71,12 +71,12 @@ def _episode_num(ep):
     more verbose {title, start_time, ...} shape transformations/recap.py's
     flag message describes aspirationally): {"e" or "id": N, "s": summary,
     optional "t": type}."""
-    return ep.get("e", ep.get("id", "?"))
+    return ep.get("e", ep.get("id", ep.get("e_num", "?")))
 
 
 def _one_line(ep):
     num = _episode_num(ep)
-    summary = (ep.get("s", "") or "").strip().replace("\n", " ")
+    summary = (ep.get("s", "") or ep.get("summary", "") or "").strip().replace("\n", " ")
     if len(summary) > 160:
         summary = summary[:157] + "..."
     mem_type = ep.get("t", "")
@@ -98,7 +98,7 @@ def _build_tier4(older_eps):
         chunk = older_eps[i:i + TIER4_CHUNK_SIZE]
         first_num = _episode_num(chunk[0])
         last_num = _episode_num(chunk[-1])
-        summaries = [(ep.get("s", "") or "").strip() for ep in chunk]
+        summaries = [(ep.get("s", "") or ep.get("summary", "") or "").strip() for ep in chunk]
         summaries = [s for s in summaries if s]
         summary = "; ".join(summaries[:3])
         era_label = "%s-%s" % (first_num, last_num)

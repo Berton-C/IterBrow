@@ -38,3 +38,5 @@ iter/_metta_validation_log.bak.json.gz
 __pycache__/
 *.pyc
 iter/atomspace_data.json
+Iter Browser.app/
+iter/task_state.metta

@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Iter Map Station</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  :root{--accent:#4fd1c5;--accent2:#f6ad55;--text:#e2e8f0;--muted:#8a97a8}
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0b0e11;color:var(--text);overflow:hidden}
+  #map{position:absolute;inset:0;z-index:1}
+  .leaflet-container{background:#0b0e11}
+  #dock{position:absolute;z-index:1000;top:14px;left:14px;width:340px;max-width:calc(100vw - 28px);
+        background:rgba(16,20,24,.92);backdrop-filter:blur(14px);border:1px solid #232a33;
+        border-radius:16px;box-shadow:0 12px 40px rgba(0,0,0,.5);display:flex;flex-direction:column;max-height:calc(100vh - 28px)}
+  #dock header{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid #232a33}
+  #dock header .logo{width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,#4fd1c5,#3182ce);display:flex;align-items:center;justify-content:center;font-weight:800;color:#07121a;font-size:15px}
+  #dock header h1{font-size:15px;font-weight:700}
+  #dock header .sub{font-size:11px;color:var(--muted);margin-top:1px}
+  .chips{display:flex;gap:6px;padding:10px 12px;flex-wrap:wrap;border-bottom:1px solid #232a33}
+  .chip{cursor:pointer;user-select:none;font-size:12px;padding:6px 11px;border-radius:999px;border:1px solid #2c3542;background:#151b22;color:var(--text);transition:.15s}
+  .chip:hover{border-color:var(--accent);color:var(--accent)}
+  #chatlog{flex:1;overflow-y:auto;padding:10px 12px;display:flex;flex-direction:column;gap:8px;min-height:120px;max-height:46vh}
+  .msg{font-size:13px;line-height:1.45;padding:8px 11px;border-radius:12px;max-width:92%;white-space:pre-wrap;word-break:break-word}
+  .msg.user{align-self:flex-end;background:#1d4ed8aa;border:1px solid #3b82f6;color:#fff}
+  .msg.iter{align-self:flex-start;background:#151b22;border:1px solid #232a33}
+  .msg .stamp{display:block;font-size:10px;color:var(--muted);margin-top:4px}
+  #inputRow{display:flex;gap:8px;padding:10px 12px;border-top:1px solid #232a33}
+  #cmd{flex:1;background:#0d1116;border:1px solid #2c3542;color:var(--text);border-radius:10px;padding:9px 12px;font-size:13px;outline:none}
+  #cmd:focus{border-color:var(--accent)}
+  #sendBtn{background:var(--accent);border:none;border-radius:10px;padding:0 14px;font-weight:700;color:#07201d;cursor:pointer}
+  #sendBtn:disabled{opacity:.4}
+  #status{position:absolute;z-index:1000;top:14px;right:14px;background:rgba(16,20,24,.92);border:1px solid #232a33;border-radius:12px;padding:8px 13px;font-size:11.5px;color:var(--muted);max-width:320px}
+  #status b{color:var(--accent)}
+  #pulse{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--accent);margin-right:6px;animation:pulse 1.6s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+  .card{position:absolute;z-index:1000;bottom:16px;left:14px;width:340px;max-height:44vh;overflow-y:auto;background:rgba(16,20,24,.94);border:1px solid #232a33;border-radius:16px;padding:12px;display:none}
+  .card h3{font-size:13px;color:var(--accent);margin-bottom:8px;display:flex;justify-content:space-between}
+  .card h3 .x{cursor:pointer;color:var(--muted);font-weight:400}
+  .res{border:1px solid #232a33;border-radius:10px;padding:8px 10px;margin-bottom:7px;cursor:pointer;transition:.15s;background:#131920}
+  .res:hover{border-color:var(--accent)}
+  .res .nm{font-size:12.5px;font-weight:600}
+  .res .meta{font-size:11px;color:var(--muted);margin-top:2px}
+  .agent-pin{width:36px;height:36px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:linear-gradient(135deg,#4fd1c5,#3182ce);box-shadow:0 4px 14px rgba(0,0,0,.55);border:2px solid #0b0e11;display:flex;align-items:center;justify-content:center}
+  .agent-pin span{transform:rotate(45deg);font-weight:900;font-size:15px;color:#07121a}
+  .user-pin{width:22px;height:22px;border-radius:50%;background:#f6ad55;border:3px solid #07121a;box-shadow:0 0 0 6px rgba(246,173,85,.25),0 4px 14px rgba(0,0,0,.6)}
+  .res-pin{width:30px;height:30px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:var(--accent2);border:2px solid #0b0e11;box-shadow:0 3px 10px rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center}
+  .res-pin span{transform:rotate(45deg);font-size:13px}
+  .leaflet-popup-content-wrapper{background:#101418;color:#e2e8f0;border:1px solid #2c3542;border-radius:12px}
+  .leaflet-popup-tip{background:#101418}
+  .leaflet-popup-content{font-size:12.5px;line-height:1.5;margin:10px 12px}
+  .leaflet-container a.leaflet-popup-close-button{color:#8a97a8}
+  ::-webkit-scrollbar{width:8px}::-webkit-scrollbar-thumb{background:#232a33;border-radius:4px}
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="status"><span id="pulse"></span><span id="statusText">Booting Map Station...</span></div>
+<div id="dock">
+  <header>
+    <div class="logo">&#9670;</div>
+    <div><h1>Iter Map Station</h1><div class="sub">talk to your agent &middot; anywhere you are</div></div>
+  </header>
+  <div class="chips">
+    <div class="chip" data-q="restaurants near me">&#127861; Restaurants</div>
+    <div class="chip" data-q="cafes near me">&#9749; Caf&eacute;s</div>
+    <div class="chip" data-q="nearest metro stations">&#128647; Metro</div>
+    <div class="chip" data-q="things to do near me">&#127905; Things to do</div>
+    <div class="chip" data-q="pharmacies near me">&#128138; Pharmacy</div>
+  </div>
+  <div id="chatlog"></div>
+  <div id="inputRow">
+    <input id="cmd" placeholder="Ask Iter... e.g. best ramen nearby" autocomplete="off"/>
+    <button id="sendBtn">Send</button>
+  </div>
+</div>
+<div class="card" id="resultsCard">
+  <h3><span id="cardTitle">Results</span><span class="x" id="cardClose">&#10005;</span></h3>
+  <div id="results"></div>
+</div>

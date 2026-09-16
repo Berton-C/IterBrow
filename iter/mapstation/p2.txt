@@ -1,0 +1,47 @@
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const state = { pos: null, resultMarkers: [], lastResults: [] };
+  const log = (html, cls) => {
+    const m = document.createElement('div');
+    m.className = 'msg ' + (cls || 'iter');
+    m.innerHTML = html + '<span class="stamp">' + new Date().toLocaleTimeString() + '</span>';
+    $('chatlog').appendChild(m); $('chatlog').scrollTop = 1e9; return m;
+  };
+  const setStatus = t => { $('statusText').innerHTML = t; };
+
+  const map = L.map('map', { zoomControl: false, worldCopyJump: true }).setView([40.7128, -74.006], 12);
+  L.control.zoom({ position: 'bottomright' }).addTo(map);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    attribution: '&copy; OpenStreetMap &copy; CARTO', maxZoom: 19
+  }).addTo(map);
+
+  let userMarker = null, agentMarker = null;
+  function placeUser(lat, lon, label) {
+    state.pos = { lat, lon, label: label || 'You' };
+    if (userMarker) userMarker.remove();
+    userMarker = L.marker([lat, lon], { icon: L.divIcon({ className: '', html: '<div class="user-pin"></div>', iconSize: [22,22], iconAnchor: [11,11] }), draggable: true })
+      .addTo(map).bindPopup('<b>' + (label || 'You') + '</b><br>Drag me or double-click the map to move.');
+    userMarker.on('dragend', () => { const p = userMarker.getLatLng(); state.pos = { lat: p.lat, lon: p.lng, label: 'You (manual)' }; setStatus('<b>Position set</b> &middot; ' + p.lat.toFixed(4) + ', ' + p.lng.toFixed(4)); });
+    if (!agentMarker) {
+      agentMarker = L.marker([lat + 0.004, lon + 0.004], { icon: L.divIcon({ className: '', html: '<div class="agent-pin"><span>ITER</span></div>', iconSize: [36,36], iconAnchor: [18,34] }), zIndexOffset: 500 })
+        .addTo(map).bindPopup('<b>Iter agent</b><br>Your on-map assistant. Ask me anything in the dock!');
+    } else { agentMarker.setLatLng([lat + 0.004, lon + 0.004]); }
+    map.setView([lat, lon], 14, { animate: true });
+  }
+  function clearResults() { state.resultMarkers.forEach(m => m.remove()); state.resultMarkers = []; }
+  function addResult(r, i) {
+    const mk = L.marker([r.lat, r.lon], { icon: L.divIcon({ className: '', html: '<div class="res-pin"><span>' + (i+1) + '</span></div>', iconSize: [30,30], iconAnchor: [15,28] }) })
+      .addTo(map).bindPopup('<b>' + r.name + '</b>' + (r.meta ? '<br>' + r.meta : ''));
+    state.resultMarkers.push(mk);
+  }
+  function showResultsCard(title, results) {
+    $('cardTitle').textContent = title; $('results').innerHTML = '';
+    results.forEach((r, i) => {
+      const d = document.createElement('div'); d.className = 'res';
+      d.innerHTML = '<div class="nm">' + (i+1) + '. ' + r.name + '</div>' + (r.meta ? '<div class="meta">' + r.meta + '</div>' : '');
+      d.onclick = () => { map.setView([r.lat, r.lon], 16); state.resultMarkers[i] && state.resultMarkers[i].openPopup(); };
+      $('results').appendChild(d);
+    });
+    $('resultsCard').style.display = 'block';
+  }

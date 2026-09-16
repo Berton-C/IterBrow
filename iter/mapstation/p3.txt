@@ -1,0 +1,78 @@
+
+  function locate() {
+    if (!navigator.geolocation) { setStatus('Geolocation unavailable - using map center'); const c = map.getCenter(); placeUser(c.lat, c.lng, 'You (approx)'); return; }
+    setStatus('Locating you...');
+    navigator.geolocation.getCurrentPosition(
+      p => { const lat = p.coords.latitude, lon = p.coords.longitude;
+        placeUser(lat, lon, 'You (GPS)');
+        setStatus('<b>Location locked</b> &middot; ' + lat.toFixed(4) + ', ' + lon.toFixed(4));
+        log('Position acquired. Map centered on you. Ask away - restaurants, metro, travel plans...');
+      },
+      err => { setStatus('Location unavailable - using map center (drag pin or double-click to move)');
+        const c = map.getCenter(); placeUser(c.lat, c.lng, 'You (approx)');
+        log('Could not get GPS (' + err.message + '). I placed you at the map center - drag the orange pin or tell me a city.'); },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  }
+
+  function intentOf(q) {
+    const pos = state.pos || map.getCenter();
+    if (/restaurant|ramen|food|eat|dinner|lunch|hungry|pizza|sushi|burger/i.test(q)) return { title: 'Restaurants', cat: 'restaurant', icon: '&#127861;' };
+    if (/caf/i.test(q)) return { title: 'Cafes', cat: 'cafe', icon: '&#9749;' };
+    if (/metro|subway|train|transit|station/i.test(q)) return { title: 'Metro', cat: 'metro', icon: '&#128647;' };
+    if (/pharmac|drugstore|medicine|chemist/i.test(q)) return { title: 'Pharmacies', cat: 'pharmacy', icon: '&#128138;' };
+    if (/things|attraction|museum|fun|todo|park|see/i.test(q)) return { title: 'Things to do', cat: 'poi', icon: '&#127905;' };
+    if (/hotel|stay|sleep|travel to|trip|route|directions|how far/i.test(q)) return { title: 'Travel', cat: 'travel', icon: '&#9992;' };
+    return null;
+  }
+
+  function placeholderResults(intent, pos) {
+    const labels = ['Top pick', 'Highly rated', 'Nearby favorite', 'Budget option', 'Popular now'];
+    const out = [];
+    for (let i = 0; i < 5; i++) {
+      out.push({ name: intent.icon + ' ' + intent.title + ' #' + (i+1) + ' - ' + labels[i],
+        lat: pos.lat + (Math.random()-0.5)*0.02, lon: pos.lng + (Math.random()-0.5)*0.02,
+        meta: 'approx ' + (Math.random()*2+0.2).toFixed(1) + ' km - agent will refine with live data' });
+    }
+    return out;
+  }
+
+  function handle(q) {
+    log(q.replace(/</g, '&lt;'), 'user');
+    const intent = intentOf(q);
+    const t = log('Got it - working on &ldquo;' + q.replace(/</g, '&lt;') + '&rdquo;...');
+    if (!intent) {
+      setTimeout(() => { t.innerHTML = 'I can search <b>restaurants</b>, <b>caf&eacute;s</b>, <b>metro</b>, <b>pharmacies</b>, <b>things to do</b>, and <b>travel</b> around your pin. Try a chip button or type a question!<span class="stamp">' + new Date().toLocaleTimeString() + '</span>'; }, 700);
+      return;
+    }
+    setTimeout(() => {
+      const pos = state.pos || map.getCenter();
+      const results = placeholderResults(intent, pos);
+      t.innerHTML = 'Here is what I found for <b>' + intent.title + '</b> - plotted on the map with the results card. Say &ldquo;refine results&rdquo; and I will swap in live listings.<span class="stamp">' + new Date().toLocaleTimeString() + '</span>';
+      clearResults(); results.forEach(addResult);
+      showResultsCard(intent.title + ' (near you)', results);
+      const b = L.latLngBounds(results.map(r => [r.lat, r.lon])); b.extend([pos.lat, pos.lng]);
+      map.fitBounds(b, { padding: [40, 40] });
+    }, 900);
+  }
+
+  $('sendBtn').onclick = () => { const v = $('cmd').value.trim(); if (v) { $('cmd').value = ''; handle(v); } };
+  $('cmd').addEventListener('keydown', e => { if (e.key === 'Enter') $('sendBtn').onclick(); });
+  document.querySelectorAll('.chip').forEach(c => c.onclick = () => handle(c.dataset.q));
+  $('cardClose').onclick = () => { $('resultsCard').style.display = 'none'; };
+  map.on('dblclick', e => { placeUser(e.latlng.lat, e.latlng.lng, 'You (manual)'); setStatus('<b>Position set</b> &middot; ' + e.latlng.lat.toFixed(4) + ', ' + e.latlng.lng.toFixed(4)); });
+
+  log('Welcome to <b>Map Station</b> - I am Iter, your on-map agent. Getting your location...');
+  locate();
+
+  window.iterMap = {
+    map, placeUser, addResult, clearResults, showResultsCard,
+    getPos: () => state.pos || map.getCenter(),
+    results: (title, arr) => { clearResults(); arr.forEach(addResult); showResultsCard(title, arr);
+      if (arr.length) { const b = L.latLngBounds(arr.map(r => [r.lat, r.lon])); map.fitBounds(b, { padding: [40,40] }); } },
+    say: (html) => log(html)
+  };
+})();
+</script>
+</body>
+</html>

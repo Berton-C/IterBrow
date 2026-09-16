@@ -28,8 +28,14 @@ if TOOLS_DIR not in sys.path:
     sys.path.insert(0, TOOLS_DIR)
 import _memory_guard as guard
 
-MUSEUM_LOG = "memory/component_museum.jsonl"
-MUSEUM_DIR = "memory/component_museum"
+# Anchored to project root (parent of tools/) so lookups work from any cwd.
+# Root cause of the museum_vote 4/4 failures: relative paths only resolved
+# when cwd == project root; every vote from another cwd died with
+# "no museum entry found". (Fix applied 2026-09-14, user-approved.)
+_TOOLS_DIR = os.path.dirname(os.path.abspath(__file__))
+_PROJECT_ROOT = os.path.dirname(_TOOLS_DIR)
+MUSEUM_LOG = os.path.join(_PROJECT_ROOT, "memory", "component_museum.jsonl")
+MUSEUM_DIR = os.path.join(_PROJECT_ROOT, "memory", "component_museum")
 
 INLINE_LIMIT = 4000  # keep the jsonl line itself small; bigger payloads go to sidecar files
 

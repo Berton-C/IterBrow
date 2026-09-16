@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>🚀 Founder Toolkit: OSS Inspiration Board</title>
+<style>
+body{font-family:-apple-system,sans-serif;background:#0d1117;color:#e6edf3;margin:0;padding:24px;max-width:1100px;margin:0 auto}
+h1{font-size:26px} h2{color:#58a6ff;margin-top:28px;border-bottom:1px solid #30363d;padding-bottom:6px}
+.card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:14px 16px;margin:10px 0}
+.card h3{margin:0 0 4px;font-size:16px} .card a{color:#58a6ff;text-decoration:none}
+.meta{color:#8b949e;font-size:12px} .why{margin-top:8px;font-size:13px;line-height:1.5}
+.tag{display:inline-block;background:#1f6feb33;color:#58a6ff;border-radius:10px;padding:1px 8px;font-size:11px;margin-right:6px}
+.note{background:#1f6feb11;border-left:3px solid #f0883e;padding:10px 14px;border-radius:4px;font-size:13px}
+</style></head><body>
+<h1>🚀 Founder Toolkit — OSS Inspiration Board</h1>
+<p class="meta">Curated 2026-09-14 · Purpose: projects that could extend Iter's capacity as a founder ally. Grouped by how they'd plug into Iter's architecture (browser + agent + tools + tiered memory).</p>
+
+<h2>1. Customer & Pipeline (CRM)</h2>
+<div class="card"><h3>Twenty <a href="https://github.com/twentyhq/twenty">→ GitHub</a></h3>
+<p class="meta">TypeScript · modern open-source CRM (Notion-style UI) · ~20k+ stars</p>
+<p class="why"><b>Why for Iter:</b> A CRM tab inside IterBrow means a founder's whole pipeline lives where their AI ally already operates. Iter could scan deals, draft follow-ups, spot stale opportunities, and enrich contacts from memory. <b>Enhance:</b> skip the app entirely — model the CRM as localStorage/JSON stations like the existing workbench, with Iter as the automation layer.</p></div>
+
+<h2>2. Workflow & Automation</h2>
+<div class="card"><h3>N8N <a href="https://github.com/n8n-io/n8n">→ GitHub</a></h3>
+<p class="meta">TypeScript · fair-code workflow automation · 60k+ stars</p>
+<p class="why"><b>Why:</b> Founders drown in glue work. Iter's tool-calling loop is already a workflow engine — borrow N8N's <i>node/trigger concept</i> for declarative startup chores: "when new signup → post to Slack → log to CRM." Iter enhancements could translate natural-language into trigger graphs and execute them via scheduled reminders + browser automation.</p></div>
+
+<h2>3. Backend & Data</h2>
+<div class="card"><h3>Supabase <a href="https://github.com/supabase/supabase">→ GitHub</a></h3>
+<p class="meta">Postgres + auth + realtime + storage · 70k+ stars</p>
+<p class="why"><b>Why:</b> Founders' #1 ask of a technical ally. Iter can't hold a database — but could act as the <i>operator</i>: scaffold schemas, write migrations, debug RLS policies, and even narrate API design, while Supabase does the heavy lifting.</p></div>
+
+<h2>4. Product Analytics</h2>
+<div class="card"><h3>PostHog <a href="https://github.com/PostHog/posthog">→ GitHub</a></h3>
+<p class="meta">Product analytics, funnels, session replay, flags · 20k+ stars</p>
+<p class="why"><b>Why:</b> Iter's browser can open the founder's PostHog dashboard and <i>read it back to them</i>: funnel drop-offs, retention curves, anomalous traffic — turning a wall of charts into a spoken insight. <b>Enhance:</b> NAL-style evidence weighting on top of growth metrics fits Iter's reasoning substrate naturally.</p></div>
+
+<h2>5. Scheduling & Ops</h2>
+<div class="card"><h3>Cal.com <a href="https://github.com/calcom/cal.com">→ GitHub</a></h3>
+<p class="meta">Open-source scheduling infrastructure · 30k+ stars</p>
+<p class="why"><b>Why:</b> A founder ally that can actually <i>book meetings</i> is a step change. Iter's reminder tool + browser automation could drive Cal.com's API to propose slots, book calls, and prepare briefing docs from meeting invite context stored in memory.</p></div>
+
+<h2>6. AI Copilots & Agents</h2>
+<div class="card"><h3>Continue <a href="https://github.com/continuedev/continue">→ GitHub</a></h3>
+<p class="meta">VS Code + JetBrains AI code assistant · 15k+ stars</p>
+<p class="why"><b>Why:</b> Iter already has the reprogramming.txt self-extension mechanism — Continue's IDE-integration patterns (context providers, slash commands, LLM config) are a great template for making Iter's capability-adding flow more founder-accessible ("add a Figma importer" becomes one command).</p></div>
+<div class="card"><h3>OpenHands (formerly OpenDevin) <a href="https://github.com/All-Hands-AI/OpenHands">→ GitHub</a></h3>
+<p class="meta">Autonomous software engineering agent · 40k+ stars</p>
+<p class="why"><b>Why:</b> The strongest architectural cousin: an agent with a browser + shell + editor sandbox. Iter already has shell + browser tools — OpenHands's event-stream architecture and task-planning loop could inspire richer multi-step founder tasks (e.g., "set up the whole launch repo end-to-end").</p></div>
+
+<h2>7. Notetaking & Knowledge</h2>
+<div class="card"><h3>Affine <a href="https://github.com/toeverything/Affine">→ GitHub</a></h3>
+<p class="meta">Open-source Notion/Miro hybrid · local-first · 40k+ stars</p>
+<p class="why"><b>Why:</b> Iter's tiered-memory pyramid is already a knowledge system. Affine's local-first canvas + doc duality suggests a "founder second brain" tab — whiteboard + structured notes — that Iter can both render AND reason over (search, summarize, link to LTM memories).</p></div>
+
+<h2>8. Comms</h2>
+<div class="card"><h3>Cal.com sibling: Chatwoot <a href="https://github.com/chatwoot/chatwoot">→ GitHub</a></h3>
+<p class="meta">Open-source customer messaging (Intercom alternative) · 20k+ stars</p>
+<p class="why"><b>Why:</b> Founders answer the same customer questions repeatedly. Iter could draft replies, cluster tickets into themes, and — given its memory — notice when a customer's issue echoes an earlier one, cross-referencing past resolutions automatically.</p></div>
+
+<h2>9. Growth</h2>
+<div class="card"><h3>Listmonk <a href="https://github.com/knadh/listmonk">→ GitHub</a></h3>
+<p class="meta">Newsletter + mailing manager · 15k+ stars</p>
+<p class="why"><b>Why:</b> Content is a founder's growth engine. Iter could draft launch emails, segment audiences, and use the tiered-memory pattern to remember <i>what tone/subject lines worked</i> across campaigns — an actual learning loop for copywriting.</p></div>
+
+<div class="note"><b>Biggest architectural insight:</b> Iter's unique edge vs all of these standalone tools is the <b>memory + agency + browser in one</b>. Any of these projects becomes dramatically more useful when a persistent agent can operate it, observe it over time, and remember what it learned — that's the enhancement multiplier.</div>
+</body></html>

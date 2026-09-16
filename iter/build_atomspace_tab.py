@@ -15,13 +15,16 @@ def add_atom(name, atype="atom"):
         atoms[name] = {"label": name, "type": atype}
     return name
 
-for fname in ["space.metta", "nace_beliefs.metta"]:
+for fname in ["transformations/.runtime/space.metta", "nace_beliefs.metta"]:
     with open(fname, encoding='utf-8') as fh:
         for line in fh:
             line = line.strip()
             if not line or line.startswith(';'):
                 continue
             core = re.sub(r'<\s*stv[^>]*>', '', line).strip()
+            m2 = re.match(r'^\(\((.*)\)\s*\(stv [\d. ]+\)\)$', core)
+            if m2:
+                core = m2.group(1).strip()
             # nace belief lines: (cap-efficacy tool (stv f c)) etc.
             m = re.search(r'^\((\w[\w-]*)-efficacy\s+(\S+)\s*\(stv\s+([\d.]+)\s+([\d.]+)\)\)?$', line)
             if m:

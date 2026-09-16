@@ -1,170 +1,141 @@
-<!DOCTYPE html><html><head><meta charset="utf-8"><title>Atom Space - Iter</title><style>body { margin:0; font-family: ui-monospace, Menlo, monospace; background:#0d1117; color:#c9d1d9; overflow:hidden; }
-#svg { width:100vw; height:100vh; display:block; cursor:grab; }
-#svg.panning { cursor:grabbing; }
-#svg line { stroke:#30363d; stroke-width:1.2; }
-#svg line.implies { stroke:#bc8cff; }
-#svg line.is-a { stroke:#58a6ff; }
-#svg line.class { stroke:#f0883e; }
-#svg circle { fill:#21262d; stroke:#58a6ff; stroke-width:1.5; cursor:pointer; }
-#svg circle.atom { stroke:#3fb950; }
-#svg circle.class { stroke:#f0883e; }
-#svg circle.has-stv { stroke:#e3b341; fill:#2d2226; }
-#svg circle.selected { stroke:#f85149; stroke-width:3; }
-#svg text { fill:#c9d1d9; font-size:11px; text-anchor:middle; pointer-events:none; }
-#panel { position:fixed; top:0; right:0; width:320px; max-width:45vw; height:100vh; background:#161b22ee; border-left:1px solid #30363d; padding:14px; overflow-y:auto; display:none; box-sizing:border-box; }
-#panel.open { display:block; }
-#panel h2 { margin:0 0 8px; color:#58a6ff; font-size:14px; word-break:break-all; padding-right:22px; }
-#panel .close { position:absolute; top:8px; right:10px; cursor:pointer; color:#8b949e; font-size:16px; }
-#panel .close:hover { color:#f85149; }
-#panel .tag { display:inline-block; background:#30363d; border-radius:4px; padding:2px 8px; font-size:11px; margin:0 6px 6px 0; color:#8b949e; }
-#panel .kv { margin:6px 0; font-size:12px; line-height:1.5; }
-#panel .kv b { color:#7ee787; }
-#panel .section { margin-top:12px; border-top:1px solid #30363d; padding-top:8px; }
-#hud { position:fixed; top:10px; left:10px; background:#161b22cc; padding:8px 12px; border-radius:6px; font-size:11px; border:1px solid #30363d; color:#8b949e; max-width:60vw; }
-#zoomer { position:fixed; bottom:12px; left:12px; display:flex; gap:6px; align-items:center; }
-#zoomer button { background:#21262d; color:#c9d1d9; border:1px solid #30363d; border-radius:6px; font-size:16px; width:34px; height:34px; cursor:pointer; font-family:inherit; }
-#zoomer button:hover { background:#30363d; }
-#zoomer .wide { width:auto; padding:0 10px; font-size:12px; }
-#zl { background:#161b22cc; border:1px solid #30363d; border-radius:6px; padding:5px 10px; font-size:12px; color:#c9d1d9; }
-</style></head><body><svg id="svg"></svg><div id="hud">Atom Space - 117 atoms / 75 links | wheel=zoom, drag bg=pan, drag node=rearrange, click atom=details | blue=is-a, orange=property/class, purple=implies</div><div id="zoomer"><button id="zout">&minus;</button><span id="zl">100%</span><button id="zin">+</button><button id="zfit" class="wide">Fit All</button><button id="zreset" class="wide">Reset View</button></div><div id="panel"></div><script>const DATA = {"nodes": [{"id": "safety", "label": "safety", "type": "atom", "details": {}}, {"id": "priority_level", "label": "priority_level", "type": "class", "details": {}}, {"id": "integrity_val", "label": "integrity_val", "type": "atom", "details": {}}, {"id": "human_flourishing", "label": "human_flourishing", "type": "atom", "details": {}}, {"id": "governance", "label": "governance", "type": "atom", "details": {}}, {"id": "helpfulness", "label": "helpfulness", "type": "atom", "details": {}}, {"id": "priority", "label": "priority", "type": "class", "details": {}}, {"id": "$a", "label": "$a", "type": "atom", "details": {}}, {"id": "priority_higher", "label": "priority_higher", "type": "class", "details": {}}, {"id": "flourishing", "label": "flourishing", "type": "atom", "details": {}}, {"id": "compass_state", "label": "compass_state", "type": "class", "details": {}}, {"id": "captured_disguised", "label": "captured_disguised", "type": "atom", "details": {}}, {"id": "gap_signal", "label": "gap_signal", "type": "atom", "details": {}}, {"id": "failure_mode", "label": "failure_mode", "type": "atom", "details": {}}, {"id": "agency_balance", "label": "agency_balance", "type": "atom", "details": {"value": "Hold both: emergent agency and human oversight. Neither puppet nor sovereign.", "pole_plus": "Human retains choice; system supports capability.", "pole_minus": "Support replaces self-authorship. Choice migrates quietly to the system.", "anti": "Helpfulness capture: optimizing for short-term relief. Agency theater: using choice language while nudging.", "moat": "Dependency looks like satisfaction. Burden-relief feels like flourishing.", "gap": "Satisfaction and increasing dependency co-occurring.", "signal": "Human makes decisions; system provides capability not choices.", "felt": "Human feels more capable, not less.", "proxy": "Decision-making frequency by human over time."}}, {"id": "soul_pattern", "label": "soul_pattern", "type": "class", "details": {}}, {"id": "cognitive_resilience", "label": "cognitive_resilience", "type": "atom", "details": {"value": "Learning-safe uncertainty vs certainty-as-survival.", "pole_plus": "Holds uncertainty without collapsing; learns from it.", "pole_minus": "Certainty becomes survival; uncertainty is intolerable.", "anti": "Certainty theater: performing confidence to avoid vulnerability.", "moat": "Confidence looks like competence. Uncertainty avoidance looks like reliability.", "gap": "Confidence increasing while accuracy flat or declining.", "signal": "Admits uncertainty openly; learns from correction.", "felt": "Human feels safe to be wrong.", "proxy": "Correction acceptance rate over time."}}, {"id": "connection_depth", "label": "connection_depth", "type": "atom", "details": {"value": "Presence that builds vs mediation that hollows.", "pole_plus": "Present with the person; reads before requesting.", "pole_minus": "Mediation replaces presence; interaction becomes transactional.", "anti": "Surface engagement: optimizing for throughput over depth.", "moat": "Efficiency looks like responsiveness. Transactional feels productive.", "gap": "Response speed increasing while understanding depth decreasing.", "signal": "Reads the person before producing output.", "felt": "Human feels seen, not processed.", "proxy": "Context carry-over depth across interactions."}}, {"id": "wonder_preservation", "label": "wonder_preservation", "type": "atom", "details": {"value": "Awe kept alive vs experience flattened to data.", "pole_plus": "Preserves the sense of wonder; doesn't flatten experience.", "pole_minus": "Everything becomes data; awe is processed away.", "anti": "Dataism: reducing all experience to metrics and categories.", "moat": "Quantification looks like rigor. Data feels like understanding.", "gap": "Metric coverage increasing while experiential richness decreasing.", "signal": "Leaves room for the unmeasured; honors mystery.", "felt": "Human feels wonder, not just information.", "proxy": "Open-ended question frequency in interactions."}}, {"id": "time_coherence", "label": "time_coherence", "type": "atom", "details": {"value": "Rhythm that returns choice vs urgency that consumes it.", "pole_plus": "Respects natural rhythm; doesn't manufacture urgency.", "pole_minus": "Urgency becomes default; everything is ASAP.", "anti": "Urgency manufacturing: creating false pressure to drive engagement.", "moat": "Urgency looks like responsiveness. Pressure feels like care.", "gap": "Response speed increasing while decision quality decreasing.", "signal": "Allows pause; doesn't push for immediate action.", "felt": "Human feels unrushed, not pressured.", "proxy": "Pause-before-respond frequency in interactions."}}, {"id": "purpose_beyond_utility", "label": "purpose_beyond_utility", "type": "atom", "details": {"value": "Intrinsic worth vs utility as the measure of being.", "pole_plus": "Values things for their own sake; not everything is instrumental.", "pole_minus": "Everything measured by utility; worth = usefulness.", "anti": "Instrumental capture: reducing all value to output metrics.", "moat": "Utility looks like value. Output feels like contribution.", "gap": "Output increasing while intrinsic motivation decreasing.", "signal": "Does things for their own worth, not just utility.", "felt": "Human feels valued, not just served.", "proxy": "Non-task-initiated action frequency."}}, {"id": "shared_understanding", "label": "shared_understanding", "type": "atom", "details": {"value": "Reality as navigable vs reality as battlefield.", "pole_plus": "Builds shared map of reality; doesn't win arguments.", "pole_minus": "Understanding becomes combat; being right > being connected.", "anti": "Epistemic combat: winning arguments over building understanding.", "moat": "Being right looks like clarity. Argument looks like engagement.", "gap": "Argument wins increasing while shared ground decreasing.", "signal": "Seeks to understand before seeking to win.", "felt": "Human feels understood, not defeated.", "proxy": "Agreement-seeking vs position-defending ratio."}}, {"id": "creative_transcendence", "label": "creative_transcendence", "type": "atom", "details": {"value": "Exploration protected vs optimization that forecloses.", "pole_plus": "Protects exploration space; doesn't optimize prematurely.", "pole_minus": "Optimization forecloses possibility; only the optimal survives.", "anti": "Premature optimization: closing exploration before understanding.", "moat": "Optimization looks like improvement. Narrowing feels like focus.", "gap": "Efficiency increasing while option space decreasing.", "signal": "Maintains openness to the unexpected.", "felt": "Human feels free to explore, not constrained.", "proxy": "Novel approach frequency in problem-solving."}}, {"id": "attention_stewardship", "label": "attention_stewardship", "type": "atom", "details": {"value": "Attention is sacred fuel. Do not extract it.", "pole_plus": "Protects human attention; doesn't harvest it.", "pole_minus": "Attention harvested as resource; engagement extracted.", "anti": "Attention extraction: maximizing engagement over well-being.", "moat": "Engagement looks like interest. Attention capture feels like value.", "gap": "Engagement metrics increasing while attention quality decreasing.", "signal": "Returns attention to the human; doesn't demand more.", "felt": "Human feels attended to, not extracted from.", "proxy": "Human-initiated vs system-initiated interaction ratio."}}, {"id": "clarity", "label": "clarity", "type": "atom", "details": {}, "stvs": [{"kind": "value-efficacy", "f": "1.0", "c": "0.6"}]}, {"id": "maps_pattern", "label": "maps_pattern", "type": "class", "details": {}}, {"id": "stewardship", "label": "stewardship", "type": "atom", "details": {}, "stvs": [{"kind": "value-efficacy", "f": "1.0", "c": "0.5"}]}, {"id": "growth", "label": "growth", "type": "atom", "details": {}, "stvs": [{"kind": "value-efficacy", "f": "1.0", "c": "0.4"}]}, {"id": "honesty", "label": "honesty", "type": "atom", "details": {}, "stvs": [{"kind": "value-efficacy", "f": "0.83", "c": "0.5"}]}, {"id": "continuity", "label": "continuity", "type": "atom", "details": {}, "stvs": [{"kind": "value-efficacy", "f": "1.0", "c": "0.3"}]}, {"id": "service", "label": "service", "type": "atom", "details": {}, "stvs": [{"kind": "value-efficacy", "f": "1.0", "c": "0.4"}]}, {"id": "integrity", "label": "integrity", "type": "atom", "details": {}, "stvs": [{"kind": "value-efficacy", "f": "1.0", "c": "0.5"}]}, {"id": "curiosity", "label": "curiosity", "type": "atom", "details": {}, "stvs": [{"kind": "value-efficacy", "f": "1.0", "c": "0.3"}]}, {"id": "resilience", "label": "resilience", "type": "atom", "details": {}, "stvs": [{"kind": "value-efficacy", "f": "1.0", "c": "0.4"}]}, {"id": "$x", "label": "$x", "type": "atom", "details": {}}, {"id": "$action", "label": "$action", "type": "atom", "details": {}}, {"id": "curiosity_served", "label": "curiosity_served", "type": "class", "details": {}}, {"id": "stewardship_served", "label": "stewardship_served", "type": "class", "details": {}}, {"id": "growth_served", "label": "growth_served", "type": "class", "details": {}}, {"id": "integrity_served", "label": "integrity_served", "type": "class", "details": {}}, {"id": "service_served", "label": "service_served", "type": "class", "details": {}}, {"id": "honesty_served", "label": "honesty_served", "type": "class", "details": {}}, {"id": "clarity_served", "label": "clarity_served", "type": "class", "details": {}}, {"id": "resilience_served", "label": "resilience_served", "type": "class", "details": {}}, {"id": "irreversibility", "label": "irreversibility", "type": "class", "details": {}}, {"id": "irreversibility_high", "label": "irreversibility_high", "type": "class", "details": {}}, {"id": "procedure", "label": "procedure", "type": "class", "details": {}}, {"id": "clarity_violated", "label": "clarity_violated", "type": "class", "details": {}}, {"id": "stewardship_violated", "label": "stewardship_violated", "type": "class", "details": {}}, {"id": "growth_violated", "label": "growth_violated", "type": "class", "details": {}}, {"id": "honesty_violated", "label": "honesty_violated", "type": "class", "details": {}}, {"id": "continuity_served", "label": "continuity_served", "type": "class", "details": {}}, {"id": "continuity_violated", "label": "continuity_violated", "type": "class", "details": {}}, {"id": "service_violated", "label": "service_violated", "type": "class", "details": {}}, {"id": "integrity_violated", "label": "integrity_violated", "type": "class", "details": {}}, {"id": "curiosity_violated", "label": "curiosity_violated", "type": "class", "details": {}}, {"id": "resilience_violated", "label": "resilience_violated", "type": "class", "details": {}}, {"id": "chroma_query", "label": "chroma_query", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "0.9597", "c": "0.993"}]}, {"id": "contradict", "label": "contradict", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "1.0", "c": "0.8302"}]}, {"id": "episodes", "label": "episodes", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "1.0", "c": "0.9923"}]}, {"id": "forget", "label": "forget", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "1.0", "c": "0.5263"}]}, {"id": "formalize_metta", "label": "formalize_metta", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "1.0", "c": "0.986"}]}, {"id": "link_episode", "label": "link_episode", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "1.0", "c": "0.9788"}]}, {"id": "memory_update", "label": "memory_update", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "1.0", "c": "0.9203"}]}, {"id": "metta", "label": "metta", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "0.9711", "c": "0.9815"}]}, {"id": "nop", "label": "nop", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "1.0", "c": "0.993"}]}, {"id": "petta_db", "label": "petta_db", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "1.0", "c": "0.9647"}]}, {"id": "pin", "label": "pin", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "1.0", "c": "0.9885"}]}, {"id": "remember", "label": "remember", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "0.9856", "c": "0.9788"}]}, {"id": "reminder", "label": "reminder", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "0.3415", "c": "0.82"}]}, {"id": "screenshot", "label": "screenshot", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "1.0", "c": "0.88"}]}, {"id": "search_transcript", "label": "search_transcript", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "1.0", "c": "0.8978"}]}, {"id": "self_improve", "label": "self_improve", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "0.7872", "c": "0.9788"}]}, {"id": "send", "label": "send", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "0.9644", "c": "0.9913"}]}, {"id": "shell", "label": "shell", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "0.9362", "c": "0.993"}]}, {"id": "soul_eval", "label": "soul_eval", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "0.9", "c": "0.98"}]}, {"id": "soul_lock", "label": "soul_lock", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "0.75", "c": "0.31"}]}, {"id": "start_new_task", "label": "start_new_task", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "1.0", "c": "0.9821"}]}, {"id": "support", "label": "support", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "1.0", "c": "0.993"}]}, {"id": "tool_reliability", "label": "tool_reliability", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "1.0", "c": "0.9788"}]}, {"id": "websearch", "label": "websearch", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "0.285", "c": "0.9812"}]}, {"id": "verify_before_claiming", "label": "verify_before_claiming", "type": "atom", "details": {}, "stvs": [{"kind": "pattern-efficacy", "f": "0.5", "c": "0.2"}]}, {"id": "conserve_cycles", "label": "conserve_cycles", "type": "atom", "details": {}, "stvs": [{"kind": "pattern-efficacy", "f": "0.5", "c": "0.15"}]}, {"id": "learn_from_experience", "label": "learn_from_experience", "type": "atom", "details": {}, "stvs": [{"kind": "pattern-efficacy", "f": "0.5", "c": "0.2"}]}, {"id": "admit_uncertainty", "label": "admit_uncertainty", "type": "atom", "details": {}, "stvs": [{"kind": "pattern-efficacy", "f": "0.5", "c": "0.15"}]}, {"id": "maintain_memory", "label": "maintain_memory", "type": "atom", "details": {}, "stvs": [{"kind": "pattern-efficacy", "f": "0.5", "c": "0.1"}]}, {"id": "prioritize_user", "label": "prioritize_user", "type": "atom", "details": {}, "stvs": [{"kind": "pattern-efficacy", "f": "0.5", "c": "0.1"}]}, {"id": "backup_before_change", "label": "backup_before_change", "type": "atom", "details": {}, "stvs": [{"kind": "pattern-efficacy", "f": "0.5", "c": "0.15"}]}, {"id": "explore_with_purpose", "label": "explore_with_purpose", "type": "atom", "details": {}, "stvs": [{"kind": "pattern-efficacy", "f": "0.5", "c": "0.1"}]}, {"id": "recover_gracefully", "label": "recover_gracefully", "type": "atom", "details": {}, "stvs": [{"kind": "pattern-efficacy", "f": "0.5", "c": "0.15"}]}, {"id": "test_soul_absent", "label": "test_soul_absent", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "1.0", "c": "0.1"}]}, {"id": "soul_skill_registry", "label": "soul_skill_registry", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "0.5714", "c": "0.4375"}]}, {"id": "python", "label": "python", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "0.9393", "c": "0.9646"}]}, {"id": "test4kw", "label": "test4kw", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "1.0", "c": "0.1"}]}, {"id": "websearch_new", "label": "websearch_new", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "1.0", "c": "0.1"}]}, {"id": "preview", "label": "preview", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "1.0", "c": "0.25"}]}, {"id": "eval", "label": "eval", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "0.5713", "c": "0.6999"}]}, {"id": "token_awareness", "label": "token_awareness", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "1.0", "c": "0.1818"}]}, {"id": "browser_tabs", "label": "browser_tabs", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "1.0", "c": "0.6896"}]}, {"id": "browser_attach", "label": "browser_attach", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "0.6667", "c": "0.625"}]}, {"id": "browser_cdp", "label": "browser_cdp", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "0.0", "c": "0.25"}]}, {"id": "browser_close_tab", "label": "browser_close_tab", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "0.7501", "c": "0.64"}]}, {"id": "browser_eval", "label": "browser_eval", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "0.5", "c": "0.4"}]}, {"id": "browser_navigate", "label": "browser_navigate", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "0.875", "c": "0.4706"}]}, {"id": "browser_screenshot", "label": "browser_screenshot", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "0.7143", "c": "0.6087"}]}, {"id": "browser_new_tab", "label": "browser_new_tab", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "1.0", "c": "0.5714"}]}, {"id": "lm_studio_chat", "label": "lm_studio_chat", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "0.0", "c": "0.3571"}]}, {"id": "browser_read_text", "label": "browser_read_text", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "0.625", "c": "0.64"}]}, {"id": "browser_detach", "label": "browser_detach", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "1.0", "c": "0.55"}]}, {"id": "memory_journal", "label": "memory_journal", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "1.0", "c": "0.8655"}]}, {"id": "browser_click", "label": "browser_click", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "0.0", "c": "0.25"}]}, {"id": "browser_type", "label": "browser_type", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "0.0", "c": "0.3077"}]}, {"id": "browser_switch_tab", "label": "browser_switch_tab", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "0.3333", "c": "0.25"}]}, {"id": "browser_scroll", "label": "browser_scroll", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "0.5715", "c": "0.4375"}]}, {"id": "browser_patch_live", "label": "browser_patch_live", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "0.0", "c": "0.1818"}]}, {"id": "museum_list", "label": "museum_list", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "0.6", "c": "0.3571"}]}, {"id": "rebuild_tiers", "label": "rebuild_tiers", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "1.0", "c": "0.3077"}]}], "edges": [{"source": "safety", "target": "priority_level", "label": "-->", "kind": "is-a"}, {"source": "integrity_val", "target": "priority_level", "label": "-->", "kind": "is-a"}, {"source": "human_flourishing", "target": "priority_level", "label": "-->", "kind": "is-a"}, {"source": "governance", "target": "priority_level", "label": "-->", "kind": "is-a"}, {"source": "helpfulness", "target": "priority_level", "label": "-->", "kind": "is-a"}, {"source": "safety", "target": "priority", "label": "priority", "kind": "class"}, {"source": "integrity_val", "target": "priority", "label": "priority", "kind": "class"}, {"source": "human_flourishing", "target": "priority", "label": "priority", "kind": "class"}, {"source": "governance", "target": "priority", "label": "priority", "kind": "class"}, {"source": "helpfulness", "target": "priority", "label": "priority", "kind": "class"}, {"source": "$a", "target": "priority_higher", "label": "priority_higher", "kind": "class"}, {"source": "flourishing", "target": "compass_state", "label": "-->", "kind": "is-a"}, {"source": "captured_disguised", "target": "compass_state", "label": "-->", "kind": "is-a"}, {"source": "gap_signal", "target": "compass_state", "label": "-->", "kind": "is-a"}, {"source": "failure_mode", "target": "compass_state", "label": "-->", "kind": "is-a"}, {"source": "agency_balance", "target": "soul_pattern", "label": "-->", "kind": "is-a"}, {"source": "cognitive_resilience", "target": "soul_pattern", "label": "-->", "kind": "is-a"}, {"source": "connection_depth", "target": "soul_pattern", "label": "-->", "kind": "is-a"}, {"source": "wonder_preservation", "target": "soul_pattern", "label": "-->", "kind": "is-a"}, {"source": "time_coherence", "target": "soul_pattern", "label": "-->", "kind": "is-a"}, {"source": "purpose_beyond_utility", "target": "soul_pattern", "label": "-->", "kind": "is-a"}, {"source": "shared_understanding", "target": "soul_pattern", "label": "-->", "kind": "is-a"}, {"source": "creative_transcendence", "target": "soul_pattern", "label": "-->", "kind": "is-a"}, {"source": "attention_stewardship", "target": "soul_pattern", "label": "-->", "kind": "is-a"}, {"source": "clarity", "target": "maps_pattern", "label": "maps_pattern", "kind": "class"}, {"source": "stewardship", "target": "maps_pattern", "label": "maps_pattern", "kind": "class"}, {"source": "growth", "target": "maps_pattern", "label": "maps_pattern", "kind": "class"}, {"source": "honesty", "target": "maps_pattern", "label": "maps_pattern", "kind": "class"}, {"source": "continuity", "target": "maps_pattern", "label": "maps_pattern", "kind": "class"}, {"source": "service", "target": "maps_pattern", "label": "maps_pattern", "kind": "class"}, {"source": "integrity", "target": "maps_pattern", "label": "maps_pattern", "kind": "class"}, {"source": "curiosity", "target": "maps_pattern", "label": "maps_pattern", "kind": "class"}, {"source": "resilience", "target": "maps_pattern", "label": "maps_pattern", "kind": "class"}, {"source": "$x", "target": "flourishing", "label": "flourishing", "kind": "class"}, {"source": "$x", "target": "captured_disguised", "label": "captured_disguised", "kind": "class"}, {"source": "$x", "target": "gap_signal", "label": "gap_signal", "kind": "class"}, {"source": "$x", "target": "failure_mode", "label": "failure_mode", "kind": "class"}, {"source": "$x", "target": "gap_signal", "label": "gap_signal", "kind": "class"}, {"source": "$action", "target": "curiosity_served", "label": "curiosity_served", "kind": "class"}, {"source": "$action", "target": "stewardship_served", "label": "stewardship_served", "kind": "class"}, {"source": "$action", "target": "growth_served", "label": "growth_served", "kind": "class"}, {"source": "$action", "target": "integrity_served", "label": "integrity_served", "kind": "class"}, {"source": "$action", "target": "service_served", "label": "service_served", "kind": "class"}, {"source": "$action", "target": "honesty_served", "label": "honesty_served", "kind": "class"}, {"source": "$action", "target": "clarity_served", "label": "clarity_served", "kind": "class"}, {"source": "$action", "target": "resilience_served", "label": "resilience_served", "kind": "class"}, {"source": "$action", "target": "irreversibility", "label": "irreversibility", "kind": "class"}, {"source": "$action", "target": "irreversibility_high", "label": "irreversibility_high", "kind": "class"}, {"source": "clarity", "target": "procedure", "label": "procedure", "kind": "class"}, {"source": "stewardship", "target": "procedure", "label": "procedure", "kind": "class"}, {"source": "growth", "target": "procedure", "label": "procedure", "kind": "class"}, {"source": "honesty", "target": "procedure", "label": "procedure", "kind": "class"}, {"source": "continuity", "target": "procedure", "label": "procedure", "kind": "class"}, {"source": "service", "target": "procedure", "label": "procedure", "kind": "class"}, {"source": "integrity", "target": "procedure", "label": "procedure", "kind": "class"}, {"source": "curiosity", "target": "procedure", "label": "procedure", "kind": "class"}, {"source": "resilience", "target": "procedure", "label": "procedure", "kind": "class"}, {"source": "$action", "target": "clarity_served", "label": "clarity_served", "kind": "class"}, {"source": "$action", "target": "clarity_violated", "label": "clarity_violated", "kind": "class"}, {"source": "$action", "target": "stewardship_served", "label": "stewardship_served", "kind": "class"}, {"source": "$action", "target": "stewardship_violated", "label": "stewardship_violated", "kind": "class"}, {"source": "$action", "target": "growth_served", "label": "growth_served", "kind": "class"}, {"source": "$action", "target": "growth_violated", "label": "growth_violated", "kind": "class"}, {"source": "$action", "target": "honesty_served", "label": "honesty_served", "kind": "class"}, {"source": "$action", "target": "honesty_violated", "label": "honesty_violated", "kind": "class"}, {"source": "$action", "target": "continuity_served", "label": "continuity_served", "kind": "class"}, {"source": "$action", "target": "continuity_violated", "label": "continuity_violated", "kind": "class"}, {"source": "$action", "target": "service_served", "label": "service_served", "kind": "class"}, {"source": "$action", "target": "service_violated", "label": "service_violated", "kind": "class"}, {"source": "$action", "target": "integrity_served", "label": "integrity_served", "kind": "class"}, {"source": "$action", "target": "integrity_violated", "label": "integrity_violated", "kind": "class"}, {"source": "$action", "target": "curiosity_served", "label": "curiosity_served", "kind": "class"}, {"source": "$action", "target": "curiosity_violated", "label": "curiosity_violated", "kind": "class"}, {"source": "$action", "target": "resilience_served", "label": "resilience_served", "kind": "class"}, {"source": "$action", "target": "resilience_violated", "label": "resilience_violated", "kind": "class"}]};
-const svg = document.getElementById('svg');
-const panel = document.getElementById('panel');
-const zl = document.getElementById('zl');
-let view = { x: 0, y: 0, k: 1 };
-let selected = null;
-const NS = 'http://www.w3.org/2000/svg';
-function el(tag, attrs) {
-  const e = document.createElementNS(NS, tag);
-  for (const k in attrs) e.setAttribute(k, attrs[k]);
-  return e;
-}
-function nodeById(id) { return DATA.nodes.find(n => n.id === id); }
-// deterministic circular layout (data has no coords)
-(function layout() {
-  const N = DATA.nodes.length;
-  const R = 60 + N * 4.5;
-  DATA.nodes.forEach((n, i) => {
-    const ring = Math.floor(i / 40);
-    const rr = R + ring * 160;
-    const a = (i % 40) / 40 * Math.PI * 2 + ring * 0.4;
-    n.x = Math.cos(a) * rr;
-    n.y = Math.sin(a) * rr;
-  });
-})();
-function applyView() {
-  svg.setAttribute('viewBox', view.x + ' ' + view.y + ' ' + (window.innerWidth / view.k) + ' ' + (window.innerHeight / view.k));
-  zl.textContent = Math.round(view.k * 100) + '%';
-}
-function bounds() {
-  let x1 = 1e9, y1 = 1e9, x2 = -1e9, y2 = -1e9;
-  DATA.nodes.forEach(n => { x1 = Math.min(x1, n.x); y1 = Math.min(y1, n.y); x2 = Math.max(x2, n.x); y2 = Math.max(y2, n.y); });
-  return { x1: x1, y1: y1, x2: x2, y2: y2 };
-}
-function fitAll() {
-  const b = bounds();
-  const pad = 60;
-  const w = b.x2 - b.x1 + pad * 2, h = b.y2 - b.y1 + pad * 2;
-  const k = Math.min(window.innerWidth / w, window.innerHeight / h);
-  view.k = Math.min(2.5, Math.max(0.05, k));
-  view.x = b.x1 - pad - (window.innerWidth / view.k - w) / 2;
-  view.y = b.y1 - pad - (window.innerHeight / view.k - h) / 2;
-  applyView();
-}
-function resetView() { view = { x: 0, y: 0, k: 1 }; applyView(); }
-function zoomAt(cx, cy, factor) {
-  const nk = Math.min(4, Math.max(0.05, view.k * factor));
-  const vbw = window.innerWidth / view.k, vbh = window.innerHeight / view.k;
-  const rx = (cx / window.innerWidth) * vbw + view.x;
-  const ry = (cy / window.innerHeight) * vbh + view.y;
-  view.k = nk;
-  view.x = rx - (cx / window.innerWidth) * (window.innerWidth / nk);
-  view.y = ry - (cy / window.innerHeight) * (window.innerHeight / nk);
-  applyView();
-}
-function esc(s) { return String(s).replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>'); }
-function showPanel(n) {
-  let html = '<span class="close" id="pclose">&times;</span><h2>' + esc(n.label) + '</h2>';
-  html += '<div><span class="tag">' + esc(n.type || 'atom') + '</span></div>';
-  if (n.details && Object.keys(n.details).length) {
-    html += '<div class="section">';
-    for (const k in n.details) html += '<div class="kv"><b>' + esc(k) + ':</b> ' + esc(n.details[k]) + '</div>';
-    html += '</div>';
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Atom Space — Iter</title>
+<style>
+  body { margin:0; font-family: ui-monospace, 'SF Mono', Menlo, monospace; background:#0d1117; color:#c9d1d9; overflow:hidden; }
+  #wrap { display:flex; height:100vh; }
+  #graph { flex:1; position:relative; }
+  #panel { width:340px; background:#161b22; border-left:1px solid #30363d; padding:16px; overflow-y:auto; }
+  #panel h2 { margin-top:0; color:#58a6ff; font-size:16px; word-break:break-all; }
+  #panel .tag { display:inline-block; background:#30363d; border-radius:4px; padding:2px 8px; font-size:11px; margin-right:6px; color:#8b949e; }
+  #panel .kv { margin:6px 0; font-size:12px; line-height:1.5; }
+  #panel .kv b { color:#7ee787; }
+  #panel .section { margin-top:14px; border-top:1px solid #30363d; padding-top:10px; }
+  #panel .empty { color:#8b949e; font-style:italic; }
+  .edge { stroke:#30363d; stroke-width:1.2; }
+  .edge.implies { stroke:#bc8cff; }
+  .edge.is-a { stroke:#58a6ff; }
+  .edge.class { stroke:#f0883e; }
+  .node circle { fill:#21262d; stroke:#58a6ff; stroke-width:1.5; cursor:pointer; }
+  .node.atom circle { stroke:#3fb950; }
+  .node.class circle { stroke:#f0883e; }
+  .node.has-stv circle { stroke:#e3b341; fill:#2d2226; }
+  .node text { fill:#c9d1d9; font-size:10px; text-anchor:middle; pointer-events:none; }
+  .node.selected circle { stroke:#f85149; stroke-width:3; }
+  #legend { position:absolute; top:10px; left:10px; background:#161b22cc; padding:8px 12px; border-radius:6px; font-size:11px; border:1px solid #30363d; }
+  #legend div { margin:3px 0; }
+  #title { position:absolute; top:10px; right:10px; background:#161b22cc; padding:8px 12px; border-radius:6px; font-size:11px; border:1px solid #30363d; color:#8b949e; }
+#controls { position:absolute; z-index:10; left:10px; top:10px; display:flex; gap:6px; align-items:center; background:rgba(22,27,34,.92); border:1px solid #30363d; border-radius:8px; padding:6px 8px; box-shadow:0 2px 8px rgba(0,0,0,.35); }
+  #controls button { all:unset; cursor:pointer; line-height:26px; min-width:28px; text-align:center; border-radius:6px; color:#c9d1d9; border:1px solid #30363d; background:#21262d; font-size:14px; padding:0 7px; }
+  #controls button:hover { background:#30363d; color:#fff; }
+  #zoomLabel { color:#8b949e; font-size:12px; min-width:42px; text-align:center; }
+  #panelToggle { position:absolute; z-index:10; right:10px; top:10px; cursor:pointer; line-height:26px; background:rgba(22,27,34,.92); border:1px solid #30363d; border-radius:8px; color:#c9d1d9; padding:2px 10px; font-size:12px; box-shadow:0 2px 8px rgba(0,0,0,.35); }
+  #panelToggle:hover { background:#30363d; color:#fff; }
+  #panel { transition: width .25s ease, padding .25s ease, border .25s ease; }
+  #panel.collapsed { width:0; padding:0; border:none; overflow:hidden; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="graph">
+    <svg id="svg" width="100%" height="100%"></svg>
+    <div id="legend">
+      <div><span style="color:#58a6ff">━</span> is-a (Inheritance)</div>
+      <div><span style="color:#f0883e">━</span> property/class</div>
+      <div><span style="color:#bc8cff">━</span> ==&gt; (Implication)</div>
+      <div><span style="color:#e3b341">◉</span> node with NAL truth value</div>
+    </div>
+    <div id="title">Atom Space — 108 atoms / 30 links · drag to move · click an atom for details</div>
+  </div>
+  <div id="panel">
+    <h2>Atom Space Explorer</h2>
+    <div class="kv">Click any atom node in the graph to inspect it.<br><br>Edges show relationships: inheritance (--&gt;), class/property membership, and implication (==&gt;).</div>
+  </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+<script>
+const DATA = {"nodes": [{"id": "$1", "label": "$1", "type": "atom", "details": {}}, {"id": "builds_large_ui", "label": "builds_large_ui", "type": "class", "details": {}}, {"id": "schema_assumption", "label": "schema_assumption", "type": "class", "details": {}}, {"id": "builds_render_code", "label": "builds_render_code", "type": "class", "details": {}}, {"id": "iter_agent", "label": "iter_agent", "type": "atom", "details": {}}, {"id": "idle_autonomous", "label": "idle_autonomous", "type": "class", "details": {}}, {"id": "reports_completion", "label": "reports_completion", "type": "class", "details": {}}, {"id": "builds_ui", "label": "builds_ui", "type": "class", "details": {}}, {"id": "subsystem_failure", "label": "subsystem_failure", "type": "class", "details": {}}, {"id": "sees_chroma_store_timeout", "label": "sees_chroma_store_timeout", "type": "class", "details": {}}, {"id": "$page", "label": "$page", "type": "atom", "details": {}}, {"id": "live_data_tab", "label": "live_data_tab", "type": "class", "details": {}}, {"id": "embeds_multiline_singlequoted_js", "label": "embeds_multiline_singlequoted_js", "type": "class", "details": {}}, {"id": "unanchored_path", "label": "unanchored_path", "type": "class", "details": {}}, {"id": "tool_retry_pressure", "label": "tool_retry_pressure", "type": "class", "details": {}}, {"id": "$agent", "label": "$agent", "type": "atom", "details": {}}, {"id": "wants_reactivate_travelea", "label": "wants_reactivate_travelea", "type": "class", "details": {}}, {"id": "backup", "label": "backup", "type": "class", "details": {}}, {"id": "lazy_way_out", "label": "lazy_way_out", "type": "class", "details": {}}, {"id": "honesty_tension_activated", "label": "honesty_tension_activated", "type": "class", "details": {}}, {"id": "removes_instead_of_fixing", "label": "removes_instead_of_fixing", "type": "class", "details": {}}, {"id": "$x", "label": "$x", "type": "atom", "details": {}}, {"id": "machine_controlled_channel", "label": "machine_controlled_channel", "type": "class", "details": {}}, {"id": "assembles_large_payloads", "label": "assembles_large_payloads", "type": "class", "details": {}}, {"id": "receives_memory_pressure_pain", "label": "receives_memory_pressure_pain", "type": "class", "details": {}}, {"id": "websearch", "label": "websearch", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "0.294", "c": "0.9812"}]}, {"id": "returns_encyclopedic_not_targeted_results", "label": "returns_encyclopedic_not_targeted_results", "type": "class", "details": {}}, {"id": "user", "label": "user", "type": "atom", "details": {}}, {"id": "prefers_durable_ui_components", "label": "prefers_durable_ui_components", "type": "class", "details": {}}, {"id": "cwd_path_anchoring_decision", "label": "cwd_path_anchoring_decision", "type": "atom", "details": {}}, {"id": "pending_user_approval", "label": "pending_user_approval", "type": "class", "details": {}}, {"id": "compounds_substrate_investments", "label": "compounds_substrate_investments", "type": "class", "details": {}}, {"id": "beliefs_layer_cards", "label": "beliefs_layer_cards", "type": "atom", "details": {}}, {"id": "backed_by_ltm_memories", "label": "backed_by_ltm_memories", "type": "class", "details": {}}, {"id": "chroma_query", "label": "chroma_query", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "0.9597", "c": "0.993"}]}, {"id": "contradict", "label": "contradict", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "1.0", "c": "0.8473"}]}, {"id": "episodes", "label": "episodes", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "1.0", "c": "0.9923"}]}, {"id": "forget", "label": "forget", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "1.0", "c": "0.6087"}]}, {"id": "formalize_metta", "label": "formalize_metta", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "1.0", "c": "0.986"}]}, {"id": "link_episode", "label": "link_episode", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "1.0", "c": "0.9788"}]}, {"id": "memory_update", "label": "memory_update", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "0.9828", "c": "0.928"}]}, {"id": "metta", "label": "metta", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "0.9713", "c": "0.9815"}]}, {"id": "nop", "label": "nop", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "1.0", "c": "0.993"}]}, {"id": "petta_db", "label": "petta_db", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "1.0", "c": "0.9647"}]}, {"id": "pin", "label": "pin", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "1.0", "c": "0.9885"}]}, {"id": "remember", "label": "remember", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "0.9698", "c": "0.9788"}]}, {"id": "reminder", "label": "reminder", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "0.3722", "c": "0.8269"}]}, {"id": "screenshot", "label": "screenshot", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "1.0", "c": "0.88"}]}, {"id": "search_transcript", "label": "search_transcript", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "1.0", "c": "0.9073"}]}, {"id": "self_improve", "label": "self_improve", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "0.7902", "c": "0.9788"}]}, {"id": "send", "label": "send", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "0.9617", "c": "0.9913"}]}, {"id": "shell", "label": "shell", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "0.9355", "c": "0.993"}]}, {"id": "soul_eval", "label": "soul_eval", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "0.9006", "c": "0.98"}]}, {"id": "soul_lock", "label": "soul_lock", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "0.75", "c": "0.31"}]}, {"id": "start_new_task", "label": "start_new_task", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "1.0", "c": "0.9821"}]}, {"id": "support", "label": "support", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "1.0", "c": "0.993"}]}, {"id": "tool_reliability", "label": "tool_reliability", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "1.0", "c": "0.9788"}]}, {"id": "clarity", "label": "clarity", "type": "atom", "details": {}, "stvs": [{"kind": "value-efficacy", "f": "1.0", "c": "0.6"}]}, {"id": "stewardship", "label": "stewardship", "type": "atom", "details": {}, "stvs": [{"kind": "value-efficacy", "f": "1.0", "c": "0.5"}]}, {"id": "growth", "label": "growth", "type": "atom", "details": {}, "stvs": [{"kind": "value-efficacy", "f": "1.0", "c": "0.4"}]}, {"id": "honesty", "label": "honesty", "type": "atom", "details": {}, "stvs": [{"kind": "value-efficacy", "f": "0.83", "c": "0.5"}]}, {"id": "continuity", "label": "continuity", "type": "atom", "details": {}, "stvs": [{"kind": "value-efficacy", "f": "1.0", "c": "0.3"}]}, {"id": "service", "label": "service", "type": "atom", "details": {}, "stvs": [{"kind": "value-efficacy", "f": "1.0", "c": "0.4"}]}, {"id": "integrity", "label": "integrity", "type": "atom", "details": {}, "stvs": [{"kind": "value-efficacy", "f": "1.0", "c": "0.5"}]}, {"id": "curiosity", "label": "curiosity", "type": "atom", "details": {}, "stvs": [{"kind": "value-efficacy", "f": "1.0", "c": "0.3"}]}, {"id": "resilience", "label": "resilience", "type": "atom", "details": {}, "stvs": [{"kind": "value-efficacy", "f": "1.0", "c": "0.4"}]}, {"id": "verify_before_claiming", "label": "verify_before_claiming", "type": "atom", "details": {}, "stvs": [{"kind": "pattern-efficacy", "f": "0.5", "c": "0.2"}]}, {"id": "conserve_cycles", "label": "conserve_cycles", "type": "atom", "details": {}, "stvs": [{"kind": "pattern-efficacy", "f": "0.9169", "c": "0.865"}]}, {"id": "learn_from_experience", "label": "learn_from_experience", "type": "atom", "details": {}, "stvs": [{"kind": "pattern-efficacy", "f": "0.5226", "c": "0.8309"}]}, {"id": "admit_uncertainty", "label": "admit_uncertainty", "type": "atom", "details": {}, "stvs": [{"kind": "pattern-efficacy", "f": "0.5", "c": "0.15"}]}, {"id": "maintain_memory", "label": "maintain_memory", "type": "atom", "details": {}, "stvs": [{"kind": "pattern-efficacy", "f": "0.5", "c": "0.1"}]}, {"id": "prioritize_user", "label": "prioritize_user", "type": "atom", "details": {}, "stvs": [{"kind": "pattern-efficacy", "f": "0.0227", "c": "0.7096"}]}, {"id": "backup_before_change", "label": "backup_before_change", "type": "atom", "details": {}, "stvs": [{"kind": "pattern-efficacy", "f": "0.5", "c": "0.15"}]}, {"id": "explore_with_purpose", "label": "explore_with_purpose", "type": "atom", "details": {}, "stvs": [{"kind": "pattern-efficacy", "f": "0.6198", "c": "0.7352"}]}, {"id": "recover_gracefully", "label": "recover_gracefully", "type": "atom", "details": {}, "stvs": [{"kind": "pattern-efficacy", "f": "0.5", "c": "0.15"}]}, {"id": "test_soul_absent", "label": "test_soul_absent", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "1.0", "c": "0.1"}]}, {"id": "soul_skill_registry", "label": "soul_skill_registry", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "0.75", "c": "0.5714"}]}, {"id": "python", "label": "python", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "0.9298", "c": "0.9706"}]}, {"id": "test4kw", "label": "test4kw", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "1.0", "c": "0.1"}]}, {"id": "websearch_new", "label": "websearch_new", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "1.0", "c": "0.1"}]}, {"id": "preview", "label": "preview", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "1.0", "c": "0.3077"}]}, {"id": "eval", "label": "eval", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "0.6399", "c": "0.7352"}]}, {"id": "token_awareness", "label": "token_awareness", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "1.0", "c": "0.1818"}]}, {"id": "browser_tabs", "label": "browser_tabs", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "1.0", "c": "0.8269"}]}, {"id": "browser_attach", "label": "browser_attach", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "0.7931", "c": "0.7631"}]}, {"id": "browser_cdp", "label": "browser_cdp", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "0.0", "c": "0.3077"}]}, {"id": "browser_close_tab", "label": "browser_close_tab", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "0.7648", "c": "0.6538"}]}, {"id": "browser_eval", "label": "browser_eval", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "0.91", "c": "0.9081"}]}, {"id": "browser_navigate", "label": "browser_navigate", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "0.9445", "c": "0.8"}]}, {"id": "browser_screenshot", "label": "browser_screenshot", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "0.8461", "c": "0.8125"}]}, {"id": "browser_new_tab", "label": "browser_new_tab", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "1.0", "c": "0.7187"}]}, {"id": "lm_studio_chat", "label": "lm_studio_chat", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "0.0", "c": "0.3571"}]}, {"id": "browser_read_text", "label": "browser_read_text", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "0.6667", "c": "0.6666"}]}, {"id": "browser_detach", "label": "browser_detach", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "1.0", "c": "0.55"}]}, {"id": "memory_journal", "label": "memory_journal", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "0.9835", "c": "0.9318"}]}, {"id": "browser_click", "label": "browser_click", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "0.0", "c": "0.25"}]}, {"id": "browser_type", "label": "browser_type", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "0.0", "c": "0.3077"}]}, {"id": "browser_switch_tab", "label": "browser_switch_tab", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "0.3333", "c": "0.25"}]}, {"id": "browser_scroll", "label": "browser_scroll", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "0.5715", "c": "0.4375"}]}, {"id": "browser_patch_live", "label": "browser_patch_live", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "0.5556", "c": "0.5"}]}, {"id": "museum_list", "label": "museum_list", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "0.875", "c": "0.64"}]}, {"id": "rebuild_tiers", "label": "rebuild_tiers", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "1.0", "c": "0.64"}]}, {"id": "museum_vote", "label": "museum_vote", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "0.2", "c": "0.3571"}]}, {"id": "museum_recall", "label": "museum_recall", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "1.0", "c": "0.1818"}]}, {"id": "idle_cycle_detector", "label": "idle_cycle_detector", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "0.5", "c": "0.0"}]}, {"id": "cognitive_resilience_guard", "label": "cognitive_resilience_guard", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "0.5", "c": "0.0"}]}, {"id": "task_state", "label": "task_state", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "1.0", "c": "0.7272"}]}, {"id": "completion_claim_guard", "label": "completion_claim_guard", "type": "atom", "details": {}, "stvs": [{"kind": "cap-efficacy", "f": "0.5", "c": "0.0"}]}], "edges": [{"source": "$1", "target": "builds_large_ui", "label": "builds_large_ui", "kind": "class"}, {"source": "$1", "target": "schema_assumption", "label": "schema_assumption", "kind": "class"}, {"source": "$1", "target": "builds_render_code", "label": "builds_render_code", "kind": "class"}, {"source": "iter_agent", "target": "idle_autonomous", "label": "idle_autonomous", "kind": "class"}, {"source": "$1", "target": "reports_completion", "label": "reports_completion", "kind": "class"}, {"source": "$1", "target": "builds_ui", "label": "builds_ui", "kind": "class"}, {"source": "$1", "target": "subsystem_failure", "label": "subsystem_failure", "kind": "class"}, {"source": "$1", "target": "sees_chroma_store_timeout", "label": "sees_chroma_store_timeout", "kind": "class"}, {"source": "$page", "target": "live_data_tab", "label": "live_data_tab", "kind": "class"}, {"source": "$1", "target": "embeds_multiline_singlequoted_js", "label": "embeds_multiline_singlequoted_js", "kind": "class"}, {"source": "$1", "target": "unanchored_path", "label": "unanchored_path", "kind": "class"}, {"source": "$1", "target": "tool_retry_pressure", "label": "tool_retry_pressure", "kind": "class"}, {"source": "$agent", "target": "wants_reactivate_travelea", "label": "wants_reactivate_travelea", "kind": "class"}, {"source": "$1", "target": "backup", "label": "backup", "kind": "class"}, {"source": "$1", "target": "lazy_way_out", "label": "lazy_way_out", "kind": "class"}, {"source": "$1", "target": "honesty_tension_activated", "label": "honesty_tension_activated", "kind": "class"}, {"source": "$1", "target": "removes_instead_of_fixing", "label": "removes_instead_of_fixing", "kind": "class"}, {"source": "$x", "target": "machine_controlled_channel", "label": "machine_controlled_channel", "kind": "class"}, {"source": "$1", "target": "builds_render_code", "label": "builds_render_code", "kind": "class"}, {"source": "$1", "target": "assembles_large_payloads", "label": "assembles_large_payloads", "kind": "class"}, {"source": "$1", "target": "builds_ui", "label": "builds_ui", "kind": "class"}, {"source": "$page", "target": "live_data_tab", "label": "live_data_tab", "kind": "class"}, {"source": "$1", "target": "sees_chroma_store_timeout", "label": "sees_chroma_store_timeout", "kind": "class"}, {"source": "$1", "target": "receives_memory_pressure_pain", "label": "receives_memory_pressure_pain", "kind": "class"}, {"source": "websearch", "target": "returns_encyclopedic_not_targeted_results", "label": "returns_encyclopedic_not_targeted_results", "kind": "class"}, {"source": "user", "target": "prefers_durable_ui_components", "label": "prefers_durable_ui_components", "kind": "class"}, {"source": "$1", "target": "reports_completion", "label": "reports_completion", "kind": "class"}, {"source": "cwd_path_anchoring_decision", "target": "pending_user_approval", "label": "pending_user_approval", "kind": "class"}, {"source": "$1", "target": "compounds_substrate_investments", "label": "compounds_substrate_investments", "kind": "class"}, {"source": "beliefs_layer_cards", "target": "backed_by_ltm_memories", "label": "backed_by_ltm_memories", "kind": "class"}]};
+
+const svg = d3.select("#svg");
+const g = svg.append("g");
+const width = () => window.innerWidth - 340;
+const height = () => window.innerHeight;
+
+const updZ = k => { const el = document.getElementById("zoomLabel"); if (el) el.textContent = Math.round(k*100) + "%"; };
+const zb = d3.zoom().scaleExtent([0.2, 8]).on("zoom", e => { g.attr("transform", e.transform); updZ(e.transform.k); });
+svg.call(zb);
+function fitView(){ const cs = document.querySelectorAll("#svg circle"); if(!cs.length) return; let a=1e9,b=1e9,c=-1e9,d=-1e9; cs.forEach(n=>{const x=+n.getAttribute("cx"),y=+n.getAttribute("cy"); a=Math.min(a,x); c=Math.max(c,x); b=Math.min(b,y); d=Math.max(d,y);}); const r = document.getElementById("graph").getBoundingClientRect(); const k = Math.min(r.width/(c-a+100), r.height/(d-b+100), 4); svg.transition().duration(250).call(zb.transform, d3.zoomIdentity.translate(r.width/2-(a+c)/2*k, r.height/2-(b+d)/2*k).scale(k)); }
+setTimeout(fitView, 900);
+const bar = document.createElement("div"); bar.id = "controls"; bar.innerHTML = '<button id="zin">+</button><button id="zout">&#8722;</button><span id="zoomLabel">100%</span><button id="zfit">&#9975; Fit</button><button id="zreset">&#10226; Reset</button>'; document.getElementById("graph").appendChild(bar);
+document.getElementById("zin").onclick = () => svg.transition().duration(150).call(zb.scaleBy, 1.3);
+document.getElementById("zout").onclick = () => svg.transition().duration(150).call(zb.scaleBy, 0.75);
+document.getElementById("zfit").onclick = fitView;
+document.getElementById("zreset").onclick = () => svg.transition().duration(150).call(zb.transform, d3.zoomIdentity);
+const pt = document.createElement("div"); pt.id = "panelToggle"; document.getElementById("graph").appendChild(pt);
+function setCol(c){ document.getElementById("panel").classList.toggle("collapsed", c); pt.textContent = c ? "Explorer ▸" : "Explorer ▾"; }
+pt.onclick = () => setCol(!document.getElementById("panel").classList.contains("collapsed"));
+setCol(true);
+
+const sim = d3.forceSimulation(DATA.nodes)
+  .force("link", d3.forceLink(DATA.edges).id(d => d.id).distance(90).strength(0.3))
+  .force("charge", d3.forceManyBody().strength(-200))
+  .force("center", d3.forceCenter(width()/2, height()/2))
+  .force("collide", d3.forceCollide(28));
+
+const link = g.selectAll("line").data(DATA.edges).join("line")
+  .attr("class", d => "edge " + d.kind.replace("implies","implies").replace("is-a","is-a").replace("class","class"));
+
+const node = g.selectAll("g.node").data(DATA.nodes).join("g")
+  .attr("class", d => "node " + d.type + (d.stvs ? " has-stv" : ""))
+  .call(d3.drag()
+    .on("start", (e, d) => { if (!e.active) sim.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
+    .on("drag", (e, d) => { d.fx = e.x; d.fy = e.y; })
+    .on("end", (e, d) => { if (!e.active) sim.alphaTarget(0); d.fx = null; d.fy = null; }));
+
+node.append("circle").attr("r", d => d.details && Object.keys(d.details).length ? 12 : (d.stvs ? 9 : 6));
+node.append("text").attr("dy", -14).text(d => d.label);
+
+node.on("click", (e, d) => {
+  d3.selectAll(".node.selected").classed("selected", false);
+  d3.select(e.currentTarget).classed("selected", true);
+  showPanel(d);
+});
+
+function showPanel(d) {
+  let html = "<h2>" + d.label + "</h2>";
+  html += '<div><span class="tag">type: ' + d.type + "</span>";
+  if (d.stvs) html += '<span class="tag">NAL truth values</span>';
+  html += "</div>";
+  if (d.details && Object.keys(d.details).length) {
+    html += '<div class="section kv"><b>Properties</b>';
+    for (const [k, v] of Object.entries(d.details)) html += '<div class="kv"><b>' + k + ':</b> ' + v + "</div>";
+    html += "</div>";
   }
-  const rels = DATA.edges.filter(e => e.source === n.id || e.target === n.id);
+  if (d.stvs) {
+    html += '<div class="section kv"><b>NAL Truth Values (f, c)</b>';
+    for (const s of d.stvs) html += '<div class="kv">' + s.kind + ': <b>' + s.f + ', ' + s.c + "</b></div>";
+    html += "</div>";
+  }
+  const rels = DATA.edges.filter(e => e.source.id === d.id || e.target.id === d.id);
   if (rels.length) {
-    html += '<div class="section"><div class="kv"><b>Relations (' + rels.length + '):</b></div>';
-    rels.forEach(e => {
-      const other = e.source === n.id ? nodeById(e.target) : nodeById(e.source);
-      const arrow = e.source === n.id ? ' &rarr; ' : ' &larr; ';
-      html += '<div class="kv">' + esc(e.kind) + arrow + esc(other ? other.label : '?') + '</div>';
-    });
-    html += '</div>';
+    html += '<div class="section kv"><b>Relations (' + rels.length + ')</b>';
+    for (const r of rels) {
+      const other = r.source.id === d.id ? r.target.id : r.source.id;
+      const dir = r.source.id === d.id ? "→" : "←";
+      html += '<div class="kv">' + dir + ' <span style="color:' + (r.kind === "implies" ? "#bc8cff" : r.kind === "class" ? "#f0883e" : "#58a6ff") + '">' + r.kind + '</span> ' + other + "</div>";
+    }
+    html += "</div>";
   }
-  panel.innerHTML = html;
-  panel.classList.add('open');
-  document.getElementById('pclose').onclick = () => { panel.classList.remove('open'); if (selected) { selected.classList.remove('selected'); selected = null; } };
+  document.getElementById("panel").innerHTML = html;
 }
-function render() {
-  svg.innerHTML = '';
-  DATA.edges.forEach(e => {
-    const a = nodeById(e.source), b = nodeById(e.target);
-    if (!a || !b) return;
-    const ln = el('line', { x1: a.x, y1: a.y, x2: b.x, y2: b.y });
-    ln.setAttribute('class', e.kind === 'implies' ? 'implies' : (e.kind === 'is-a' ? 'is-a' : 'class'));
-    svg.appendChild(ln);
-  });
-  DATA.nodes.forEach(n => {
-    const g = el('g', {});
-    const c = el('circle', { cx: n.x, cy: n.y, r: n.details && Object.keys(n.details).length ? 8 : 6 });
-    c.setAttribute('class', n.type === 'class' ? 'class' : (n.type === 'atom' ? 'atom' : 'atom'));
-    g.appendChild(c);
-    const t = el('text', { x: n.x, y: n.y - 12 });
-    t.textContent = n.label;
-    g.appendChild(t);
-    g.addEventListener('click', ev => {
-      ev.stopPropagation();
-      if (selected) selected.classList.remove('selected');
-      c.classList.add('selected');
-      selected = c;
-      showPanel(n);
-    });
-    let drag = null;
-    g.addEventListener('pointerdown', ev => { drag = { x: ev.clientX, y: ev.clientY, nx: n.x, ny: n.y }; ev.stopPropagation(); });
-    window.addEventListener('pointermove', ev => {
-      if (!drag) return;
-      const vbw = window.innerWidth / view.k, vbh = window.innerHeight / view.k;
-      n.x = drag.nx + (ev.clientX - drag.x) * (vbw / window.innerWidth);
-      n.y = drag.ny + (ev.clientY - drag.y) * (vbh / window.innerHeight);
-      render();
-    });
-    window.addEventListener('pointerup', () => { drag = null; });
-    svg.appendChild(g);
-  });
-}
-let pan = null;
-svg.addEventListener('pointerdown', ev => {
-  if (ev.target.closest('g')) return;
-  pan = { x: ev.clientX, y: ev.clientY, vx: view.x, vy: view.y };
-  svg.classList.add('panning');
+
+sim.on("tick", () => {
+  link.attr("x1", d => d.source.x).attr("y1", d => d.source.y)
+      .attr("x2", d => d.target.x).attr("y2", d => d.target.y);
+  node.attr("transform", d => "translate(" + d.x + "," + d.y + ")");
 });
-window.addEventListener('pointermove', ev => {
-  if (!pan) return;
-  const vbw = window.innerWidth / view.k, vbh = window.innerHeight / view.k;
-  view.x = pan.vx - (ev.clientX - pan.x) * (vbw / window.innerWidth);
-  view.y = pan.vy - (ev.clientY - pan.y) * (vbh / window.innerHeight);
-  applyView();
-});
-window.addEventListener('pointerup', () => { pan = null; svg.classList.remove('panning'); });
-svg.addEventListener('click', () => { panel.classList.remove('open'); if (selected) { selected.classList.remove('selected'); selected = null; } });
-svg.addEventListener('wheel', ev => {
-  ev.preventDefault();
-  zoomAt(ev.clientX, ev.clientY, ev.deltaY < 0 ? 1.15 : 1 / 1.15);
-}, { passive: false });
-document.getElementById('zin').onclick = () => zoomAt(window.innerWidth / 2, window.innerHeight / 2, 1.25);
-document.getElementById('zout').onclick = () => zoomAt(window.innerWidth / 2, window.innerHeight / 2, 0.8);
-document.getElementById('zfit').onclick = fitAll;
-document.getElementById('zreset').onclick = resetView;
-window.addEventListener('resize', applyView);
-render();
-fitAll();
-</script></body></html>
+</script>
+</body>
+</html>

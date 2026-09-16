@@ -79,7 +79,7 @@ wb.addEventListener('pointerdown',e=>{draw=true;[px,py]=pos(e)});
 wb.addEventListener('pointermove',e=>{if(!draw)return;const[x,y]=pos(e);line(px,py,x,y);lastStroke=[px,py,x,y,color,size];px=x;py=y});
 wb.addEventListener('pointerup',()=>{if(draw){strokes.push(lastStroke);saveStrokes()}draw=false});
 function line(x1,y1,x2,y2){ctx.strokeStyle=color;ctx.lineWidth=size;ctx.lineCap='round';ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke()}
-window.iterWB={line:function(x1,y1,x2,y2,c,s){if(c)color=c;if(s)size=s;line(x1,y1,x2,y2)},clear:clearWB};
+window.iterWB={line:function(x1,y1,x2,y2,c,s){if(c)color=c;if(s)size=s;line(x1,y1,x2,y2)},clear:clearWB,strokes:()=>strokes};
 let strokes = JSON.parse(localStorage.getItem('iterWB_strokes')||'[]');
 strokes.forEach(st => line(st[0],st[1],st[2],st[3],st[4],st[5]));
 function saveStrokes(){localStorage.setItem('iterWB_strokes',JSON.stringify(strokes))}
@@ -103,10 +103,9 @@ function saveB(){localStorage.setItem('iterTB_board',JSON.stringify(board));rend
 function renderB(){['todo','doing','done'].forEach(k=>{const c=document.getElementById('c-'+k);c.querySelectorAll('.card').forEach(x=>x.remove());board[k].forEach((t,i)=>{const d=document.createElement('div');d.className='card';d.textContent=t;const b1=document.createElement('button');b1.textContent='>';b1.onclick=()=>move(k,i);const b2=document.createElement('button');b2.textContent='x';b2.onclick=()=>{board[k].splice(i,1);saveB()};d.append(b1,b2);c.appendChild(d)})})}
 function move(k,i){if(k==='done')return;const nk=k==='todo'?'doing':'done';const t=board[k].splice(i,1)[0];board[nk].push(t);saveB()}
 function addCard(){const v=document.getElementById('cardTxt').value.trim();if(v){board.todo.push(v);document.getElementById('cardTxt').value='';saveB()}}
-window.iterTB.seed = function(items){ items.forEach(t => { if(![].concat(board.todo,board.doing,board.done).includes(t)) board.todo.push(t) }); saveB() };
-window.iterTB={...window.iterTB,add:t=>{board.todo.push(t);saveB()},move:move,board:board,seed:window.iterTB.seed};
-fetch('memory/tasks/current_tasks.txt').then(r=>r.ok?r.text():null).then(t=>{ if(!t) return; const items = t.split('
-').map(l=>l.trim()).filter(l=>l && !l.startsWith('#')).slice(0,5); if(items.length) iterTB.seed(items) }).catch(()=>{});
+window.iterTB_seed = function(items){ items.forEach(t => { if(![].concat(board.todo,board.doing,board.done).includes(t)) board.todo.push(t) }); saveB() };
+window.iterTB={...window.iterTB,add:t=>{board.todo.push(t);saveB()},move:move,board:board,seed:window.iterTB_seed};
+fetch('memory/tasks/current_tasks.txt').then(r=>r.ok?r.text():null).then(t=>{ if(!t) return; const items = t.split(String.fromCharCode(10)).map(l=>l.trim()).filter(l=>l && !l.startsWith('#')).slice(0,5); if(items.length) iterTB.seed(items) }).catch(()=>{});
 renderB();
 
 // S6 file drop
