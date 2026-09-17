@@ -1,0 +1,129 @@
+:root {
+  color-scheme: dark;
+  --bg: #14171c;
+  --panel2: #191d23;
+  --line: #2a3038;
+  --text: #e5e7eb;
+  --muted: #8b949e;
+  --accent: #7aa2f7;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: 13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  overflow: hidden;
+}
+button { font: inherit; }
+button {
+  background: #20252c;
+  color: var(--text);
+  border: 1px solid #3a424c;
+  border-radius: 6px;
+  padding: 5px 9px;
+  cursor: pointer;
+}
+button:hover { background: #292f38; }
+button:disabled { opacity: .45; cursor: default; }
+
+/* Full-width tab strip -- moved out of the narrow sidebar column into its
+   own dedicated WebContentsView spanning the entire window, sitting above
+   the sidebar, the nav toolbar, and the browsed page (added 2026-09-17,
+   per user request: tabs were squeezed into the ~400px sidebar and got
+   visibly cut off once they overflowed a fixed-height area).
+   Unlike the old sidebar-bound version, #tabstrip-scroll has no max-height
+   or vertical scroll -- it wraps to as many rows as it needs (2nd, 3rd...)
+   and grows the strip; main.js is told the real height via a ResizeObserver
+   in tabstrip.js and pushes the sidebar/toolbar/page down to match. */
+#tabstrip {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 6px 8px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+  position: relative;
+  min-height: 30px;
+}
+#tabstrip-scroll {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+#tab-all {
+  flex: 0 0 auto;
+  padding: 4px 8px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+#tab-new { flex: 0 0 auto; padding: 4px 8px; }
+#tab-all-menu {
+  position: absolute;
+  top: 100%;
+  right: 6px;
+  z-index: 20;
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: 0 6px 18px #000a;
+  max-height: 320px;
+  overflow-y: auto;
+  min-width: 220px;
+}
+#tab-all-menu[hidden] { display: none; }
+#tab-all-menu .row-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--line);
+}
+#tab-all-menu .row-item:last-child { border-bottom: none; }
+#tab-all-menu .row-item:hover { background: #23283056; }
+#tab-all-menu .row-item.active { background: #23283056; border-left: 2px solid var(--accent); }
+#tab-all-menu .row-item .title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#tab-all-menu .row-item .x { flex: 0 0 auto; color: var(--muted); padding: 0 2px; }
+#tab-all-menu .row-item .x:hover { color: var(--text); }
+.tab-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  border-radius: 6px 6px 0 0;
+  padding: 4px 8px;
+  max-width: 180px;
+  cursor: pointer;
+  font-size: 11px;
+  flex: 0 1 160px;
+  min-width: 64px;
+}
+.tab-pill.active { background: #23283056; border-color: var(--accent); }
+.tab-pill.locked { border-color: #d4a017; box-shadow: inset 0 0 0 1px #d4a01766; }
+/* Only the title text ellipsizes when a tab's name is long -- pin/lock/x
+   are fixed-size (flex: 0 0 auto) so they can never be pushed out of view
+   or clipped by the pill's width cap. */
+.tab-pill .title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tab-pill .pin, .tab-pill .lock, .tab-pill .x { flex: 0 0 auto; }
+.tab-pill .x { color: var(--muted); padding: 0 2px; }
+.tab-pill .x:hover { color: var(--text); }
+.tab-pill .lock { padding: 0 2px; font-size: 10px; opacity: 0.75; }
+.tab-pill .lock:hover { opacity: 1; }
+.tab-pill.locked .x { opacity: 0.35; cursor: not-allowed; }
+.tab-pill.pinned { border-color: #4a90d9; box-shadow: inset 0 0 0 1px #4a90d966; }
+.tab-pill .pin { padding: 0 2px; font-size: 10px; opacity: 0.75; }
+.tab-pill .pin:hover { opacity: 1; }
+.tab-pill[draggable="true"] { cursor: grab; }
+.tab-pill.dragging { opacity: 0.4; }
+.tab-pill.drag-over { box-shadow: inset 2px 0 0 0 var(--accent); }

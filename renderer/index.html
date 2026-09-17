@@ -3,13 +3,6 @@
 <title>Iter Browser — control panel</title>
 <link rel="stylesheet" href="style.css">
 <div id="app-shell">
-<div id="tabstrip">
-  <div id="tabstrip-scroll"></div>
-  <button id="tab-all" title="Show all open tabs">tabs ▾</button>
-  <button id="tab-new" title="New tab">+</button>
-</div>
-<div id="tab-all-menu" hidden></div>
-
 <div id="chat"><div class="msg sys"><div class="bubble">Iter is stopped. Open Settings below, choose a provider, then press Start.</div></div></div>
 <div id="chat-input-row">
   <textarea id="chat-input" placeholder="Message Iter… (Enter to send, Shift+Enter for newline)"></textarea>
@@ -24,8 +17,10 @@
   <button id="btn-stop" disabled>Stop</button>
 </div>
 
-<details id="settings">
-  <summary>Settings — model provider</summary>
+<div id="dock" class="dock">
+<div id="dock-content" class="dock-content" hidden>
+
+<div id="settings" class="dock-panel" hidden>
   <div class="settings-body">
     <div class="field">
       <label>Provider</label>
@@ -48,10 +43,9 @@
       <button id="btn-save-settings">Save settings</button>
     </div>
   </div>
-</details>
+</div>
 
-<details id="state-mgmt">
-  <summary>State — Export / Import / Reset</summary>
+<div id="state-mgmt" class="dock-panel" hidden>
   <div class="settings-body">
     <div style="font-size:10px;color:var(--muted)">
       Export saves Iter's accumulated memory, vector store, backups, and knowledge files (not the
@@ -66,10 +60,9 @@
     </div>
     <div id="state-mgmt-status" style="font-size:10px;color:var(--muted)"></div>
   </div>
-</details>
+</div>
 
-<details id="tab-groups">
-  <summary>Tab Groups</summary>
+<div id="tab-groups" class="dock-panel" hidden>
   <div class="settings-body">
     <div style="font-size:10px;color:var(--muted)">
       Save your currently open tabs as a named group, then reopen, switch to, or close that group later.
@@ -83,10 +76,19 @@
     </div>
     <div id="tab-groups-list"></div>
   </div>
-</details>
+</div>
 
-<details id="permissions">
-  <summary>Permissions — Camera &amp; Microphone</summary>
+<div id="closed-tabs" class="dock-panel" hidden>
+  <div class="settings-body">
+    <div style="font-size:10px;color:var(--muted)">
+      The last 20 tabs you closed, most recent first. Reopen adds it back as a new tab without
+      removing it from this list, so you can reopen the same one more than once.
+    </div>
+    <div id="closed-tabs-list"></div>
+  </div>
+</div>
+
+<div id="permissions" class="dock-panel" hidden>
   <div class="settings-body">
     <div style="font-size:10px;color:var(--muted)">
       Controls whether Iter Browser (including Iter's own device-capture tool) can use your Mac's
@@ -110,10 +112,9 @@
       </div>
     </div>
   </div>
-</details>
+</div>
 
-<details id="termfiles">
-  <summary>Terminal &amp; Files</summary>
+<div id="termfiles" class="dock-panel" hidden>
   <div class="settings-body">
     <div style="font-size:10px;color:var(--muted)">
       Browse and edit files under <code>iter/</code>, and run shell commands in a real bash
@@ -152,12 +153,15 @@
       </div>
     </div>
   </div>
-</details>
+</div>
 
-<details id="activity">
-  <summary>Activity log (Iter process output)</summary>
+<div id="activity" class="dock-panel" hidden>
   <div id="log-view"></div>
-</details>
+</div>
+
+</div>
+<div id="dock-tabs" class="dock-tabs" role="tablist"></div>
+</div>
 </div>
 
 <div id="drag-catcher"></div>

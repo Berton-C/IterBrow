@@ -663,3 +663,31 @@ check.
 History" viewer (persistent log of every page visited, grouped by day,
 searchable), "Clear History...", and a tab quick-switcher (Cmd+K style).
 
+
+## Word Weaver: light theme + file import (2026-09-16)
+
+User-reported the "Your Writings" guide popup was unreadable (dark purple bg
+#171326, gold text) and wanted a light background. Three changes, all in
+memory/story_journal/index.html (+ stories.js):
+
+- Light theme for guide popup (#askBox), Sources panel (#srcPanel/#srcHead/
+  #srcList/.srcItem/#srcAdd), diff modal (#diffBox), and Ask overlay: cream
+  backgrounds (#fffdf6 / #f7f1e3), dark brown text (#2e1f14), muted gold
+  accents (#8a7a5c / #a89468). Palette-string swaps only, no layout change.
+- User manuscript baked in: "Expanding Beyond Our Known" (MIND DOJO, 24,196
+  words, 143KB) now a 4th shelf story (id 'expanding-beyond-our-known') in
+  stories.js DISK_STORIES, plus a disk copy at private/sources/
+  Expanding_Beyond_Our_Known.txt (the folder the sources system actually
+  reads — the user's original drop at IterBrow/private/ was outside the
+  project root that Word Weaver scans, which is why it never appeared).
+- New "📁 Import files…" button in the guide popup: hidden multi-select
+  file input (.txt/.md) + window.__importFiles(files) — each file becomes a
+  story (id 'imp-<ts>-<rand>', series 'imports', revision labeled 'imported
+  file'), autosaved to localStorage, shelf re-rendered, first import opens
+  in the reader. Wire-up lives at the end of the guide script block.
+
+Verified live in the browser: computed styles (bg rgb(255,253,246), text
+rgb(46,31,20)), shelf card count, book openable in reader, button + input
+present. LTM fact stored (152ab5ef) with paths + conventions for future
+"converse about my writing" requests.
+

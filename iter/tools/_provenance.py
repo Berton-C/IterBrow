@@ -181,15 +181,20 @@ def unproduced_keys(content, repo_root=None, exclude_path=None):
     return unproduced
 
 
-def record_pattern_outcome(pattern_name, outcome, pending_path=None):
-    """Append one (pending-revision pattern <name> <outcome>) line to
+def record_pattern_outcome(pattern_name, outcome, pending_path=None, rtype="pattern"):
+    """Append one (pending-revision <rtype> <name> <outcome>) line to
     nace_pending.metta -- the same queue every other belief revision in
     this app already flows through (see nace_courier.py, mirrored from
     idle_cycle_detector.py's established convention: plant the observation
     into reasoning that already exists everywhere else, never write
-    nace_beliefs.metta directly). Never raises."""
+    nace_beliefs.metta directly). Never raises.
+
+    `rtype` defaults to "pattern" (the existing 9-compass-pattern callers,
+    unchanged). Pass rtype="mode" for the add/subtract/loosen mode-signal
+    layer (see mode_signal_bridge.py) -- nace_courier.py's TYPE_PREFIX maps
+    "mode" to the "mode-signal" belief prefix."""
     path = pending_path or PENDING_PATH
-    line = "(pending-revision pattern %s %s)\n" % (pattern_name, outcome)
+    line = "(pending-revision %s %s %s)\n" % (rtype, pattern_name, outcome)
     try:
         with open(path, "a", encoding="utf-8") as fh:
             fh.write(line)

@@ -1,7 +1,3 @@
-const tabstrip = document.getElementById('tabstrip');
-const tabstripScroll = document.getElementById('tabstrip-scroll');
-const tabAllBtn = document.getElementById('tab-all');
-const tabAllMenu = document.getElementById('tab-all-menu');
 const chat = document.getElementById('chat');
 const chatInput = document.getElementById('chat-input');
 const statusDot = document.getElementById('status-dot');
@@ -10,140 +6,22 @@ const btnStart = document.getElementById('btn-start');
 const btnStop = document.getElementById('btn-stop');
 const logView = document.getElementById('log-view');
 
-let activeTabId = null;
-let tabsCache = [];
-let dragTabId = null;
+// Tab strip and its rendering/drag/pin/lock/close logic moved out of this
+// sidebar entirely on 2026-09-17 into its own full-width view -- see
+// renderer/tabstrip.html + tabstrip.js -- for the same reason the nav
+// toolbar moved out below: this column is too narrow to hold them.
 
-// ---------------------------------------------------------------------
-// Tabs
-// ---------------------------------------------------------------------
-function renderTabs(list) {
-  tabsCache = list;
-  const active = list.find((t) => t.active);
-  activeTabId = active ? active.id : null;
-
-  tabstripScroll.innerHTML = '';
-  for (const tab of list) {
-    const pill = document.createElement('div');
-    pill.className = 'tab-pill' + (tab.active ? ' active' : '') + (tab.locked ? ' locked' : '') + (tab.pinned ? ' pinned' : '');
-    pill.title = tab.locked
-      ? tab.url + ' (locked — Iter cannot alter or close this tab until you click the lock)'
-      : tab.url;
-    pill.draggable = true;
-    pill.innerHTML = `<span class="pin" title="${tab.pinned ? 'Pinned — click to unpin' : 'Click to pin this tab (protects it from Close Other Tabs / Close Tabs to the Right)'}">${tab.pinned ? '📌' : '📍'}</span><span class="lock" title="${tab.locked ? 'Locked — click to release' : 'Click to lock this tab against Iter'}">${tab.locked ? '🔒' : '🔓'}</span><span class="title">${escapeHtml(tab.title || 'New Tab')}</span><span class="x">✕</span>`;
-    pill.querySelector('.title').addEventListener('click', () => window.iterApi.switchTab(tab.id));
-    pill.querySelector('.pin').addEventListener('click', (e) => {
-      e.stopPropagation();
-      window.iterApi.togglePinTab(tab.id);
-    });
-    pill.querySelector('.lock').addEventListener('click', (e) => {
-      e.stopPropagation();
-      window.iterApi.toggleLockTab(tab.id);
-    });
-    pill.querySelector('.x').addEventListener('click', (e) => {
-      e.stopPropagation();
-      if (tab.locked) return; // must release the lock first
-      window.iterApi.closeTab(tab.id);
-    });
-    // Right-click / two-finger click -- a native menu with Close Tab and
-    // friends, so closing (or managing) a tab never depends on the small
-    // 'x' being reachable, e.g. when a long tab title pushes it tight
-    // against the pill's max-width. Added 2026-09-14.
-    pill.addEventListener('contextmenu', (e) => {
-      e.preventDefault();
-      window.iterApi.showTabContextMenu(tab.id);
-    });
-    // Drag-to-reorder: drop a dragged pill onto another to swap them into
-    // that position. Added 2026-09-14 per user request.
-    pill.addEventListener('dragstart', (e) => {
-      dragTabId = tab.id;
-      e.dataTransfer.effectAllowed = 'move';
-      pill.classList.add('dragging');
-    });
-    pill.addEventListener('dragend', () => pill.classList.remove('dragging'));
-    pill.addEventListener('dragover', (e) => {
-      e.preventDefault();
-      if (dragTabId != null && dragTabId !== tab.id) pill.classList.add('drag-over');
-    });
-    pill.addEventListener('dragleave', () => pill.classList.remove('drag-over'));
-    pill.addEventListener('drop', (e) => {
-      e.preventDefault();
-      pill.classList.remove('drag-over');
-      if (dragTabId == null || dragTabId === tab.id) return;
-      const ids = tabsCache.map((t) => t.id);
-      const from = ids.indexOf(dragTabId);
-      const to = ids.indexOf(tab.id);
-      if (from === -1 || to === -1) return;
-      ids.splice(to, 0, ids.splice(from, 1)[0]);
-      window.iterApi.reorderTabs(ids);
-      dragTabId = null;
-    });
-    tabstripScroll.appendChild(pill);
-  }
-  renderAllTabsMenu(list);
-}
-
-// Lets a vertical two-finger swipe / mouse wheel scroll the tab strip
-// sideways too, matching how most browsers' tab strips behave -- without
-// this, reaching tabs off to the side required an explicit horizontal
-// swipe, which is easy to fumble on a trackpad. Added 2026-09-14.
-tabstripScroll.addEventListener(
-  'wheel',
-  (e) => {
-    if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
-      e.preventDefault();
-      tabstripScroll.scrollLeft += e.deltaY;
-    }
-  },
-  { passive: false }
-);
-
-// "tabs ▾" button -- always visible regardless of how many tabs are open
-// or how far the strip is scrolled, so every open tab can always be seen
-// and closed/switched-to, even far past what fits in the narrow sidebar.
-// Added 2026-09-14 per user feedback ("cannot see/access all open tabs").
-function renderAllTabsMenu(list) {
-  tabAllBtn.textContent = `${list.length} tab${list.length === 1 ? '' : 's'} \u25be`;
-  tabAllMenu.innerHTML = '';
-  for (const tab of list) {
-    const row = document.createElement('div');
-    row.className = 'row-item' + (tab.active ? ' active' : '');
-    row.title = tab.url;
-    row.innerHTML = `<span class="title">${tab.pinned ? '📌 ' : ''}${tab.locked ? '🔒 ' : ''}${escapeHtml(tab.title || 'New Tab')}</span><span class="x">✕</span>`;
-    row.querySelector('.title').addEventListener('click', () => {
-      window.iterApi.switchTab(tab.id);
-      tabAllMenu.hidden = true;
-    });
-    row.querySelector('.x').addEventListener('click', (e) => {
-      e.stopPropagation();
-      if (tab.locked) return;
-      window.iterApi.closeTab(tab.id);
-    });
-    tabAllMenu.appendChild(row);
-  }
-}
-tabAllBtn.addEventListener('click', (e) => {
-  e.stopPropagation();
-  tabAllMenu.hidden = !tabAllMenu.hidden;
-});
-document.addEventListener('click', (e) => {
-  if (!tabAllMenu.hidden && !tabAllMenu.contains(e.target) && e.target !== tabAllBtn) {
-    tabAllMenu.hidden = true;
-  }
-});
-document.getElementById('tab-new').addEventListener('click', () => window.iterApi.newTab('https://www.google.com'));
-
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-}
-
-window.iterApi.onTabsUpdate(renderTabs);
-window.iterApi.listTabs().then(renderTabs);
 // Back/forward/reload/address-bar/Go/Dashboards controls now live in the
 // dedicated full-width toolbar view (renderer/toolbar.html + toolbar.js),
 // which sits directly above the browsed page like a normal browser's nav
 // bar, instead of being crammed into this sidebar. See main.js's
 // toolbarView.
+
+// Still used below by the Tab Groups panel, even though the tab strip
+// itself moved out to tabstrip.js.
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
 
 // ---------------------------------------------------------------------
 // Chat
@@ -247,7 +125,14 @@ function syncProviderPanels() {
 providerSel.addEventListener('change', syncProviderPanels);
 
 async function saveSettingsFromForm() {
+  // Merge onto the current settings rather than replacing the whole file --
+  // saveSettings() is a straight overwrite (see main.js), so building a
+  // fresh object with only these 3 keys would silently wipe sidebarWidth
+  // and the dock tab order/last-open state (added 2026-09-17) every time
+  // this runs, which includes every "Start" click, not just "Save settings".
+  const current = await window.iterApi.loadSettings();
   const settings = {
+    ...current,
     provider: providerSel.value,
     openrouter: { endpoint: orEndpoint.value, model: orModel.value, apiKey: orKey.value },
     lmstudio: { endpoint: lmEndpoint.value, model: lmModel.value },
@@ -367,7 +252,16 @@ function renderTabGroups(groups) {
   for (const g of groups) {
     const row = document.createElement('div');
     row.className = 'tab-group-item';
-    row.innerHTML = `<span class="name" title="${escapeHtml(g.name)}">${escapeHtml(g.name)}</span><span class="count">${g.tabs.length} tab${g.tabs.length === 1 ? '' : 's'}</span><span class="actions"><button data-act="open">Open</button><button data-act="switch">Switch</button><button data-act="close">Close</button><button data-act="delete">Delete</button></span>`;
+    row.innerHTML = `<span class="name" title="${escapeHtml(g.name)}">${escapeHtml(g.name)}</span><span class="count">${g.tabs.length} tab${g.tabs.length === 1 ? '' : 's'}</span><span class="actions"><button data-act="resave" title="Replace this group's tabs with your currently open tabs">Resave</button><button data-act="open">Open</button><button data-act="switch">Switch</button><button data-act="close">Close</button><button data-act="delete">Delete</button></span>`;
+    // Resave -- re-snapshots current tabs into THIS group by id, added
+    // 2026-09-17 so updating a group (e.g. after removing tabs you no
+    // longer want in it) never depends on retyping its exact name.
+    row.querySelector('[data-act="resave"]').addEventListener('click', async () => {
+      const ok = confirm(`Replace "${g.name}"'s saved tabs with your currently open tabs?`);
+      if (!ok) return;
+      const updated = await window.iterApi.resaveTabGroup(g.id);
+      renderTabGroups(updated);
+    });
     row.querySelector('[data-act="open"]').addEventListener('click', async () => {
       await window.iterApi.openTabGroup(g.id);
     });
@@ -398,8 +292,41 @@ document.getElementById('btn-save-tab-group').addEventListener('click', async ()
 });
 
 window.iterApi.listTabGroups().then(renderTabGroups);
-document.getElementById('tab-groups').addEventListener('toggle', (e) => {
-  if (e.target.open) window.iterApi.listTabGroups().then(renderTabGroups);
+document.getElementById('tab-groups').addEventListener('panelshow', () => {
+  window.iterApi.listTabGroups().then(renderTabGroups);
+});
+
+// ---------------------------------------------------------------------
+// Recently Closed -- browsable panel over the same closed_tabs.json
+// history already used by the History menu / tab right-click "Reopen
+// Last Closed Tab". Added 2026-09-17 so an accidentally-closed tab can be
+// recovered from inside the app instead of only via the native menu bar.
+// ---------------------------------------------------------------------
+const closedTabsList = document.getElementById('closed-tabs-list');
+
+function renderClosedTabs(list) {
+  closedTabsList.innerHTML = '';
+  if (!list.length) {
+    closedTabsList.innerHTML = '<div style="font-size:10px;color:var(--muted)">No recently closed tabs.</div>';
+    return;
+  }
+  list.forEach((entry, i) => {
+    const row = document.createElement('div');
+    row.className = 'closed-tab-item';
+    const label = entry.title || entry.url;
+    const when = entry.closedAt ? new Date(entry.closedAt).toLocaleString() : '';
+    row.innerHTML = `<span class="title" title="${escapeHtml(entry.url)}">${escapeHtml(label)}</span><span class="closed-at">${escapeHtml(when)}</span><button data-act="reopen">Reopen</button>`;
+    row.querySelector('[data-act="reopen"]').addEventListener('click', async () => {
+      const updated = await window.iterApi.reopenClosedTab(i);
+      renderClosedTabs(updated);
+    });
+    closedTabsList.appendChild(row);
+  });
+}
+
+window.iterApi.listClosedTabs().then(renderClosedTabs);
+document.getElementById('closed-tabs').addEventListener('panelshow', () => {
+  window.iterApi.listClosedTabs().then(renderClosedTabs);
 });
 
 // ---------------------------------------------------------------------
@@ -573,11 +500,143 @@ tfTermStop.addEventListener('click', async () => {
 // Lazily start the shell and load the file tree the first time the panel
 // is opened, rather than at page load (keeps startup light).
 let termfilesInitialized = false;
-termfilesDetails.addEventListener('toggle', async () => {
-  if (!termfilesDetails.open || termfilesInitialized) return;
+termfilesDetails.addEventListener('panelshow', async () => {
+  if (termfilesInitialized) return;
   termfilesInitialized = true;
   tfLoadDir('.');
   await window.iterApi.terminalStart();
   termStarted = true;
   tfAppendTerm('$ ');
+});
+
+// ---------------------------------------------------------------------
+// Bottom tab dock -- replaced the old stack of 7 always-visible <details>
+// accordion panels on 2026-09-17. One row of tab handles pinned to the
+// bottom edge (modeled on VS Code's bottom panel tabs); at most one
+// drawer open above the row at a time. Order and last-open tab persist
+// to settings.json (local to this Mac -- see saveDockState below).
+// ---------------------------------------------------------------------
+const DOCK_PANEL_INFO = {
+  'settings': { label: 'Settings', desc: 'Model provider (OpenRouter or LM Studio) and API connection details.' },
+  'state-mgmt': { label: 'State', desc: 'Export, import, or reset Iter\u2019s accumulated memory and knowledge files.' },
+  'tab-groups': { label: 'Groups', desc: 'Tab Groups -- save your open tabs as a named group; reopen, switch to, or close it later.' },
+  'closed-tabs': { label: 'Closed', desc: 'Recently Closed -- the last 20 tabs you closed, most recent first. Reopen any of them.' },
+  'permissions': { label: 'Perms', desc: 'Permissions -- camera and microphone access for Iter Browser.' },
+  'termfiles': { label: 'Terminal', desc: 'Terminal & Files -- browse/edit files under iter/ and run shell commands.' },
+  'activity': { label: 'Activity', desc: 'Iter\u2019s process output log.' },
+};
+const DOCK_DEFAULT_ORDER = ['settings', 'state-mgmt', 'tab-groups', 'closed-tabs', 'permissions', 'termfiles', 'activity'];
+
+const dockContent = document.getElementById('dock-content');
+const dockTabsEl = document.getElementById('dock-tabs');
+const dockPanels = {};
+document.querySelectorAll('.dock-panel').forEach((p) => { dockPanels[p.id] = p; });
+
+let activeDockPanel = null;
+let dockTooltipTimer = null;
+let dockTooltipEl = null;
+
+function hideDockTooltip() {
+  clearTimeout(dockTooltipTimer);
+  if (dockTooltipEl) { dockTooltipEl.remove(); dockTooltipEl = null; }
+}
+
+function showDockTooltip(btn, panelId) {
+  hideDockTooltip();
+  dockTooltipTimer = setTimeout(() => {
+    const info = DOCK_PANEL_INFO[panelId];
+    if (!info) return;
+    const rect = btn.getBoundingClientRect();
+    dockTooltipEl = document.createElement('div');
+    dockTooltipEl.className = 'dock-tooltip';
+    dockTooltipEl.innerHTML = `<strong>${escapeHtml(info.label)}</strong><br>${escapeHtml(info.desc)}`;
+    document.body.appendChild(dockTooltipEl);
+    const tw = dockTooltipEl.getBoundingClientRect().width;
+    let left = rect.left;
+    if (left + tw > window.innerWidth - 6) left = Math.max(6, window.innerWidth - tw - 6);
+    dockTooltipEl.style.left = left + 'px';
+    dockTooltipEl.style.bottom = (window.innerHeight - rect.top + 6) + 'px';
+  }, 450);
+}
+
+function setActiveDockPanel(id, { persist = true } = {}) {
+  document.querySelectorAll('.dock-tab').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.panel === id);
+  });
+  Object.values(dockPanels).forEach((p) => { p.hidden = true; });
+  if (id && dockPanels[id]) {
+    dockPanels[id].hidden = false;
+    dockContent.hidden = false;
+    dockPanels[id].dispatchEvent(new CustomEvent('panelshow'));
+  } else {
+    id = null;
+    dockContent.hidden = true;
+  }
+  activeDockPanel = id;
+  if (persist) saveDockState();
+}
+
+function currentDockOrder() {
+  return Array.from(dockTabsEl.querySelectorAll('.dock-tab')).map((b) => b.dataset.panel);
+}
+
+async function saveDockState() {
+  const current = await window.iterApi.loadSettings();
+  await window.iterApi.saveSettings({ ...current, dockOrder: currentDockOrder(), dockLastOpen: activeDockPanel });
+}
+
+let dockDragSrc = null;
+
+function buildDockTabs(order) {
+  dockTabsEl.innerHTML = '';
+  order.forEach((id) => {
+    const info = DOCK_PANEL_INFO[id];
+    if (!info || !dockPanels[id]) return;
+    const btn = document.createElement('button');
+    btn.className = 'dock-tab';
+    btn.type = 'button';
+    btn.dataset.panel = id;
+    btn.draggable = true;
+    btn.textContent = info.label;
+    btn.addEventListener('click', () => {
+      setActiveDockPanel(activeDockPanel === id ? null : id);
+    });
+    btn.addEventListener('mouseenter', () => showDockTooltip(btn, id));
+    btn.addEventListener('mouseleave', hideDockTooltip);
+    btn.addEventListener('dragstart', (e) => {
+      dockDragSrc = id;
+      e.dataTransfer.effectAllowed = 'move';
+      hideDockTooltip();
+    });
+    btn.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      if (dockDragSrc && dockDragSrc !== id) btn.classList.add('drag-over');
+    });
+    btn.addEventListener('dragleave', () => btn.classList.remove('drag-over'));
+    btn.addEventListener('drop', (e) => {
+      e.preventDefault();
+      btn.classList.remove('drag-over');
+      if (!dockDragSrc || dockDragSrc === id) return;
+      const srcBtn = dockTabsEl.querySelector(`[data-panel="${dockDragSrc}"]`);
+      if (!srcBtn) return;
+      const rect = btn.getBoundingClientRect();
+      const before = (e.clientX - rect.left) < rect.width / 2;
+      dockTabsEl.insertBefore(srcBtn, before ? btn : btn.nextSibling);
+      dockDragSrc = null;
+      saveDockState();
+    });
+    btn.addEventListener('dragend', () => { dockDragSrc = null; });
+    dockTabsEl.appendChild(btn);
+  });
+}
+
+window.iterApi.loadSettings().then((settings) => {
+  const savedOrder = Array.isArray(settings.dockOrder) ? settings.dockOrder : [];
+  const known = new Set(DOCK_DEFAULT_ORDER);
+  const order = savedOrder.filter((id) => known.has(id));
+  for (const id of DOCK_DEFAULT_ORDER) if (!order.includes(id)) order.push(id); // forward-compat: any new panel lands at the end
+  buildDockTabs(order);
+  if (settings.dockLastOpen && dockPanels[settings.dockLastOpen]) {
+    setActiveDockPanel(settings.dockLastOpen, { persist: false });
+  }
 });

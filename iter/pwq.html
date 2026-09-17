@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>PWQ — Pending Work Queue</title>
+<style>
+  :root {
+    --bg: #0f0d1a; --panel: #1a1730; --panel2: #221d3d;
+    --ink: #e8e4f8; --muted: #9a92b8; --line: #3a3360;
+    --gold: #d4a94e; --gold-dim: #8a6f2e;
+    --green: #4ecf8a; --blue: #5aa7e8; --red: #e86a6a; --amber: #e8b45a;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Georgia', 'Times New Roman', serif;
+    background: radial-gradient(ellipse at 20% -10%, #1d1836 0%, var(--bg) 60%);
+    color: var(--ink); min-height: 100vh; padding: 28px 34px 60px;
+  }
+  header { display: flex; align-items: baseline; gap: 14px; margin-bottom: 6px; }
+  h1 { font-size: 26px; color: var(--gold); letter-spacing: 1px; font-weight: normal; }
+  h1 .q { color: var(--ink); }
+  .sub { color: var(--muted); font-size: 13px; font-style: italic; }
+  .stats { display: flex; gap: 10px; margin: 14px 0 22px; flex-wrap: wrap; }
+  .stat { background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    padding: 8px 16px; font-size: 13px; color: var(--muted); }
+  .stat b { color: var(--ink); font-size: 16px; margin-right: 4px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    padding: 20px 22px; margin-bottom: 20px; position: relative;
+    transition: border-color .4s, box-shadow .4s;
+  }
+  .card.fresh   { border-color: var(--line); }
+  .card.warming { border-color: #6b5a2e; box-shadow: 0 0 14px rgba(212,169,78,.08); }
+  .card.hot     { border-color: var(--gold-dim); box-shadow: 0 0 18px rgba(212,169,78,.22); }
+  .card.done    { opacity: .55; border-color: #2e5a42; }
+  .card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+  .card h2 { font-size: 18px; color: var(--gold); font-weight: normal; margin-bottom: 4px; }
+  .age { font-size: 12px; color: var(--muted); font-style: italic; white-space: nowrap; }
+  .age.hot { color: var(--amber); }
+  .chips { display: flex; gap: 6px; margin: 8px 0 12px; flex-wrap: wrap; }
+  .chip { font-size: 11px; letter-spacing: .5px; padding: 3px 10px; border-radius: 20px;
+    border: 1px solid var(--line); color: var(--muted); font-family: sans-serif; }
+  .chip.proposed    { color: var(--blue); border-color: #2e4a68; }
+  .chip.negotiating { color: var(--amber); border-color: #6b5a2e; }
+  .chip.orders      { color: var(--green); border-color: #2e5a42; }
+  .chip.in-progress { color: var(--blue); border-color: #2e4a68; }
+  .chip.done        { color: var(--green); border-color: #2e5a42; }
+  .field { margin-bottom: 12px; }
+  .field-label { font-size: 11px; text-transform: uppercase; letter-spacing: 1.2px;
+    color: var(--muted); font-family: sans-serif; margin-bottom: 4px; }
+  .ask { color: var(--ink); font-size: 14.5px; line-height: 1.55; }
+  .shape { color: #c8c0e0; font-size: 14px; line-height: 1.5; background: var(--panel2);
+    border-left: 3px solid var(--gold-dim); padding: 10px 14px; border-radius: 0 8px 8px 0; }
+  .options { display: flex; flex-direction: column; gap: 8px; }
+  .opt { display: flex; gap: 10px; align-items: flex-start; background: var(--panel2);
+    border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; cursor: pointer;
+    transition: border-color .2s, background .2s; }
+  .opt:hover { border-color: var(--gold-dim); }
+  .opt.selected { border-color: var(--gold); background: #2a2448; }
+  .opt .radio { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--line);
+    flex-shrink: 0; margin-top: 2px; position: relative; }
+  .opt.selected .radio { border-color: var(--gold); }
+  .opt.selected .radio::after { content: ''; position: absolute; inset: 3px;
+    border-radius: 50%; background: var(--gold); }
+  .opt b { display: block; font-size: 14px; color: var(--ink); font-weight: normal; }
+  .opt span { font-size: 12.5px; color: var(--muted); }
+  .input-row { display: flex; gap: 12px; align-items: flex-start; margin-top: 14px; }
+  textarea { flex: 1; background: #141126; color: var(--ink); border: 1px solid var(--line);
+    border-radius: 8px; padding: 10px 12px; font-family: 'Georgia', serif; font-size: 14px;
+    resize: vertical; min-height: 60px; outline: none; }
+  textarea:focus { border-color: var(--gold-dim); }
+  .orders-box { display: flex; flex-direction: column; align-items: center; gap: 6px;
+    padding: 10px 14px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer;
+    background: var(--panel2); user-select: none; transition: border-color .2s; min-width: 130px; }
+  .orders-box:hover { border-color: var(--gold-dim); }
+  .orders-box input { width: 20px; height: 20px; accent-color: var(--gold); cursor: pointer; }
+  .orders-box label { font-size: 12px; color: var(--muted); font-family: sans-serif;
+    letter-spacing: .5px; cursor: pointer; text-align: center; }
+  .orders-box.given { border-color: var(--green); }
+  .orders-box.given label { color: var(--green); }
+  .neglog { margin-top: 14px; border-top: 1px dashed var(--line); padding-top: 10px; }
+  .neglog-entry { font-size: 12.5px; margin-bottom: 6px; color: var(--muted); line-height: 1.45; }
+  .neglog-entry .who { color: var(--gold); font-family: sans-serif; font-size: 11px;
+    letter-spacing: .5px; }
+  .neglog-entry.user .who { color: var(--green); }
+  .neglog-entry .t { font-size: 10.5px; opacity: .6; font-family: sans-serif; }
+  .card-actions { display: flex; gap: 8px; margin-top: 12px; }
+  .abtn { background: none; border: 1px solid var(--line); color: var(--muted);
+    border-radius: 6px; padding: 5px 12px; font-size: 12px; font-family: sans-serif;
+    cursor: pointer; transition: all .2s; }
+  .abtn:hover { border-color: var(--gold-dim); color: var(--ink); }
+  .abtn.alarm-on { border-color: var(--amber); color: var(--amber); }
+  .empty { text-align: center; color: var(--muted); font-style: italic; padding: 60px 0; font-size: 15px; }
+  .toast { position: fixed; bottom: 24px; right: 24px; background: var(--panel2);
+    border: 1px solid var(--green); color: var(--green); padding: 10px 18px; border-radius: 8px;
+    font-family: sans-serif; font-size: 13px; opacity: 0; transition: opacity .3s; pointer-events: none; }
+  .toast.show { opacity: 1; }
+  .refresh-note { font-size: 11px; color: var(--muted); font-family: sans-serif; margin-top: 4px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>PW<span class="q">Q</span></h1>
+  <span class="sub">Pending Work Queue — where iter proposes, you dispose</span>
+</header>
+<div class="stats" id="stats"></div>
+<div id="queue"></div>
+<div class="empty" id="empty" style="display:none">Queue is clear. Nothing waiting on your eyes. 🌙</div>
+<div class="toast" id="toast"></div>
+<script>
+const PWQ_PATH = '.runtime/pwq.json';
+let data = null;
+
+function fmtAge(iso) {
+  const then = new Date(iso.replace(' ', 'T'));
+  const hrs = (Date.now() - then.getTime()) / 3600000;
+  if (hrs < 1) return 'just now';
+  if (hrs < 24) return Math.floor(hrs) + 'h waiting';
+  return Math.floor(hrs / 24) + 'd waiting';
+}
+function ageClass(iso) {
+  const days = (Date.now() - new Date(iso.replace(' ', 'T'))) / 86400000;
+  if (days >= 3) return 'hot'; if (days >= 1.5) return 'warming'; return 'fresh';
+}
+function statusChip(s) {
+  const map = { proposed: 'proposed', negotiating: 'negotiating', 'orders given': 'orders',
+    'in progress': 'in-progress', done: 'done' };
+  return '<span class="chip ' + (map[s] || 'proposed') + '">' + s.toUpperCase() + '</span>';
+}
+function esc(s) {
+  return String(s).replace(/&/g,'&').replace(/</g,'<').replace(/>/g,'>').replace(/"/g,'"');
+}
+function nowStr() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' +
+    String(d.getDate()).padStart(2,'0') + ' ' + String(d.getHours()).padStart(2,'0') + ':' +
+    String(d.getMinutes()).padStart(2,'0') + ':' + String(d.getSeconds()).padStart(2,'0');
+}
+
+let canPersist = false;
+
+async function load() {
+  // Preferred: app bridge (when running inside the IterBrow shell)
+  try {
+    if (window.iterApi && window.iterApi.fsRead) {
+      const r = await window.iterApi.fsRead(PWQ_PATH);
+      data = JSON.parse(r.content);
+      canPersist = true;
+      render();
+      return;
+    }
+  } catch (e) { /* fall through */ }
+  // Fallback: direct file fetch (standalone tab)
+  try {
+    const resp = await fetch('.runtime/pwq.json');
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    data = JSON.parse(await resp.text());
+    render();
+    return;
+  } catch (e) { /* fall through */ }
+  data = { version: 1, items: [] };
+  render();
+}
+
+async function save() {
+  if (canPersist && window.iterApi && window.iterApi.fsWrite) {
+    await window.iterApi.fsWrite(PWQ_PATH, JSON.stringify(data, null, 2));
+  }
+  // Standalone mode: writes are not possible from file:// fetch; queue for iter.
+  // iter reads pwq.json + pwq_outbox.json each cycle, so we also try a best-effort
+  // download-free signal: store to localStorage as a mirror iter can be asked to pull.
+  try {
+    localStorage.setItem('pwq_mirror', JSON.stringify(data));
+  } catch (e) { /* ignore */ }
+}
+
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2200);
+}
+
+function render() {
+  const q = document.getElementById('queue');
+  const stats = document.getElementById('stats');
+  const items = data.items;
+  const waiting = items.filter(i => i.status !== 'done').length;
+  const orders = items.filter(i => i.orders_given).length;
+  const oldest = items.filter(i => i.status !== 'done')
+    .map(i => i.created).sort()[0];
+  stats.innerHTML =
+    '<div class="stat"><b>' + waiting + '</b> waiting on you</div>' +
+    '<div class="stat"><b>' + orders + '</b> orders given</div>' +
+    '<div class="stat"><b>' + items.length + '</b> total</div>' +
+    (oldest ? '<div class="stat">oldest: ' + fmtAge(oldest) + '</div>' : '');
+  document.getElementById('empty').style.display = items.length ? 'none' : 'block';
+  q.innerHTML = '';
+  items.forEach((item, idx) => {
+    const card = document.createElement('div');
+    card.className = 'card ' + (item.status === 'done' ? 'done' : ageClass(item.created));
+    card.innerHTML = renderCard(item, idx);
+    q.appendChild(card);
+  });
+  wireCards();
+}
+
+function renderCard(item, idx) {
+  let h = '';
+  h += '<div class="card-head"><h2>' + esc(item.title) + '</h2>' +
+       '<span class="age ' + (ageClass(item.created) === 'hot' ? 'hot' : '') + '">' + fmtAge(item.created) + '</span></div>';
+  h += '<div class="chips">' + statusChip(item.status) +
+       (item.alarm ? '<span class="chip" style="color:var(--amber);border-color:#6b5a2e">⏰ ' + esc(item.alarm) + '</span>' : '') + '</div>';
+  h += '<div class="field"><div class="field-label">The ask</div><div class="ask">' + esc(item.ask) + '</div></div>';
+  h += '<div class="field"><div class="field-label">My proposed shape</div><div class="shape">' + esc(item.proposed_shape) + '</div></div>';
+  if (item.options && item.options.length) {
+    h += '<div class="field"><div class="field-label">Options — click to choose</div><div class="options">';
+    item.options.forEach((o, oi) => {
+      const sel = (item.selected_option === oi) ? ' selected' : '';
+      h += '<div class="opt' + sel + '" data-idx="' + idx + '" data-oi="' + oi + '">' +
+           '<div class="radio"></div><div><b>' + esc(o.label) + '</b><span>' + esc(o.desc) + '</span></div></div>';
+    });
+    h += '</div></div>';
+  }
+  h += '<div class="input-row">' +
+       '<textarea id="ta-' + idx + '" placeholder="Your marching orders — fresh input, tweaks, or a whole new shape...">' + esc(item.user_input || '') + '</textarea>' +
+       '<div class="orders-box' + (item.orders_given ? ' given' : '') + '" data-idx="' + idx + '">' +
+       '<input type="checkbox" id="cb-' + idx + '"' + (item.orders_given ? ' checked' : '') + '>' +
+       '<label for="cb-' + idx + '">✅ ORDERS<br>GIVEN</label></div></div>';
+  h += '<div class="card-actions">' +
+       '<button class="abtn" data-act="negotiate" data-idx="' + idx + '">💬 Counter-propose (log a tweak)</button>' +
+       '<button class="abtn' + (item.alarm ? ' alarm-on' : '') + '" data-act="alarm" data-idx="' + idx + '">⏰ ' + (item.alarm ? 'Alarm set' : 'Escalate to alarm') + '</button>' +
+       (item.status !== 'done' ? '<button class="abtn" data-act="done" data-idx="' + idx + '">✔ Mark done</button>' : '') +
+       '</div>';
+  if (item.negotiation_log && item.negotiation_log.length) {
+    h += '<div class="neglog"><div class="field-label">Negotiation history</div>';
+    item.negotiation_log.slice().reverse().forEach(e => {
+      h += '<div class="neglog-entry' + (e.who === 'user' ? ' user' : '') + '">' +
+           '<span class="who">' + (e.who === 'user' ? 'YOU' : 'ITER') + '</span> ' +
+           '<span class="t">' + esc(e.time) + '</span><br>' + esc(e.text) + '</div>';
+    });
+    h += '</div>';
+  }
+  return h;
+}
+
+function wireCards() {
+  document.querySelectorAll('.opt').forEach(el => {
+    el.onclick = async () => {
+      const idx = +el.dataset.idx, oi = +el.dataset.oi;
+      const item = data.items[idx];
+      item.selected_option = oi;
+      item.status = 'negotiating';
+      item.negotiation_log.push({ time: nowStr(), who: 'user',
+        text: 'Leaning toward: ' + item.options[oi].label });
+      await save(); render(); toast('Choice noted — iter will see it');
+    };
+  });
+  document.querySelectorAll('.orders-box').forEach(el => {
+    el.onclick = async (ev) => {
+      const idx = +el.dataset.idx;
+      const cb = document.getElementById('cb-' + idx);
+      if (ev.target !== cb) cb.checked = !cb.checked;
+      const item = data.items[idx];
+      item.orders_given = cb.checked;
+      if (cb.checked) {
+        item.user_input = document.getElementById('ta-' + idx).value;
+        item.status = 'orders given';
+        item.negotiation_log.push({ time: nowStr(), who: 'user',
+          text: 'ORDERS GIVEN: ' + (item.user_input || '(option chosen, no extra text)') });
+        toast('Marching orders delivered ✅');
+      } else {
+        item.status = 'negotiating';
+      }
+      await save(); render();
+    };
+  });
+  document.querySelectorAll('.abtn').forEach(el => {
+    el.onclick = async () => {
+      const idx = +el.dataset.idx, act = el.dataset.act;
+      const item = data.items[idx];
+      if (act === 'negotiate') {
+        const txt = prompt('What should change about the shape of this work?');
+        if (txt) {
+          item.status = 'negotiating';
+          item.negotiation_log.push({ time: nowStr(), who: 'user', text: txt });
+          await save(); render(); toast('Tweak logged — iter will counter-propose');
+        }
+      } else if (act === 'alarm') {
+        if (item.alarm) { item.alarm = null; toast('Alarm cleared'); }
+        else {
+          const t = prompt('When should this ping you? (e.g. "tomorrow 9am" or "2026-09-18 09:00")', 'tomorrow 9am');
+          if (t) { item.alarm = t; toast('Alarm set: ' + t); }
+        }
+        await save(); render();
+      } else if (act === 'done') {
+        item.status = 'done';
+        item.negotiation_log.push({ time: nowStr(), who: 'user', text: 'Marked done.' });
+        await save(); render(); toast('Marked done');
+      }
+    };
+  });
+}
+
+load();
+</script>
+</body>
+</html>

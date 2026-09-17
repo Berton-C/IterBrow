@@ -201,10 +201,27 @@ def load_tools():
     ordered = protected + rest
     for path in ordered[:MAX_TOOLS]:
         try:
-            result = invoke_dynamic(path, "__tool_metadata__")
-            if not result["ok"]:
-                raise RuntimeError(result["error"])
-            metadata = result["result"]
+            # PROMOTED (see tools/_metadata_static.py): if this exact file
+            # content (path, mtime) was already verified == a real
+            # subprocess result in a prior cycle, skip the subprocess and
+            # use the trusted static result. Any failure here just means
+            # "not trusted" -- falls back to today's exact real subprocess
+            # call below, unchanged.
+            try:
+                from tools._metadata_static import get_trusted_tool_metadata
+                metadata = get_trusted_tool_metadata(path)
+            except Exception:
+                metadata = None
+            if metadata is None:
+                result = invoke_dynamic(path, "__tool_metadata__")
+                if not result["ok"]:
+                    raise RuntimeError(result["error"])
+                metadata = result["result"]
+                try:
+                    from tools._metadata_static import record_tool_metadata_verified
+                    record_tool_metadata_verified(path, metadata)
+                except Exception:
+                    pass
             inops[path.stem] = (path, metadata["description"], metadata["parameters"])
         except Exception as error:
             errors.append(f"[TOOL ERROR in {path}: {type(error).__name__}: {error}. Repair {path} if needed.]")
@@ -221,9 +238,27 @@ def load_transformation_descriptions():
     for path in sorted(Path("transformations").glob("*.py")):
         if path.name.startswith("_"):
             continue
+        # PROMOTED (see tools/_metadata_static.py): if this exact file
+        # content (path, mtime) was already verified == a real subprocess
+        # result in a prior cycle, skip the subprocess and use the trusted
+        # static result. Any failure here just means "not trusted" -- falls
+        # back to today's exact real subprocess call below, unchanged.
+        try:
+            from tools._metadata_static import get_trusted_description
+            trusted_description = get_trusted_description(path)
+        except Exception:
+            trusted_description = None
+        if trusted_description is not None:
+            entries.append(f"{path.stem}: {trusted_description}")
+            continue
         result = invoke_dynamic(path, "__description__")
         if result["ok"]:
             entries.append(f"{path.stem}: {result['result']}")
+            try:
+                from tools._metadata_static import record_description_verified
+                record_description_verified(path, result["result"])
+            except Exception:
+                pass
         else:
             entries.append(f"{path.stem}: [DESCRIPTION MISSING]")
     return "\n".join(entries)

@@ -12,10 +12,14 @@ contextBridge.exposeInMainWorld('iterApi', {
 
   listTabGroups: () => ipcRenderer.invoke('tabGroups:list'),
   saveTabGroup: (name) => ipcRenderer.invoke('tabGroups:save', name),
+  resaveTabGroup: (groupId) => ipcRenderer.invoke('tabGroups:resave', groupId),
   openTabGroup: (groupId) => ipcRenderer.invoke('tabGroups:open', groupId),
   switchToTabGroup: (groupId) => ipcRenderer.invoke('tabGroups:switch', groupId),
   closeTabGroup: (groupId) => ipcRenderer.invoke('tabGroups:close', groupId),
   deleteTabGroup: (groupId) => ipcRenderer.invoke('tabGroups:delete', groupId),
+
+  listClosedTabs: () => ipcRenderer.invoke('closedTabs:list'),
+  reopenClosedTab: (index) => ipcRenderer.invoke('closedTabs:reopen', index),
   navigate: (id, url) => ipcRenderer.invoke('tabs:navigate', { id, url }),
   back: (id) => ipcRenderer.invoke('tabs:back', id),
   forward: (id) => ipcRenderer.invoke('tabs:forward', id),
@@ -43,6 +47,7 @@ contextBridge.exposeInMainWorld('iterApi', {
   resetState: () => ipcRenderer.invoke('state:reset'),
 
   onTabsUpdate: (cb) => ipcRenderer.on('tabs:update', (_e, list) => cb(list)),
+  reportTabstripHeight: (height) => ipcRenderer.send('tabstrip:height', height),
 
   resizeSidebarStart: () => ipcRenderer.invoke('sidebar:resize-start'),
   resizeSidebarMove: (width) => ipcRenderer.invoke('sidebar:resize-move', width),
@@ -57,6 +62,7 @@ contextBridge.exposeInMainWorld('iterApi', {
   terminalInterrupt: () => ipcRenderer.invoke('terminal:interrupt'),
   terminalStop: () => ipcRenderer.invoke('terminal:stop'),
   openDashboards: () => ipcRenderer.invoke('dashboards:open'),
+  openPWQ: () => ipcRenderer.invoke('pwq:open'),
   onTerminalData: (cb) => ipcRenderer.on('terminal:data', (_e, chunk) => cb(chunk)),
   onTerminalDone: (cb) => ipcRenderer.on('terminal:done', (_e, info) => cb(info)),
 });

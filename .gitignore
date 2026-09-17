@@ -40,3 +40,7 @@ __pycache__/
 iter/atomspace_data.json
 Iter Browser.app/
 iter/task_state.metta
+
+# User-private content (iter/private/story_journal_backup.json, personal library writings).
+# NEVER commit -- mirrors the stated intent behind creating iter/private/ (2026-09-16).
+/iter/private/

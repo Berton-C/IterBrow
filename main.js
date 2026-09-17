@@ -22,6 +22,17 @@ const MIN_BROWSER_WIDTH = 240; // keep the tab area from being squeezed to nothi
 // has its own dedicated row instead of competing for space with the nav
 // buttons. 72px fits two ~36px button/input rows plus their 1px divider.
 const TOOLBAR_HEIGHT = 72;
+// Height of the full-width tab strip, sitting above everything else
+// (sidebar, toolbar, page). Unlike TOOLBAR_HEIGHT this is NOT fixed --
+// tabstrip.js measures its own real rendered height (which grows/shrinks
+// as tabs wrap into more or fewer rows) and reports it via the
+// 'tabstrip:height' IPC message; tabstripHeight below always reflects the
+// latest reported value. DEFAULT_TABSTRIP_HEIGHT is just the pre-report
+// starting size for one row. Added 2026-09-17 so tabs get the full window
+// width instead of being squeezed into the sidebar column.
+const DEFAULT_TABSTRIP_HEIGHT = 42;
+const MIN_TABSTRIP_HEIGHT = 30;
+const MAX_TABSTRIP_HEIGHT = 200; // sane ceiling so a runaway report can't eat the whole window
 const ITER_DIR = path.join(__dirname, 'iter');
 const SETTINGS_PATH = path.join(ITER_DIR, '.runtime', 'settings.json');
 // Tab session — which tabs were open, their URLs, and their lock state.
@@ -55,11 +66,13 @@ const SIDEBAR_BG = '#0d0f12'; // matches renderer/style.css --bg
 let win = null;
 let sidebarView = null;
 let toolbarView = null;
+let tabstripView = null;
 let tabs = null;
 let chatBridge = null;
 let iterProcess = null;
 let iterLog = [];
 let sidebarWidth = DEFAULT_SIDEBAR_WIDTH;
+let tabstripHeight = DEFAULT_TABSTRIP_HEIGHT;
 let resizingSidebar = false;
 
 function loadSettings() {
@@ -339,13 +352,38 @@ function saveCurrentTabsAsGroup(name) {
   return groups;
 }
 
+// Re-snapshots the CURRENTLY open tabs into an EXISTING group, identified
+// by id rather than retyped name -- added 2026-09-17 per user report that
+// the only way to update a saved group (e.g. after removing 2 tabs you no
+// longer want in it) was to retype its exact name into the text field,
+// which silently creates a second group instead of an overwrite on any
+// typo. This keeps the group's original id/name/createdAt-of-first-save,
+// only replacing its `tabs` snapshot and bumping `updatedAt`.
+function resaveTabGroup(groupId) {
+  if (!tabs) return loadTabGroups();
+  const groups = loadTabGroups();
+  const group = groups.find((g) => g.id === Number(groupId));
+  if (!group) return groups;
+  group.tabs = tabs.list().map((t) => ({ url: t.url, title: t.title, pinned: t.pinned }));
+  group.updatedAt = new Date().toISOString();
+  saveTabGroups(groups);
+  return groups;
+}
+
 // Opens every tab in the group alongside whatever is already open --
 // deliberately non-destructive (never closes existing tabs) since
 // silently losing open tabs to "open a group" would be a nasty surprise.
+// Skips any URL that's already open in some tab -- added 2026-09-17 to fix
+// a duplication bug: closeTabGroup() intentionally leaves pinned/locked
+// tabs open (see below), so re-opening the same group later used to
+// recreate those survivors as brand-new duplicate tabs every time,
+// compounding on each open/close cycle (9 tabs -> 11 -> 13 -> ...).
 function openTabGroup(groupId) {
   const group = loadTabGroups().find((g) => g.id === Number(groupId));
   if (!group || !tabs) return;
+  const openUrls = new Set([...tabs.tabs.values()].map((t) => t.url));
   for (const t of group.tabs) {
+    if (openUrls.has(t.url)) continue;
     const id = tabs.createTab(t.url);
     if (t.pinned) tabs.setPinned(id, true);
   }
@@ -377,6 +415,20 @@ function deleteTabGroup(groupId) {
   const groups = loadTabGroups().filter((g) => g.id !== Number(groupId));
   saveTabGroups(groups);
   return groups;
+}
+
+// Reopens a specific "Recently Closed" entry by index (0 = most recent),
+// without removing it from the stack -- unlike reopenClosedTab(), this is
+// for the sidebar's Recently Closed panel where the user may want to
+// reopen the same entry more than once. Added 2026-09-17 alongside
+// surfacing that panel in the UI (the data already existed via
+// CLOSED_TABS_PATH/loadClosedTabs, it just wasn't reachable from inside
+// the app -- only from the native History menu / tab right-click).
+function reopenClosedTabAt(index) {
+  const list = loadClosedTabs();
+  const entry = list[Number(index)];
+  if (!entry || !tabs) return;
+  tabs.createTab(entry.url);
 }
 
 // Called from tabs.onTabClosed (see TabManager.closeTab) for every close,
@@ -483,17 +535,45 @@ function showTabContextMenu(id) {
 
 function contentBounds() {
   const [w, h] = win.getContentSize();
+  const top = tabstripHeight + TOOLBAR_HEIGHT;
   return {
     x: sidebarWidth,
-    y: TOOLBAR_HEIGHT,
+    y: top,
     width: Math.max(0, w - sidebarWidth),
-    height: Math.max(0, h - TOOLBAR_HEIGHT),
+    height: Math.max(0, h - top),
   };
 }
 
 function toolbarBounds() {
   const [w] = win.getContentSize();
-  return { x: sidebarWidth, y: 0, width: Math.max(0, w - sidebarWidth), height: TOOLBAR_HEIGHT };
+  return { x: sidebarWidth, y: tabstripHeight, width: Math.max(0, w - sidebarWidth), height: TOOLBAR_HEIGHT };
+}
+
+// Full-width tab strip -- spans x:0 to the window's right edge (unlike the
+// toolbar/content views, it is NOT offset by sidebarWidth, since it sits
+// above the sidebar too). Height is whatever tabstrip.js last reported.
+function tabstripBounds() {
+  const [w] = win.getContentSize();
+  return { x: 0, y: 0, width: w, height: tabstripHeight };
+}
+
+// Sidebar's resting (non-drag) bounds -- pushed down by the tab strip's
+// current height, same as the toolbar/content views.
+function sidebarBounds() {
+  const [, h] = win.getContentSize();
+  return { x: 0, y: tabstripHeight, width: sidebarWidth, height: Math.max(0, h - tabstripHeight) };
+}
+
+// Re-applies every view's bounds from the current sidebarWidth/tabstripHeight
+// -- called on window resize and whenever tabstrip.js reports a new height.
+// Skipped mid-drag: the sidebar-resize handlers below drive bounds directly
+// while dragging, and calling this partway through would fight them.
+function layoutAll() {
+  if (!win || resizingSidebar) return;
+  tabstripView.setBounds(tabstripBounds());
+  sidebarView.setBounds(sidebarBounds());
+  toolbarView.setBounds(toolbarBounds());
+  if (tabs) tabs.relayout();
 }
 
 // ---------------------------------------------------------------------
@@ -516,7 +596,11 @@ function sidebarResizeStart() {
   const [w, h] = win.getContentSize();
   win.contentView.addChildView(sidebarView); // re-adding an existing child bumps it to the top z-order
   sidebarView.setBackgroundColor('#00000000');
-  sidebarView.setBounds({ x: 0, y: 0, width: w, height: h });
+  // Starts below the tab strip (y: tabstripHeight), not y: 0 -- the strip
+  // has its own dedicated full-width view now and must stay visible and
+  // interactive throughout the drag, not get covered by this temporary
+  // transparent full-window overlay.
+  sidebarView.setBounds({ x: 0, y: tabstripHeight, width: w, height: Math.max(0, h - tabstripHeight) });
   return { started: true, width: sidebarWidth };
 }
 
@@ -533,8 +617,7 @@ function sidebarResizeMove(newWidth) {
 function sidebarResizeEnd() {
   if (!win || !resizingSidebar) return { width: sidebarWidth };
   resizingSidebar = false;
-  const [, h] = win.getContentSize();
-  sidebarView.setBounds({ x: 0, y: 0, width: sidebarWidth, height: h });
+  sidebarView.setBounds(sidebarBounds());
   sidebarView.setBackgroundColor(SIDEBAR_BG);
   toolbarView.setBounds(toolbarBounds());
   if (tabs && tabs.activeId) tabs.switchTab(tabs.activeId); // restore normal z-order (tab on top)
@@ -994,7 +1077,7 @@ function createWindow() {
   });
   win.contentView.addChildView(sidebarView);
   sidebarView.setBackgroundColor(SIDEBAR_BG);
-  sidebarView.setBounds({ x: 0, y: 0, width: sidebarWidth, height: win.getContentSize()[1] });
+  sidebarView.setBounds(sidebarBounds());
   sidebarView.webContents.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 
   // Full-width navigation toolbar (back/forward/reload/address bar), sitting
@@ -1011,9 +1094,25 @@ function createWindow() {
   toolbarView.setBounds(toolbarBounds());
   toolbarView.webContents.loadFile(path.join(__dirname, 'renderer', 'toolbar.html'));
 
+  // Full-width tab strip, sitting above everything -- sidebar, toolbar, and
+  // the browsed page. Added last so it's naturally on top of the z-order by
+  // default; sidebarResizeStart()/End() above also keep its vertical space
+  // clear during the sidebar-width drag so it's never covered either way.
+  tabstripView = new WebContentsView({
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      sandbox: false,
+    },
+  });
+  win.contentView.addChildView(tabstripView);
+  tabstripView.setBackgroundColor(SIDEBAR_BG);
+  tabstripView.setBounds(tabstripBounds());
+  tabstripView.webContents.loadFile(path.join(__dirname, 'renderer', 'tabstrip.html'));
+
   tabs = new TabManager(win, { getContentBounds: contentBounds });
   tabs.onTabsChanged = (list) => {
-    sidebarView.webContents.send('tabs:update', list);
+    tabstripView.webContents.send('tabs:update', list);
     toolbarView.webContents.send('tabs:update', list);
     saveTabSessionDebounced();
   };
@@ -1039,13 +1138,7 @@ function createWindow() {
 
   Menu.setApplicationMenu(buildAppMenu());
 
-  win.on('resize', () => {
-    if (resizingSidebar) return; // bounds are being driven by the drag handlers instead
-    const [w, h] = win.getContentSize();
-    sidebarView.setBounds({ x: 0, y: 0, width: sidebarWidth, height: h });
-    toolbarView.setBounds(toolbarBounds());
-    tabs.relayout();
-  });
+  win.on('resize', () => layoutAll());
 
   win.on('closed', () => {
     clearTimeout(tabSessionSaveTimer);
@@ -1053,6 +1146,7 @@ function createWindow() {
     for (const tab of tabs.tabs.values()) tab.view.webContents.close();
     sidebarView.webContents.close();
     toolbarView.webContents.close();
+    tabstripView.webContents.close();
     win = null;
   });
 
@@ -1084,10 +1178,20 @@ ipcMain.handle('tabs:contextMenu', (_e, id) => showTabContextMenu(id));
 ipcMain.handle('tabs:reorder', (_e, orderedIds) => tabs.reorder(orderedIds));
 ipcMain.handle('tabGroups:list', () => loadTabGroups());
 ipcMain.handle('tabGroups:save', (_e, name) => saveCurrentTabsAsGroup(name));
+ipcMain.handle('tabGroups:resave', (_e, groupId) => resaveTabGroup(groupId));
 ipcMain.handle('tabGroups:open', (_e, groupId) => openTabGroup(groupId));
 ipcMain.handle('tabGroups:switch', (_e, groupId) => switchToTabGroup(groupId));
 ipcMain.handle('tabGroups:close', (_e, groupId) => closeTabGroup(groupId));
 ipcMain.handle('tabGroups:delete', (_e, groupId) => deleteTabGroup(groupId));
+
+// Recently Closed -- surfaces the same closed_tabs.json history already
+// used by the History menu / tab right-click, but as a browsable panel
+// inside the app itself. Added 2026-09-17 per user report that there was
+// no way to recover an accidentally-closed tab without going through the
+// native menu bar. list() never mutates the stack; reopen() re-creates a
+// tab without removing the entry, so the same item can be reopened again.
+ipcMain.handle('closedTabs:list', () => loadClosedTabs());
+ipcMain.handle('closedTabs:reopen', (_e, index) => { reopenClosedTabAt(index); return loadClosedTabs(); });
 ipcMain.handle('tabs:navigate', (_e, { id, url }) => tabs.navigate(id, url));
 ipcMain.handle('tabs:back', (_e, id) => {
   const tab = tabs.tabs.get(id);
@@ -1141,6 +1245,18 @@ ipcMain.handle('state:reset', () => resetState());
 ipcMain.handle('sidebar:resize-start', () => sidebarResizeStart());
 ipcMain.handle('sidebar:resize-move', (_e, w) => sidebarResizeMove(w));
 ipcMain.handle('sidebar:resize-end', () => sidebarResizeEnd());
+
+// One-way: tabstrip.js reports its real rendered height every time it
+// changes (tabs added/removed/reflowed into more or fewer rows), and this
+// repositions the sidebar/toolbar/page to make room. Clamped to a sane
+// range and a no-op if unchanged, so a duplicate or bogus report can't
+// cause layout thrash or swallow the window.
+ipcMain.on('tabstrip:height', (_e, height) => {
+  const h = Math.max(MIN_TABSTRIP_HEIGHT, Math.min(MAX_TABSTRIP_HEIGHT, Math.round(Number(height) || DEFAULT_TABSTRIP_HEIGHT)));
+  if (h === tabstripHeight) return;
+  tabstripHeight = h;
+  layoutAll();
+});
 
 ipcMain.handle('fs:list', (_e, relPath) => fsList(relPath));
 ipcMain.handle('fs:read', (_e, relPath) => fsRead(relPath));

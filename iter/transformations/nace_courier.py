@@ -132,10 +132,17 @@ TYPE_PREFIX = {
     "tool": "cap-efficacy",
     "value": "value-efficacy",
     "pattern": "pattern-efficacy",
+    # STAGE 5 (2026-09-15): the add/subtract/loosen mode-signal layer.
+    # Same Truth_Revision pipeline as the 9 compass patterns above --
+    # deliberately not a fourth compass dimension, just a cross-cutting
+    # "which posture does this moment call for" belief, fed by
+    # mode_signal_bridge.py. See that file's docstring for what's
+    # actually wired vs. still a stub.
+    "mode": "mode-signal",
 }
 
 # Explicit list of valid prefixes for parsing
-_ALL_PREFIXES = ["cap-efficacy", "value-efficacy", "pattern-efficacy"]
+_ALL_PREFIXES = ["cap-efficacy", "value-efficacy", "pattern-efficacy", "mode-signal"]
 
 
 def _exists(path):
@@ -263,6 +270,7 @@ def process_revisions():
 
     revised = 0
     low_efficacy = []
+    openings = []
     validation_candidates = []
 
     # Get keys list for safe iteration
@@ -302,6 +310,24 @@ def process_revisions():
         exp = nal_expectation(new_f, new_c)
         if exp < 0.3 and new_c > 0.1:
             low_efficacy.append(rtype + ":" + name + " (exp=" + str(exp) + ")")
+
+        # STAGE 5 (2026-09-15): the flipped surfacing line. Every other
+        # branch here (low_efficacy above) only ever flags when something
+        # is going WRONG -- an expectation that fell too low. Mode-signal
+        # beliefs are the mirror case on purpose: we want to know when
+        # accumulated evidence for a posture (add/subtract/loosen) has
+        # gotten strong enough to be worth naming, not when it failed.
+        # A single (f=1.0, c=0.1) observation only reaches exp=0.55 --
+        # nal_revise's harmonic confidence accumulation (each further
+        # same-direction observation adds diminishing weight) means exp
+        # only strictly clears 0.7 after 7 consistent confirmations in a
+        # row (verified empirically in _test_mode_signal_bridge.py), so a
+        # single or even a couple of coincidences can't trigger this.
+        # Purely informational -- appended to the system message same as
+        # low_efficacy, never a tool gate, never withholds or forces
+        # anything downstream.
+        if rtype == "mode" and exp > 0.7 and new_c > 0.15:
+            openings.append(rtype + ":" + name + " (exp=" + str(exp) + ")")
 
     # Rebuild beliefs file preserving structure
     if beliefs_content:
@@ -382,6 +408,8 @@ def process_revisions():
     summary = "NACE: " + str(revised) + " beliefs revised"
     if len(low_efficacy) > 0:
         summary += " | LOW EFFICACY: " + ", ".join(low_efficacy)
+    if len(openings) > 0:
+        summary += " | OPENING: " + ", ".join(openings)
     summary += lock_note
     return summary, validation_candidates
 
