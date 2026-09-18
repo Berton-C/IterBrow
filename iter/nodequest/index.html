@@ -1,0 +1,120 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>NodeQuest — Physics</title>
+<style>
+:root{--bg:#120e21;--panel:#1d1733;--panel2:#251d42;--gold:#ffd77a;--gold2:#a89468;--ink:#efe9d8;--dim:#9d94b5;--spark:#8be9fd;--ok:#7bd88f}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,sans-serif;background:radial-gradient(1200px 600px at 70% -10%, #2a1f52, var(--bg));color:var(--ink);min-height:100vh}
+header{display:flex;align-items:center;gap:14px;padding:14px 22px;background:rgba(18,14,33,.85);border-bottom:1px solid #3a2f66;position:sticky;top:0;z-index:5}
+h1{font-size:20px;margin:0;color:var(--gold)} h1 .sub{color:var(--dim);font-size:13px;font-weight:400}
+#sparkles{margin-left:auto;color:var(--spark);font-weight:700;font-size:16px}
+main{display:grid;grid-template-columns:280px 1fr;gap:18px;padding:18px 22px;max-width:1100px;margin:0 auto}
+nav.map{background:var(--panel);border:1px solid #3a2f66;border-radius:14px;padding:14px;max-height:78vh;overflow:auto}
+nav.map h3{margin:2px 0 10px;color:var(--gold2);font-size:13px;letter-spacing:.06em;text-transform:uppercase}
+.chapter{display:flex;gap:9px;align-items:center;padding:7px 9px;border-radius:9px;cursor:pointer;color:var(--dim);font-size:13.5px;border:1px solid transparent}
+.chapter.locked{cursor:default;opacity:.45}
+.chapter.unlocked:hover{background:var(--panel2)}
+.chapter.current{background:var(--panel2);border-color:var(--gold2);color:var(--ink)}
+.chapter .num{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;background:#332a5e;color:var(--gold);font-size:12px;font-weight:700;flex:none}
+section.quest{background:var(--panel);border:1px solid #3a2f66;border-radius:14px;padding:20px 24px}
+.banner{background:linear-gradient(90deg,#6c5ce733,#ffd77a22);border:1px solid var(--gold2);border-radius:12px;padding:12px 16px;margin-bottom:18px;font-size:14px}
+.banner b{color:var(--gold)}
+.h3head{color:var(--gold);margin:0 0 4px;font-size:18px}
+.secbtns{display:flex;gap:10px;margin:14px 0 18px;flex-wrap:wrap}
+.secbtn{padding:10px 14px;border-radius:11px;border:1px solid #3a2f66;background:var(--panel2);color:var(--ink);cursor:pointer;font-size:13.5px}
+.secbtn .tier{font-size:11px;color:var(--dim)}
+.secbtn.active{border-color:var(--gold);box-shadow:0 0 10px #ffd77a33}
+.lore{background:var(--panel2);border-radius:12px;padding:14px 16px;line-height:1.55;font-size:14.5px;color:#ded6f0}
+.lore b{color:var(--gold)}
+.kw{display:inline-block;background:#332a5e;color:var(--spark);border-radius:6px;padding:1px 7px;margin:1px;font-size:13px}
+.qa{margin-top:16px}
+.qa .q{font-size:15px;margin-bottom:10px}
+.chip{display:inline-block;padding:7px 13px;margin:4px;border-radius:999px;border:1px solid #4b3f85;background:#241c44;cursor:pointer;font-size:14px;transition:.15s;color:var(--ink)}
+.chip:hover{border-color:var(--gold)}
+.chip.win{background:var(--ok);color:#08210f;border-color:var(--ok);cursor:default}
+.feedback{margin-top:10px;min-height:22px;font-size:14px}
+.feedback.good{color:var(--ok)} .feedback.bad{color:#ffb3a0}
+.tierbar{margin-top:16px;font-size:13px;color:var(--dim)} .tierbar b{color:var(--spark)}
+.rules{margin-top:20px;font-size:12.5px;color:var(--dim);border-top:1px dashed #3a2f66;padding-top:12px}
+footer{padding:30px;text-align:center;color:var(--dim);font-size:12px}
+</style></head><body>
+<header><h1>&#9876;&#65039; NodeQuest <span class="sub">&mdash; Physics Realm</span></h1><div id="sparkles">&#10024; 0</div></header>
+<main>
+<nav class="map"><h3>Knowledge Nodes</h3><div id="chapters"></div></nav>
+<section class="quest" id="quest"></section>
+</main>
+<footer>NodeQuest &middot; textbooks as game-fodder &middot; learning is play, never pressure &middot; content &copy; OpenStax (CC BY 4.0)</footer>
+<script>
+const NODES = [{"id": "phys-01", "type": "chapter", "n": 1, "title": "What is Physics?", "page": 5, "children": [{"id": "phys-01-1-1", "type": "section", "label": "1.1", "title": "Physics: Definitions and Applications", "page": 5}, {"id": "phys-01-1-2", "type": "section", "label": "1.2", "title": "The Scientific Methods", "page": 14}, {"id": "phys-01-1-3", "type": "section", "label": "1.3", "title": "The Language of Physics: Physical Quantities and Units", "page": 18}]}, {"id": "phys-02", "type": "chapter", "n": 2, "title": "Motion in One Dimension", "page": 53, "children": [{"id": "phys-02-2-1", "type": "section", "label": "2.1", "title": "Relative Motion, Distance, and Displacement", "page": 54}, {"id": "phys-02-2-2", "type": "section", "label": "2.2", "title": "Speed and Velocity", "page": 62}, {"id": "phys-02-2-3", "type": "section", "label": "2.3", "title": "Position vs. Time Graphs", "page": 67}, {"id": "phys-02-2-4", "type": "section", "label": "2.4", "title": "Velocity vs. Time Graphs", "page": 73}]}, {"id": "phys-03", "type": "chapter", "n": 3, "title": "Acceleration", "page": 93, "children": [{"id": "phys-03-3-1", "type": "section", "label": "3.1", "title": "Acceleration", "page": 93}, {"id": "phys-03-3-2", "type": "section", "label": "3.2", "title": "Representing Acceleration with Equations and Graphs", "page": 99}]}, {"id": "phys-04", "type": "chapter", "n": 4, "title": "Forces and Newton\u2019s Laws of Motion", "page": 115, "children": [{"id": "phys-04-4-1", "type": "section", "label": "4.1", "title": "Force", "page": 116}, {"id": "phys-04-4-2", "type": "section", "label": "4.2", "title": "Newton's First Law of Motion: Inertia 1184.3 Newton's Second Law of Motion", "page": 122}, {"id": "phys-04-4-4", "type": "section", "label": "4.4", "title": "Newton's Third Law of Motion", "page": 128}]}, {"id": "phys-05", "type": "chapter", "n": 5, "title": "Motion in Two Dimensions", "page": 143, "children": [{"id": "phys-05-5-1", "type": "section", "label": "5.1", "title": "Vector Addition and Subtraction: Graphical Methods", "page": 144}, {"id": "phys-05-5-2", "type": "section", "label": "5.2", "title": "Vector Addition and Subtraction: Analytical Methods", "page": 153}, {"id": "phys-05-5-3", "type": "section", "label": "5.3", "title": "Projectile Motion", "page": 162}, {"id": "phys-05-5-4", "type": "section", "label": "5.4", "title": "Inclined Planes", "page": 171}, {"id": "phys-05-5-5", "type": "section", "label": "5.5", "title": "Simple Harmonic Motion", "page": 178}]}, {"id": "phys-06", "type": "chapter", "n": 6, "title": "Circular and Rotational Motion", "page": 197, "children": [{"id": "phys-06-6-1", "type": "section", "label": "6.1", "title": "Angle of Rotation and Angular Velocity", "page": 198}, {"id": "phys-06-6-2", "type": "section", "label": "6.2", "title": "Uniform Circular Motion", "page": 205}, {"id": "phys-06-6-3", "type": "section", "label": "6.3", "title": "Rotational Motion", "page": 212}]}, {"id": "phys-07", "type": "chapter", "n": 7, "title": "Newton's Law of Gravitation", "page": 229, "children": [{"id": "phys-07-7-1", "type": "section", "label": "7.1", "title": "Kepler's Laws of Planetary Motion", "page": 229}, {"id": "phys-07-7-2", "type": "section", "label": "7.2", "title": "Newton's Law of Universal Gravitation and Einstein's Theory of General Relativity", "page": 237}]}, {"id": "phys-08", "type": "chapter", "n": 8, "title": "Momentum", "page": 253, "children": [{"id": "phys-08-8-1", "type": "section", "label": "8.1", "title": "Linear Momentum, Force, and Impulse", "page": 254}, {"id": "phys-08-8-2", "type": "section", "label": "8.2", "title": "Conservation of Momentum", "page": 259}, {"id": "phys-08-8-3", "type": "section", "label": "8.3", "title": "Elastic and Inelastic Collisions", "page": 262}]}, {"id": "phys-09", "type": "chapter", "n": 9, "title": "Work, Energy, and Simple Machines", "page": 279, "children": [{"id": "phys-09-9-1", "type": "section", "label": "9.1", "title": "Work, Power, and the Work\u2013Energy Theorem", "page": 280}, {"id": "phys-09-9-2", "type": "section", "label": "9.2", "title": "Mechanical Energy and Conservation of Energy", "page": 285}, {"id": "phys-09-9-3", "type": "section", "label": "9.3", "title": "Simple Machines", "page": 290}]}, {"id": "phys-10", "type": "chapter", "n": 10, "title": "Special Relativity", "page": 305, "children": [{"id": "phys-10-10-1", "type": "section", "label": "10.1", "title": "Postulates of Special Relativity", "page": 305}, {"id": "phys-10-10-2", "type": "section", "label": "10.2", "title": "Consequences of Special Relativity", "page": 312}]}, {"id": "phys-11", "type": "chapter", "n": 11, "title": "Thermal Energy, Heat, and Work", "page": 327, "children": [{"id": "phys-11-11-1", "type": "section", "label": "11.1", "title": "Temperature and Thermal Energy", "page": 327}, {"id": "phys-11-11-2", "type": "section", "label": "11.2", "title": "Heat, Specific Heat, and Heat Transfer", "page": 332}, {"id": "phys-11-11-3", "type": "section", "label": "11.3", "title": "Phase Change and Latent Heat", "page": 340}]}, {"id": "phys-12", "type": "chapter", "n": 12, "title": "Thermodynamics", "page": 355, "children": [{"id": "phys-12-12-1", "type": "section", "label": "12.1", "title": "Zeroth Law of Thermodynamics: Thermal Equilibrium 35612.2 First law of Thermodynamics: Thermal Energy and Work", "page": 358}, {"id": "phys-12-12-3", "type": "section", "label": "12.3", "title": "Second Law of Thermodynamics: Entropy", "page": 366}, {"id": "phys-12-12-4", "type": "section", "label": "12.4", "title": "Applications of Thermodynamics: Heat Engines, Heat Pumps, and Refrigerators", "page": 372}]}, {"id": "phys-13", "type": "chapter", "n": 13, "title": "Waves and Their Properties", "page": 389, "children": [{"id": "phys-13-13-1", "type": "section", "label": "13.1", "title": "Types of Waves", "page": 390}, {"id": "phys-13-13-2", "type": "section", "label": "13.2", "title": "Wave Properties: Speed, Amplitude, Frequency, and Period", "page": 394}, {"id": "phys-13-13-3", "type": "section", "label": "13.3", "title": "Wave Interaction: Superposition and Interference", "page": 400}]}, {"id": "phys-14", "type": "chapter", "n": 14, "title": "Sound", "page": 415, "children": [{"id": "phys-14-14-1", "type": "section", "label": "14.1", "title": "Speed of Sound, Frequency, and Wavelength", "page": 416}, {"id": "phys-14-14-2", "type": "section", "label": "14.2", "title": "Sound Intensity and Sound Level", "page": 423}, {"id": "phys-14-14-3", "type": "section", "label": "14.3", "title": "Doppler Effect and Sonic Booms", "page": 430}, {"id": "phys-14-14-4", "type": "section", "label": "14.4", "title": "Sound Interference and Resonance", "page": 434}]}, {"id": "phys-15", "type": "chapter", "n": 15, "title": "Light", "page": 455, "children": [{"id": "phys-15-15-1", "type": "section", "label": "15.1", "title": "The Electromagnetic Spectrum", "page": 455}, {"id": "phys-15-15-2", "type": "section", "label": "15.2", "title": "The Behavior of Electromagnetic Radiation", "page": 463}]}, {"id": "phys-16", "type": "chapter", "n": 16, "title": "Mirrors and Lenses", "page": 477, "children": [{"id": "phys-16-16-1", "type": "section", "label": "16.1", "title": "Reflection", "page": 478}, {"id": "phys-16-16-2", "type": "section", "label": "16.2", "title": "Refraction", "page": 487}, {"id": "phys-16-16-3", "type": "section", "label": "16.3", "title": "Lenses", "page": 498}]}, {"id": "phys-17", "type": "chapter", "n": 17, "title": "Diffraction and Interference", "page": 523, "children": [{"id": "phys-17-17-1", "type": "section", "label": "17.1", "title": "Understanding Diffraction and Interference", "page": 523}, {"id": "phys-17-17-2", "type": "section", "label": "17.2", "title": "Applications of Diffraction, Interference, and Coherence", "page": 532}]}, {"id": "phys-18", "type": "chapter", "n": 18, "title": "Static Electricity", "page": 549, "children": [{"id": "phys-18-18-1", "type": "section", "label": "18.1", "title": "Electrical Charges, Conservation of Charge, and Transfer of Charge", "page": 550}, {"id": "phys-18-18-2", "type": "section", "label": "18.2", "title": "Coulomb's law", "page": 562}, {"id": "phys-18-18-3", "type": "section", "label": "18.3", "title": "Electric Field", "page": 567}, {"id": "phys-18-18-4", "type": "section", "label": "18.4", "title": "Electric Potential", "page": 572}, {"id": "phys-18-18-5", "type": "section", "label": "18.5", "title": "Capacitors and Dielectrics", "page": 580}]}, {"id": "phys-19", "type": "chapter", "n": 19, "title": "Electrical Circuits", "page": 603, "children": [{"id": "phys-19-19-1", "type": "section", "label": "19.1", "title": "Ohm's law", "page": 604}, {"id": "phys-19-19-2", "type": "section", "label": "19.2", "title": "Series Circuits", "page": 612}, {"id": "phys-19-19-3", "type": "section", "label": "19.3", "title": "Parallel Circuits", "page": 621}, {"id": "phys-19-19-4", "type": "section", "label": "19.4", "title": "Electric Power", "page": 632}]}, {"id": "phys-20", "type": "chapter", "n": 20, "title": "Magnetism", "page": 649, "children": [{"id": "phys-20-20-1", "type": "section", "label": "20.1", "title": "Magnetic Fields, Field Lines, and Force", "page": 650}, {"id": "phys-20-20-2", "type": "section", "label": "20.2", "title": "Motors, Generators, and Transformers", "page": 665}, {"id": "phys-20-20-3", "type": "section", "label": "20.3", "title": "Electromagnetic Induction", "page": 672}]}, {"id": "phys-21", "type": "chapter", "n": 21, "title": "The Quantum Nature of Light", "page": 691, "children": [{"id": "phys-21-21-1", "type": "section", "label": "21.1", "title": "Planck and Quantum Nature of Light", "page": 692}, {"id": "phys-21-21-2", "type": "section", "label": "21.2", "title": "Einstein and the Photoelectric Effect", "page": 698}, {"id": "phys-21-21-3", "type": "section", "label": "21.3", "title": "The Dual Nature of Light", "page": 704}]}, {"id": "phys-22", "type": "chapter", "n": 22, "title": "The Atom", "page": 721, "children": [{"id": "phys-22-22-1", "type": "section", "label": "22.1", "title": "The Structure of the Atom", "page": 721}, {"id": "phys-22-22-2", "type": "section", "label": "22.2", "title": "Nuclear Forces and Radioactivity", "page": 734}, {"id": "phys-22-22-3", "type": "section", "label": "22.3", "title": "Half Life and Radiometric Dating", "page": 743}, {"id": "phys-22-22-4", "type": "section", "label": "22.4", "title": "Nuclear Fission and Fusion", "page": 747}, {"id": "phys-22-22-5", "type": "section", "label": "22.5", "title": "Medical Applications of Radioactivity: Diagnostic Imaging and Radiation", "page": 757}]}, {"id": "phys-23", "type": "chapter", "n": 23, "title": "Particle Physics", "page": 771, "children": [{"id": "phys-23-23-1", "type": "section", "label": "23.1", "title": "The Four Fundamental Forces", "page": 772}, {"id": "phys-23-23-2", "type": "section", "label": "23.2", "title": "Quarks", "page": 779}, {"id": "phys-23-23-3", "type": "section", "label": "23.3", "title": "The Unification of Forces", "page": 790}]}];
+const CH1 = {"sections": [{"id": "1-1", "label": "1.1", "title": "Physics: Definitions and Applications", "lore": "<b>What physics is:</b> Physics is the science aimed at describing the fundamental aspects of our universe \u2014 what things are in it, what properties they have, and what processes they undergo. The same physical laws apply to objects as large as the Andromeda galaxy or as small as atoms. Physics describes how electric current moves through your phone's circuits, and how GPS uses the speed of light.", "terms": ["physics", "classical physics", "modern physics", "theory of relativity", "quantum mechanics", "atom"], "challenges": [{"q": "Physics is best described as\u2026", "a": ["The science describing the fundamental aspects of our universe", "Memorizing formulas about machines", "The study of planets only"], "c": 0, "why": "Physics describes what the universe contains, its properties, and its processes \u2014 from galaxies to atoms."}, {"q": "The branch covering everyday sizes and speeds is\u2026", "a": ["Classical physics", "Quantum mechanics", "Relativity"], "c": 0, "why": "Classical physics covers everyday scales; relativity and quantum mechanics are the modern branches."}, {"q": "The laws of physics are\u2026", "a": ["Surprisingly few in number", "Different in every galaxy", "Too many to count"], "c": 0, "why": "The same few laws govern objects as large as galaxies or as small as atoms."}]}, {"id": "1-2", "label": "1.2", "title": "The Scientific Methods", "lore": "<b>How science is done:</b> The cornerstone of discovering natural laws is observation \u2014 describing the universe as it is, not as we wish it to be. From observation comes a hypothesis (a testable educated guess). Experiments then support or refute it. A theory is a well-confirmed explanation; a scientific law describes what happens in nature consistently. Humans didn't invent these laws \u2014 we only discover them.", "terms": ["experiment", "hypothesis", "model", "observation", "principle", "scientific law", "scientific methods", "theory"], "challenges": [{"q": "The cornerstone of discovering natural laws is\u2026", "a": ["Observation", "Luck", "Authority"], "c": 0, "why": "Science must describe the universe as it is \u2014 everything starts with observation."}, {"q": "A testable educated guess, supported or refuted by experiment, is a\u2026", "a": ["Hypothesis", "Theory", "Law"], "c": 0, "why": "A hypothesis is tested by experiment; once confirmed broadly it may grow into a theory or law."}, {"q": "A scientific law is intrinsic to the universe, which means\u2026", "a": ["Humans discover it and cannot change it", "Humans created it", "It varies by country"], "c": 0, "why": "We can only discover and understand natural laws, not create or change them."}]}, {"id": "1-3", "label": "1.3", "title": "The Language of Physics: Physical Quantities and Units", "lore": "<b>Speaking physics:</b> Physicists communicate using physical quantities with standard (SI) units: distance in meters (m), time in seconds (s), mass in kilograms (kg). Numbers carry meaning only with their units \u2014 and unit conversion is how the language stays precise across the world.", "terms": ["physical quantity", "SI units", "conversion factor", "meter", "second", "kilogram"], "challenges": [{"q": "In SI units, mass is measured in\u2026", "a": ["Kilograms (kg)", "Grams", "Pounds"], "c": 0, "why": "The SI base unit of mass is the kilogram."}, {"q": "A measurement like \u201c30\u201d is incomplete in physics because\u2026", "a": ["It lacks a unit \u2014 quantities need units to have meaning", "30 is too small a number", "Numbers are banned in physics"], "c": 0, "why": "Physical quantities always carry units; a bare number says nothing about the physical world."}, {"q": "A conversion factor is used to\u2026", "a": ["Change units without changing the value of a quantity", "Make numbers bigger", "Guess the answer"], "c": 0, "why": "Converting units preserves the physical value while changing its expression."}]}]};
+const SAVE_KEY='nodequest.save.v1';
+let save = JSON.parse(localStorage.getItem(SAVE_KEY)||'{}');
+save.sparkles = save.sparkles||0; save.tiers=save.tiers||{}; save.seen=save.seen||{}; save.done=save.done||{}; save.curSec=save.curSec||'1-1';
+const TIER_NAMES=['—','✨ Sparkling','✨✨ Radiant','✨✨✨ Dazzling'];
+function persist(){localStorage.setItem(SAVE_KEY,JSON.stringify(save))}
+function tierOf(id){return save.tiers[id]||0}
+function sparkDisplay(){document.getElementById('sparkles').textContent='✨ '+save.sparkles}
+function renderMap(){
+  const el=document.getElementById('chapters'); el.innerHTML='';
+  NODES.forEach(n=>{
+    const prev=NODES.filter(x=>x.n===n.n-1)[0];
+    const unlocked = n.n===1 || (prev&&save.done[prev.id]);
+    const d=document.createElement('div');
+    d.className='chapter '+(unlocked?'unlocked':'locked')+(n.n===1?' current':'')+(save.done[n.id]?' done':'');
+    d.innerHTML='<span class="num">'+n.n+'</span><span>'+n.title+'</span>';
+    if(n.n!==1){d.onclick=()=>{document.getElementById('quest').innerHTML='<div class="banner">🚧 <b>'+n.title+'</b> is locked — build it next! (Adventure currently starts at Chapter 1.)</div>';};}
+    el.appendChild(d);
+  });
+}
+function openSection(id){
+  save.curSec=id; persist();
+  const sec=CH1.sections.find(s=>s.id===id);
+  document.querySelectorAll('.secbtn').forEach(b=>b.classList.remove('active'));
+  const q=document.getElementById('quest');
+  q.innerHTML='<h2 class="h3head">Chapter 1 · What is Physics?</h2><div class="secbtns" id="secbtns"></div>'
+   +'<div class="banner">🏆 Quest: <b>'+sec.title+'</b> — every attempt earns sparkles, nothing can be failed. Replay freely!</div>'
+   +'<div class="lore">'+sec.lore+'<br><br><b>Key words:</b> '+sec.terms.map(t=>'<span class="kw">'+t+'</span>').join(' ')+'</div>'
+   +'<div id="chals"></div>'
+   +'<div class="tierbar">Mastery tier: <b>'+TIER_NAMES[tierOf(id)]+'</b> — earned by exploring every challenge; replays shine brighter, never dim.</div>'
+   +'<div class="rules">🛡️ NodeQuest rules: no grades · no timers · no fail states · mastery through replay · sparkles never lost.</div>';
+  const sb=document.getElementById('secbtns');
+  CH1.sections.forEach(s=>{
+    const b=document.createElement('button'); b.className='secbtn'; b.dataset.id=s.id;
+    b.innerHTML=s.label+' · '+s.title+' <span class="tier">'+TIER_NAMES[tierOf(s.id)]+'</span>';
+    if(s.id===id)b.classList.add('active');
+    b.onclick=()=>openSection(s.id); sb.appendChild(b);
+  });
+  const ch=document.getElementById('chals');
+  sec.challenges.forEach((c,i)=>ch.appendChild(makeChallenge(c,i,id)));
+  renderMap(); sparkDisplay();
+}
+function makeChallenge(c,i,secId){
+  const d=document.createElement('div'); d.className='qa';
+  const key=secId+'-'+i;
+  d.innerHTML='<div class="q">'+(i+1)+'. '+c.q+'</div>';
+  c.a.forEach((a,j)=>{
+    const b=document.createElement('button'); b.className='chip'; b.textContent=a;
+    b.onclick=()=>{
+      if(d.querySelector('.chip.win'))return;
+      if(j===c.c){
+        b.classList.add('win');
+        save.sparkles+=5;
+        if(!save.seen[key]){save.seen[key]=true; save.sparkles+=3; checkTier(secId);}
+        d.insertAdjacentHTML('beforeend','<div class="feedback good">✨ Sparkles earned! '+c.why+'</div>');
+      } else {
+        b.classList.remove('sel'); save.sparkles+=1;
+        d.insertAdjacentHTML('beforeend','<div class="feedback bad">Not quite — sparkles for trying anyway! '+c.why+'</div>');
+      }
+      if(CH1.sections.every(s=>s.challenges.every((_,k)=>save.seen[s.id+'-'+k]))) save.done['phys-01']=true;
+      persist(); sparkDisplay(); renderMap();
+    };
+    d.appendChild(b);
+  });
+  return d;
+}
+function checkTier(secId){
+  const sec=CH1.sections.find(s=>s.id===secId);
+  const n=sec.challenges.filter((_,i)=>save.seen[secId+'-'+i]).length;
+  const t=n>=sec.challenges.length?3:(n>=2?2:(n>=1?1:0));
+  save.tiers[secId]=t;
+}
+openSection(save.curSec);
+</script></body></html>

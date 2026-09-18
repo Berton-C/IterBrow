@@ -40,7 +40,8 @@ const SETTINGS_PATH = path.join(ITER_DIR, '.runtime', 'settings.json');
 // local-machine UI state rather than accumulated agent memory, so it stays
 // out of STATE_PATHS / resetState (resetting the agent's memory should
 // never wipe your open tabs) -- but it IS carried along by export/import
-// via TAB_STATE_PATHS below, so tabs travel with you between machines.
+// via PERSONAL_STATE_PATHS below (which now captures the whole .runtime/
+// folder), so tabs travel with you between machines.
 // Added 2026-09-14 because before this, restarting Iter Browser for ANY code
 // change silently threw away every open tab with no way to recover them --
 // discovered while adding the tab-lock feature, which itself needs a
@@ -51,14 +52,14 @@ const TABS_SESSION_PATH = path.join(ITER_DIR, '.runtime', 'tabs_session.json');
 // Closed" submenu and "Reopen Last Closed Tab" -- added 2026-09-14 alongside
 // the menu system, same local-UI-state reasoning as TABS_SESSION_PATH (kept
 // out of STATE_PATHS/resetState, included in export/import via
-// TAB_STATE_PATHS). Capped at CLOSED_TABS_LIMIT, newest first.
+// PERSONAL_STATE_PATHS). Capped at CLOSED_TABS_LIMIT, newest first.
 const CLOSED_TABS_PATH = path.join(ITER_DIR, '.runtime', 'closed_tabs.json');
 const CLOSED_TABS_LIMIT = 20;
 // Named, saved sets of tabs the user can open/switch-to/close as a unit --
 // e.g. "Research" vs "Work" vs "Recipes" -- added 2026-09-14 per user
 // request. Same local-UI-state reasoning as TABS_SESSION_PATH/CLOSED_TABS_PATH
 // (kept out of STATE_PATHS/resetState, included in export/import via
-// TAB_STATE_PATHS).
+// PERSONAL_STATE_PATHS).
 const TAB_GROUPS_PATH = path.join(ITER_DIR, '.runtime', 'tab_groups.json');
 const VENV_PYTHON = path.join(ITER_DIR, '.venv', 'bin', 'python3');
 const SIDEBAR_BG = '#0d0f12'; // matches renderer/style.css --bg
@@ -170,16 +171,34 @@ const STATE_PATHS = [
   'experience.json', 'history.metta', 'nace_beliefs.metta', 'nace_pending.metta',
   'nace_substrate.metta', 'space.metta', 'chat.txt', 'transcript.txt',
   '.improve_cooldown', '.stall_state.json', '.history_state', '.transcript_state',
+  // Added 2026-09-18: these were siblings of files already above (same
+  // accumulated-learning role) but had been left out since whenever they
+  // were introduced, so Reset State/Export/Import silently skipped them.
+  'capability_lifecycle.metta', 'self_map.metta', 'task_state.metta', 'atomspace_data.json',
 ];
-// Local-machine UI state -- open tabs, recently-closed history, saved tab
-// groups. Kept separate from STATE_PATHS so Reset State (which wipes
-// STATE_PATHS to clear the agent's accumulated memory/personality) never
-// touches your tabs. Export and Import bundle STATE_PATHS + TAB_STATE_PATHS
-// together, so moving to a new machine (or restoring a snapshot) brings
-// your open tabs, tab groups, and closed-tab history along with the agent's
-// memory. Added 2026-09-14 per user request.
-const TAB_STATE_PATHS = [
-  '.runtime/tabs_session.json', '.runtime/closed_tabs.json', '.runtime/tab_groups.json',
+// Everything that makes up your personal running environment on THIS
+// machine -- open tabs, tab groups, closed-tab history, UI settings, the
+// PWQ queue, CRM contacts/tasks/events, and your private notes -- as
+// opposed to STATE_PATHS above, which is the agent's accumulated
+// memory/learning. Kept separate so Reset State (which wipes STATE_PATHS to
+// clear the agent's memory/personality) never touches any of this. Export
+// and Import bundle STATE_PATHS + PERSONAL_STATE_PATHS together, so moving
+// to a new machine (or restoring a snapshot) brings your whole working
+// environment along, not just the agent's memory.
+//
+// '.runtime' is captured WHOLESALE (the whole folder, not individual
+// filenames) specifically so that anything new added under .runtime/ later
+// -- another JSON file, another dated backup -- is automatically included
+// in every future Export without needing a code change here. This directory
+// never holds login/cookie data (Electron keeps that in its own userData
+// path, entirely outside this repo), so capturing it wholesale cannot leak
+// credentials. Renamed from TAB_STATE_PATHS and broadened 2026-09-18: the
+// old exact-filename list silently dropped settings.json, pwq.json,
+// .runtime/pages/, .runtime/electron_ui/, and any dated backup/journal
+// file -- none of those ever showed up in an export and there was no
+// warning that they were missing.
+const PERSONAL_STATE_PATHS = [
+  '.runtime', 'private', 'crm/data',
 ];
 
 function runCLI(cmd, args, cwd) {
@@ -204,10 +223,17 @@ async function exportState() {
   // normally debounced 400ms after the last tab change, so without this an
   // export taken right after opening/closing a tab could bundle stale data.
   saveTabSession();
-  const existing = [...STATE_PATHS, ...TAB_STATE_PATHS].filter((p) => fs.existsSync(path.join(ITER_DIR, p)));
+  const wanted = [...STATE_PATHS, ...PERSONAL_STATE_PATHS];
+  const existing = wanted.filter((p) => fs.existsSync(path.join(ITER_DIR, p)));
+  // Report anything expected-but-missing instead of silently dropping it --
+  // this used to fail silent, which is exactly how the tab-export gap and
+  // several other missing paths went unnoticed for days. Not finding a path
+  // isn't necessarily wrong (e.g. you may have no private/ folder yet), but
+  // you should be able to see it happened.
+  const missing = wanted.filter((p) => !fs.existsSync(path.join(ITER_DIR, p)));
   if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
   await runCLI('zip', ['-r', filePath, ...existing], ITER_DIR);
-  return { exported: filePath };
+  return { exported: filePath, itemCount: existing.length, missing };
 }
 
 async function importState() {
@@ -235,14 +261,26 @@ async function importState() {
       const innerEntries = fs.readdirSync(inner);
       if (innerEntries.some((e) => STATE_PATHS.includes(e))) sourceRoot = inner;
     }
-    for (const rel of [...STATE_PATHS, ...TAB_STATE_PATHS]) {
+    const wanted = [...STATE_PATHS, ...PERSONAL_STATE_PATHS];
+    var restored = [];
+    for (const rel of wanted) {
       const src = path.join(sourceRoot, rel);
       if (!fs.existsSync(src)) continue;
       const dest = path.join(ITER_DIR, rel);
       fs.mkdirSync(path.dirname(dest), { recursive: true });
       fs.rmSync(dest, { recursive: true, force: true });
       fs.cpSync(src, dest, { recursive: true });
+      restored.push(rel);
     }
+    // Report what this zip actually had vs. what this build of Iter Browser
+    // knows to look for. If the zip is missing something this build expects
+    // (e.g. it was exported by an older or newer build with a different
+    // STATE_PATHS/PERSONAL_STATE_PATHS list), surface that now instead of
+    // just silently ending up with a thinner restore than you expected --
+    // this is exactly how a stale build on a different machine can look
+    // like a broken Export when Export was actually fine.
+    var notFoundInZip = wanted.filter((rel) => !restored.includes(rel));
+    var importedSummary = { restored, notFoundInZip };
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
@@ -263,7 +301,7 @@ async function importState() {
   }
 
   if (wasRunning) startIter();
-  return { imported: zipPath, restarted: wasRunning };
+  return { imported: zipPath, restarted: wasRunning, itemCount: importedSummary.restored.length, notFoundInZip: importedSummary.notFoundInZip };
 }
 
 function resetState() {
@@ -1262,11 +1300,26 @@ ipcMain.handle('fs:list', (_e, relPath) => fsList(relPath));
 ipcMain.handle('fs:read', (_e, relPath) => fsRead(relPath));
 ipcMain.handle('fs:write', (_e, { path: relPath, content }) => fsWrite(relPath, content));
 
+// ===== CRM bridge (COS Command Center) — disk is the API =====
+const CRM_DIR = path.join(ITER_DIR, 'crm', 'data');
+const CRM_FILES = ['contacts.json','tasks.json','events.json','captures.json'];
+ipcMain.handle('crm:read', (_e, fname) => {
+  if (!CRM_FILES.includes(fname)) return { ok: false, error: 'bad file' };
+  try { return { ok: true, data: JSON.parse(fs.readFileSync(path.join(CRM_DIR, fname), 'utf8')) }; }
+  catch (err) { return { ok: false, error: String(err) }; }
+});
+ipcMain.handle('crm:write', (_e, fname, data) => {
+  if (!CRM_FILES.includes(fname)) return { ok: false, error: 'bad file' };
+  try { fs.writeFileSync(path.join(CRM_DIR, fname), JSON.stringify(data, null, 2), 'utf8'); return { ok: true }; }
+  catch (err) { return { ok: false, error: String(err) }; }
+});
+
 ipcMain.handle('terminal:start', () => startTerminal());
 ipcMain.handle('terminal:run', (_e, cmd) => runTerminalCommand(cmd));
 ipcMain.handle('terminal:interrupt', () => interruptTerminal());
 ipcMain.handle('terminal:stop', () => stopTerminal());
 ipcMain.handle('dashboards:open', () => tabs.createTab('file://' + path.join(ITER_DIR, 'dashboard_gallery.html')));
+ipcMain.handle('pwq:open', () => tabs.createTab('file://' + path.join(ITER_DIR, 'pwq.html')));
 
 app.whenReady().then(createWindow);
 app.on('window-all-closed', () => {

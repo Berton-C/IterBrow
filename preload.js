@@ -1,6 +1,8 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('iterApi', {
+  crmRead: (fname) => ipcRenderer.invoke('crm:read', fname),
+  crmWrite: (fname, data) => ipcRenderer.invoke('crm:write', fname, data),
   listTabs: () => ipcRenderer.invoke('tabs:list'),
   newTab: (url) => ipcRenderer.invoke('tabs:new', url),
   closeTab: (id) => ipcRenderer.invoke('tabs:close', id),

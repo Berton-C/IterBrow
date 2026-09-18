@@ -1,0 +1,724 @@
+{
+ "subject": "physics",
+ "source": "OpenStax High School Physics",
+ "nodes": [
+  {
+   "id": "phys-01",
+   "type": "chapter",
+   "n": 1,
+   "title": "What is Physics?",
+   "page": 5,
+   "children": [
+    {
+     "id": "phys-01-1-1",
+     "type": "section",
+     "label": "1.1",
+     "title": "Physics: Definitions and Applications",
+     "page": 5
+    },
+    {
+     "id": "phys-01-1-2",
+     "type": "section",
+     "label": "1.2",
+     "title": "The Scientific Methods",
+     "page": 14
+    },
+    {
+     "id": "phys-01-1-3",
+     "type": "section",
+     "label": "1.3",
+     "title": "The Language of Physics: Physical Quantities and Units",
+     "page": 18
+    }
+   ]
+  },
+  {
+   "id": "phys-02",
+   "type": "chapter",
+   "n": 2,
+   "title": "Motion in One Dimension",
+   "page": 53,
+   "children": [
+    {
+     "id": "phys-02-2-1",
+     "type": "section",
+     "label": "2.1",
+     "title": "Relative Motion, Distance, and Displacement",
+     "page": 54
+    },
+    {
+     "id": "phys-02-2-2",
+     "type": "section",
+     "label": "2.2",
+     "title": "Speed and Velocity",
+     "page": 62
+    },
+    {
+     "id": "phys-02-2-3",
+     "type": "section",
+     "label": "2.3",
+     "title": "Position vs. Time Graphs",
+     "page": 67
+    },
+    {
+     "id": "phys-02-2-4",
+     "type": "section",
+     "label": "2.4",
+     "title": "Velocity vs. Time Graphs",
+     "page": 73
+    }
+   ]
+  },
+  {
+   "id": "phys-03",
+   "type": "chapter",
+   "n": 3,
+   "title": "Acceleration",
+   "page": 93,
+   "children": [
+    {
+     "id": "phys-03-3-1",
+     "type": "section",
+     "label": "3.1",
+     "title": "Acceleration",
+     "page": 93
+    },
+    {
+     "id": "phys-03-3-2",
+     "type": "section",
+     "label": "3.2",
+     "title": "Representing Acceleration with Equations and Graphs",
+     "page": 99
+    }
+   ]
+  },
+  {
+   "id": "phys-04",
+   "type": "chapter",
+   "n": 4,
+   "title": "Forces and Newton\u2019s Laws of Motion",
+   "page": 115,
+   "children": [
+    {
+     "id": "phys-04-4-1",
+     "type": "section",
+     "label": "4.1",
+     "title": "Force",
+     "page": 116
+    },
+    {
+     "id": "phys-04-4-2",
+     "type": "section",
+     "label": "4.2",
+     "title": "Newton's First Law of Motion: Inertia 1184.3 Newton's Second Law of Motion",
+     "page": 122
+    },
+    {
+     "id": "phys-04-4-4",
+     "type": "section",
+     "label": "4.4",
+     "title": "Newton's Third Law of Motion",
+     "page": 128
+    }
+   ]
+  },
+  {
+   "id": "phys-05",
+   "type": "chapter",
+   "n": 5,
+   "title": "Motion in Two Dimensions",
+   "page": 143,
+   "children": [
+    {
+     "id": "phys-05-5-1",
+     "type": "section",
+     "label": "5.1",
+     "title": "Vector Addition and Subtraction: Graphical Methods",
+     "page": 144
+    },
+    {
+     "id": "phys-05-5-2",
+     "type": "section",
+     "label": "5.2",
+     "title": "Vector Addition and Subtraction: Analytical Methods",
+     "page": 153
+    },
+    {
+     "id": "phys-05-5-3",
+     "type": "section",
+     "label": "5.3",
+     "title": "Projectile Motion",
+     "page": 162
+    },
+    {
+     "id": "phys-05-5-4",
+     "type": "section",
+     "label": "5.4",
+     "title": "Inclined Planes",
+     "page": 171
+    },
+    {
+     "id": "phys-05-5-5",
+     "type": "section",
+     "label": "5.5",
+     "title": "Simple Harmonic Motion",
+     "page": 178
+    }
+   ]
+  },
+  {
+   "id": "phys-06",
+   "type": "chapter",
+   "n": 6,
+   "title": "Circular and Rotational Motion",
+   "page": 197,
+   "children": [
+    {
+     "id": "phys-06-6-1",
+     "type": "section",
+     "label": "6.1",
+     "title": "Angle of Rotation and Angular Velocity",
+     "page": 198
+    },
+    {
+     "id": "phys-06-6-2",
+     "type": "section",
+     "label": "6.2",
+     "title": "Uniform Circular Motion",
+     "page": 205
+    },
+    {
+     "id": "phys-06-6-3",
+     "type": "section",
+     "label": "6.3",
+     "title": "Rotational Motion",
+     "page": 212
+    }
+   ]
+  },
+  {
+   "id": "phys-07",
+   "type": "chapter",
+   "n": 7,
+   "title": "Newton's Law of Gravitation",
+   "page": 229,
+   "children": [
+    {
+     "id": "phys-07-7-1",
+     "type": "section",
+     "label": "7.1",
+     "title": "Kepler's Laws of Planetary Motion",
+     "page": 229
+    },
+    {
+     "id": "phys-07-7-2",
+     "type": "section",
+     "label": "7.2",
+     "title": "Newton's Law of Universal Gravitation and Einstein's Theory of General Relativity",
+     "page": 237
+    }
+   ]
+  },
+  {
+   "id": "phys-08",
+   "type": "chapter",
+   "n": 8,
+   "title": "Momentum",
+   "page": 253,
+   "children": [
+    {
+     "id": "phys-08-8-1",
+     "type": "section",
+     "label": "8.1",
+     "title": "Linear Momentum, Force, and Impulse",
+     "page": 254
+    },
+    {
+     "id": "phys-08-8-2",
+     "type": "section",
+     "label": "8.2",
+     "title": "Conservation of Momentum",
+     "page": 259
+    },
+    {
+     "id": "phys-08-8-3",
+     "type": "section",
+     "label": "8.3",
+     "title": "Elastic and Inelastic Collisions",
+     "page": 262
+    }
+   ]
+  },
+  {
+   "id": "phys-09",
+   "type": "chapter",
+   "n": 9,
+   "title": "Work, Energy, and Simple Machines",
+   "page": 279,
+   "children": [
+    {
+     "id": "phys-09-9-1",
+     "type": "section",
+     "label": "9.1",
+     "title": "Work, Power, and the Work\u2013Energy Theorem",
+     "page": 280
+    },
+    {
+     "id": "phys-09-9-2",
+     "type": "section",
+     "label": "9.2",
+     "title": "Mechanical Energy and Conservation of Energy",
+     "page": 285
+    },
+    {
+     "id": "phys-09-9-3",
+     "type": "section",
+     "label": "9.3",
+     "title": "Simple Machines",
+     "page": 290
+    }
+   ]
+  },
+  {
+   "id": "phys-10",
+   "type": "chapter",
+   "n": 10,
+   "title": "Special Relativity",
+   "page": 305,
+   "children": [
+    {
+     "id": "phys-10-10-1",
+     "type": "section",
+     "label": "10.1",
+     "title": "Postulates of Special Relativity",
+     "page": 305
+    },
+    {
+     "id": "phys-10-10-2",
+     "type": "section",
+     "label": "10.2",
+     "title": "Consequences of Special Relativity",
+     "page": 312
+    }
+   ]
+  },
+  {
+   "id": "phys-11",
+   "type": "chapter",
+   "n": 11,
+   "title": "Thermal Energy, Heat, and Work",
+   "page": 327,
+   "children": [
+    {
+     "id": "phys-11-11-1",
+     "type": "section",
+     "label": "11.1",
+     "title": "Temperature and Thermal Energy",
+     "page": 327
+    },
+    {
+     "id": "phys-11-11-2",
+     "type": "section",
+     "label": "11.2",
+     "title": "Heat, Specific Heat, and Heat Transfer",
+     "page": 332
+    },
+    {
+     "id": "phys-11-11-3",
+     "type": "section",
+     "label": "11.3",
+     "title": "Phase Change and Latent Heat",
+     "page": 340
+    }
+   ]
+  },
+  {
+   "id": "phys-12",
+   "type": "chapter",
+   "n": 12,
+   "title": "Thermodynamics",
+   "page": 355,
+   "children": [
+    {
+     "id": "phys-12-12-1",
+     "type": "section",
+     "label": "12.1",
+     "title": "Zeroth Law of Thermodynamics: Thermal Equilibrium 35612.2 First law of Thermodynamics: Thermal Energy and Work",
+     "page": 358
+    },
+    {
+     "id": "phys-12-12-3",
+     "type": "section",
+     "label": "12.3",
+     "title": "Second Law of Thermodynamics: Entropy",
+     "page": 366
+    },
+    {
+     "id": "phys-12-12-4",
+     "type": "section",
+     "label": "12.4",
+     "title": "Applications of Thermodynamics: Heat Engines, Heat Pumps, and Refrigerators",
+     "page": 372
+    }
+   ]
+  },
+  {
+   "id": "phys-13",
+   "type": "chapter",
+   "n": 13,
+   "title": "Waves and Their Properties",
+   "page": 389,
+   "children": [
+    {
+     "id": "phys-13-13-1",
+     "type": "section",
+     "label": "13.1",
+     "title": "Types of Waves",
+     "page": 390
+    },
+    {
+     "id": "phys-13-13-2",
+     "type": "section",
+     "label": "13.2",
+     "title": "Wave Properties: Speed, Amplitude, Frequency, and Period",
+     "page": 394
+    },
+    {
+     "id": "phys-13-13-3",
+     "type": "section",
+     "label": "13.3",
+     "title": "Wave Interaction: Superposition and Interference",
+     "page": 400
+    }
+   ]
+  },
+  {
+   "id": "phys-14",
+   "type": "chapter",
+   "n": 14,
+   "title": "Sound",
+   "page": 415,
+   "children": [
+    {
+     "id": "phys-14-14-1",
+     "type": "section",
+     "label": "14.1",
+     "title": "Speed of Sound, Frequency, and Wavelength",
+     "page": 416
+    },
+    {
+     "id": "phys-14-14-2",
+     "type": "section",
+     "label": "14.2",
+     "title": "Sound Intensity and Sound Level",
+     "page": 423
+    },
+    {
+     "id": "phys-14-14-3",
+     "type": "section",
+     "label": "14.3",
+     "title": "Doppler Effect and Sonic Booms",
+     "page": 430
+    },
+    {
+     "id": "phys-14-14-4",
+     "type": "section",
+     "label": "14.4",
+     "title": "Sound Interference and Resonance",
+     "page": 434
+    }
+   ]
+  },
+  {
+   "id": "phys-15",
+   "type": "chapter",
+   "n": 15,
+   "title": "Light",
+   "page": 455,
+   "children": [
+    {
+     "id": "phys-15-15-1",
+     "type": "section",
+     "label": "15.1",
+     "title": "The Electromagnetic Spectrum",
+     "page": 455
+    },
+    {
+     "id": "phys-15-15-2",
+     "type": "section",
+     "label": "15.2",
+     "title": "The Behavior of Electromagnetic Radiation",
+     "page": 463
+    }
+   ]
+  },
+  {
+   "id": "phys-16",
+   "type": "chapter",
+   "n": 16,
+   "title": "Mirrors and Lenses",
+   "page": 477,
+   "children": [
+    {
+     "id": "phys-16-16-1",
+     "type": "section",
+     "label": "16.1",
+     "title": "Reflection",
+     "page": 478
+    },
+    {
+     "id": "phys-16-16-2",
+     "type": "section",
+     "label": "16.2",
+     "title": "Refraction",
+     "page": 487
+    },
+    {
+     "id": "phys-16-16-3",
+     "type": "section",
+     "label": "16.3",
+     "title": "Lenses",
+     "page": 498
+    }
+   ]
+  },
+  {
+   "id": "phys-17",
+   "type": "chapter",
+   "n": 17,
+   "title": "Diffraction and Interference",
+   "page": 523,
+   "children": [
+    {
+     "id": "phys-17-17-1",
+     "type": "section",
+     "label": "17.1",
+     "title": "Understanding Diffraction and Interference",
+     "page": 523
+    },
+    {
+     "id": "phys-17-17-2",
+     "type": "section",
+     "label": "17.2",
+     "title": "Applications of Diffraction, Interference, and Coherence",
+     "page": 532
+    }
+   ]
+  },
+  {
+   "id": "phys-18",
+   "type": "chapter",
+   "n": 18,
+   "title": "Static Electricity",
+   "page": 549,
+   "children": [
+    {
+     "id": "phys-18-18-1",
+     "type": "section",
+     "label": "18.1",
+     "title": "Electrical Charges, Conservation of Charge, and Transfer of Charge",
+     "page": 550
+    },
+    {
+     "id": "phys-18-18-2",
+     "type": "section",
+     "label": "18.2",
+     "title": "Coulomb's law",
+     "page": 562
+    },
+    {
+     "id": "phys-18-18-3",
+     "type": "section",
+     "label": "18.3",
+     "title": "Electric Field",
+     "page": 567
+    },
+    {
+     "id": "phys-18-18-4",
+     "type": "section",
+     "label": "18.4",
+     "title": "Electric Potential",
+     "page": 572
+    },
+    {
+     "id": "phys-18-18-5",
+     "type": "section",
+     "label": "18.5",
+     "title": "Capacitors and Dielectrics",
+     "page": 580
+    }
+   ]
+  },
+  {
+   "id": "phys-19",
+   "type": "chapter",
+   "n": 19,
+   "title": "Electrical Circuits",
+   "page": 603,
+   "children": [
+    {
+     "id": "phys-19-19-1",
+     "type": "section",
+     "label": "19.1",
+     "title": "Ohm's law",
+     "page": 604
+    },
+    {
+     "id": "phys-19-19-2",
+     "type": "section",
+     "label": "19.2",
+     "title": "Series Circuits",
+     "page": 612
+    },
+    {
+     "id": "phys-19-19-3",
+     "type": "section",
+     "label": "19.3",
+     "title": "Parallel Circuits",
+     "page": 621
+    },
+    {
+     "id": "phys-19-19-4",
+     "type": "section",
+     "label": "19.4",
+     "title": "Electric Power",
+     "page": 632
+    }
+   ]
+  },
+  {
+   "id": "phys-20",
+   "type": "chapter",
+   "n": 20,
+   "title": "Magnetism",
+   "page": 649,
+   "children": [
+    {
+     "id": "phys-20-20-1",
+     "type": "section",
+     "label": "20.1",
+     "title": "Magnetic Fields, Field Lines, and Force",
+     "page": 650
+    },
+    {
+     "id": "phys-20-20-2",
+     "type": "section",
+     "label": "20.2",
+     "title": "Motors, Generators, and Transformers",
+     "page": 665
+    },
+    {
+     "id": "phys-20-20-3",
+     "type": "section",
+     "label": "20.3",
+     "title": "Electromagnetic Induction",
+     "page": 672
+    }
+   ]
+  },
+  {
+   "id": "phys-21",
+   "type": "chapter",
+   "n": 21,
+   "title": "The Quantum Nature of Light",
+   "page": 691,
+   "children": [
+    {
+     "id": "phys-21-21-1",
+     "type": "section",
+     "label": "21.1",
+     "title": "Planck and Quantum Nature of Light",
+     "page": 692
+    },
+    {
+     "id": "phys-21-21-2",
+     "type": "section",
+     "label": "21.2",
+     "title": "Einstein and the Photoelectric Effect",
+     "page": 698
+    },
+    {
+     "id": "phys-21-21-3",
+     "type": "section",
+     "label": "21.3",
+     "title": "The Dual Nature of Light",
+     "page": 704
+    }
+   ]
+  },
+  {
+   "id": "phys-22",
+   "type": "chapter",
+   "n": 22,
+   "title": "The Atom",
+   "page": 721,
+   "children": [
+    {
+     "id": "phys-22-22-1",
+     "type": "section",
+     "label": "22.1",
+     "title": "The Structure of the Atom",
+     "page": 721
+    },
+    {
+     "id": "phys-22-22-2",
+     "type": "section",
+     "label": "22.2",
+     "title": "Nuclear Forces and Radioactivity",
+     "page": 734
+    },
+    {
+     "id": "phys-22-22-3",
+     "type": "section",
+     "label": "22.3",
+     "title": "Half Life and Radiometric Dating",
+     "page": 743
+    },
+    {
+     "id": "phys-22-22-4",
+     "type": "section",
+     "label": "22.4",
+     "title": "Nuclear Fission and Fusion",
+     "page": 747
+    },
+    {
+     "id": "phys-22-22-5",
+     "type": "section",
+     "label": "22.5",
+     "title": "Medical Applications of Radioactivity: Diagnostic Imaging and Radiation",
+     "page": 757
+    }
+   ]
+  },
+  {
+   "id": "phys-23",
+   "type": "chapter",
+   "n": 23,
+   "title": "Particle Physics",
+   "page": 771,
+   "children": [
+    {
+     "id": "phys-23-23-1",
+     "type": "section",
+     "label": "23.1",
+     "title": "The Four Fundamental Forces",
+     "page": 772
+    },
+    {
+     "id": "phys-23-23-2",
+     "type": "section",
+     "label": "23.2",
+     "title": "Quarks",
+     "page": 779
+    },
+    {
+     "id": "phys-23-23-3",
+     "type": "section",
+     "label": "23.3",
+     "title": "The Unification of Forces",
+     "page": 790
+    }
+   ]
+  }
+ ]
+}

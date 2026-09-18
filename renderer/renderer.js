@@ -200,8 +200,9 @@ document.getElementById('btn-export-state').addEventListener('click', async () =
   try {
     const result = await window.iterApi.exportState();
     if (result.canceled) { stateStatus.textContent = ''; return; }
-    stateStatus.textContent = 'Exported to ' + result.exported;
-    addMessage('sys', 'State exported to ' + result.exported);
+    const missing = result.missing || [];
+    stateStatus.textContent = `Exported ${result.itemCount} item(s) to ` + result.exported + (missing.length ? ` (${missing.length} not found, see log)` : '');
+    addMessage('sys', 'State exported to ' + result.exported + ` -- ${result.itemCount} item(s) included` + (missing.length ? `; not found on disk so skipped: ${missing.join(', ')}` : ''));
   } catch (e) {
     stateStatus.textContent = 'Export failed: ' + e.message;
   }
@@ -214,8 +215,9 @@ document.getElementById('btn-import-state').addEventListener('click', async () =
   try {
     const result = await window.iterApi.importState();
     if (result.canceled) { stateStatus.textContent = ''; return; }
-    stateStatus.textContent = 'Imported from ' + result.imported;
-    addMessage('sys', 'State imported from ' + result.imported + (result.restarted ? ' (Iter restarted)' : ''));
+    const notFound = result.notFoundInZip || [];
+    stateStatus.textContent = `Imported ${result.itemCount} item(s) from ` + result.imported + (notFound.length ? ` (${notFound.length} not in this zip)` : '');
+    addMessage('sys', 'State imported from ' + result.imported + ` -- ${result.itemCount} item(s) restored` + (notFound.length ? `; not present in this zip: ${notFound.join(', ')}` : '') + (result.restarted ? ' (Iter restarted)' : ''));
     setRunning(result.restarted);
   } catch (e) {
     stateStatus.textContent = 'Import failed: ' + e.message;

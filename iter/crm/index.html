@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>COS Command Center</title>
+<style>
+:root{--bg:#faf6ef;--panel:#fffdf8;--ink:#2b2620;--muted:#8a7f6f;--gold:#b3873c;--line:#e8e0d0;--hot:#c2543a;--radius:14px}
+*{box-sizing:border-box;margin:0}
+body{font-family:'Avenir Next',system-ui,sans-serif;background:var(--bg);color:var(--ink)}
+header{display:flex;align-items:center;gap:14px;padding:14px 22px;background:var(--panel);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+.logo{font-size:19px;letter-spacing:.4px;color:var(--gold);font-weight:700}
+nav button{border:0;background:transparent;padding:8px 14px;font-size:14px;color:var(--muted);cursor:pointer;border-radius:9px}
+nav button.on{background:#f1e9da;color:var(--ink);font-weight:600}
+main{max-width:980px;margin:0 auto;padding:22px}
+h2{font-size:15px;letter-spacing:.6px;text-transform:uppercase;color:var(--gold);margin:18px 0 10px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;margin-bottom:10px;display:flex;align-items:center;gap:12px;cursor:pointer}
+.card .grow{flex:1;min-width:0}
+.name{font-weight:700;font-size:15px}
+.sub{color:var(--muted);font-size:12.5px;margin-top:2px}
+.due{font-size:12px;padding:3px 9px;border-radius:99px;background:#f1e9da;color:var(--ink);white-space:nowrap}
+.due.hot{background:#f9e2da;color:var(--hot);font-weight:700}
+.prio{width:10px;height:10px;border-radius:50%;flex:none}
+.p1{background:var(--hot)}.p2{background:var(--gold)}.p3{background:#c9c1b0}
+button.act{border:1px solid var(--line);background:#fff;padding:5px 12px;border-radius:9px;cursor:pointer;font-size:12.5px}
+button.act:hover{border-color:var(--gold)}
+.done{opacity:.45;text-decoration:line-through}
+form{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:16px;margin:14px 0}
+input,select,textarea{font:inherit;padding:7px 10px;border:1px solid var(--line);border-radius:9px;background:#fff;width:100%}
+.row{display:flex;gap:10px;margin-bottom:9px}.row>*{flex:1}
+label{font-size:11px;color:var(--muted);display:block;margin-bottom:3px;letter-spacing:.4px}
+.empty{color:var(--muted);font-style:italic;padding:16px;text-align:center}
+#saveBar{position:fixed;bottom:16px;right:18px;font-size:12px;color:var(--muted);background:var(--panel);border:1px solid var(--line);border-radius:99px;padding:6px 14px;opacity:0;transition:opacity .3s}
+#saveBar.show{opacity:1}
+.back{color:var(--muted);font-size:13px;cursor:pointer;margin-bottom:10px;display:inline-block}
+.back:hover{color:var(--gold)}
+.hist{font-size:12px;color:var(--muted);margin-top:4px;border-left:2px solid var(--line);padding-left:10px}
+</style></head><body>
+<header><div class="logo">&#10022; COS Command Center</div>
+<nav>
+<button data-v="briefing" class="on">Briefing</button>
+<button data-v="people">People</button>
+<button data-v="tasks">Tasks</button>
+<button data-v="events">Events</button>
+</nav>
+<div style="margin-left:auto" id="clock"></div></header>
+<main id="main"></main><div id="saveBar">saved</div>
+<script>
+const $=q=>document.querySelector(q);
+let D={contacts:[],tasks:[],events:[],captures:[]},view='briefing',openId=null;
+const api=window.iterApi||{};
+async function load(f){const r=await api.crmRead(f);return r&&r.ok?r.data:[]}
+async function loadAll(){D.contacts=await load('contacts.json');D.tasks=await load('tasks.json');D.events=await load('events.json');D.captures=await load('captures.json')}
+async function save(f,d){const b=$('#saveBar');try{await api.crmWrite(f,d);b.textContent='saved';}catch(e){b.textContent='SAVE FAILED: '+(e&&e.message?e.message:e)+' — restart app if this is a new bridge';b.classList.add('show');setTimeout(()=>b.classList.remove('show'),5000);return false}b.classList.add('show');setTimeout(()=>b.classList.remove('show'),900);return true}
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const today=()=>new Date().toISOString().slice(0,10);
+const dd=t=>t?Math.round((new Date(t)-new Date(today()))/864e5):null;
+const dueCls=t=>{const d=dd(t);return(d!==null&&d<0)?'due hot':'due'};
+const dueTxt=t=>{const d=dd(t);return d===null?'&mdash;':d<0?(-d)+'d overdue':d===0?'today':d===1?'tomorrow':d<7?'in '+d+'d':new Date(t).toLocaleDateString(undefined,{month:'short',day:'numeric'})};
+const uid=p=>p+'_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{view=b.dataset.v;openId=null;document.querySelectorAll('nav button').forEach(x=>x.classList.toggle('on',x===b));render()});
+$('#clock').textContent=new Date().toLocaleTimeString([],{hour:'numeric',minute:'2-digit'});
+function render(){const m=$('#main');
+ if(view==='briefing')return renderBriefing(m);
+ if(view==='people')return openId?renderPerson(m):renderPeople(m);
+ if(view==='tasks')return renderTasks(m);
+ if(view==='events')return renderEvents(m);}
+function taskCard(t,withBut){const c=D.contacts.find(x=>x.id===t.who);
+ return '<div class="card" data-task="'+t.id+'"><span class="prio p'+(t.priority||2)+'"></span><div class="grow"><div class="name'+(t.status==='done'?' done':'')+'">'+esc(t.title)+'</div><div class="sub">'+esc(t.kind||'')+(c?' &middot; '+esc(c.name):'')+' &middot; next: '+esc(t.next_step||'&mdash;')+'</div></div><span class="'+dueCls(t.due)+'">'+dueTxt(t.due)+'</span>'+(withBut?'<button class="act" data-done="'+t.id+'">'+(t.status==='done'?'reopen':'done')+'</button>':'')+'</div>'}
+function renderBriefing(m){const cap=D.captures.slice().reverse().slice(0,30);
+ const od=D.tasks.filter(t=>t.status==='open'&&t.due&&dd(t.due)<0);
+ const td=D.tasks.filter(t=>t.status==='open'&&t.due===today());
+ const wk=D.tasks.filter(t=>t.status==='open'&&t.due&&dd(t.due)>0&&dd(t.due)<=7);
+ const hot=D.contacts.filter(c=>c.next_step_due&&dd(c.next_step_due)<=0);
+ const ev=D.events.filter(e=>e.when&&dd(e.when)>=0&&dd(e.when)<=14).sort((a,b)=>(a.when||'').localeCompare(b.when||''));
+ m.innerHTML='<h2>Overdue &middot; '+od.length+'</h2>'+(od.length?od.map(t=>taskCard(t,true)).join(''):'<div class="empty">nothing overdue &#10022;</div>')
+ +'<h2>Today &middot; '+td.length+'</h2>'+(td.length?td.map(t=>taskCard(t,true)).join(''):'<div class="empty">nothing for today</div>')
+ +'<h2>This week &middot; '+wk.length+'</h2>'+(wk.length?wk.map(t=>taskCard(t)).join(''):'<div class="empty">quiet week ahead</div>')
+ +'<h2>Hot relationships</h2>'+(hot.length?hot.map(c=>'<div class="card" data-person="'+c.id+'"><div class="grow"><div class="name">'+esc(c.name)+'</div><div class="sub">'+esc(c.role||'')+' &middot; next: '+esc(c.next_step||'&mdash;')+'</div></div><span class="'+dueCls(c.next_step_due)+'">'+dueTxt(c.next_step_due)+'</span></div>').join(''):'<div class="empty">no relationships flagged hot &#10022;</div>')
+ +'<h2>Signals &middot; needs her eyes</h2>'+(cap.length?cap.map(c=>'<div class="card"><div class="grow"><div class="name">'+esc(c.channel||c.subject||c.title||'signal')+'</div><div class="sub">'+esc(c.source||'')+(c.mentions?' &middot; '+c.mentions+' mentions':'')+(c.unreads?' &middot; '+c.unreads+' unread':'')+'</div></div><span class="'+(c.priority==='high'?'due hot':'due')+'">'+(c.priority==='high'?'watched':'glance')+'</span></div>').join(''):'<div class="empty">no signals yet &mdash; scanners connect with her token</div>')
+ +'<h2>Events &middot; next 2 weeks</h2>'+(ev.length?ev.map(e=>'<div class="card"><div class="grow"><div class="name">'+esc(e.title)+'</div><div class="sub">'+esc(e.type||'')+' &middot; '+esc(e.where||'')+' &middot; prep: '+esc(e.prep_status||'&mdash;')+'</div></div><span class="due">'+dueTxt(e.when)+'</span></div>').join(''):'<div class="empty">no events coming up</div>');
+ wire();}
+function renderPeople(m){const list=[...D.contacts].sort((a,b)=>(b.warmth||0)-(a.warmth||0));
+ m.innerHTML='<h2>People &middot; '+list.length+'</h2>'+
+ '<form id="pf"><div class="row"><input name="name" placeholder="Name" required><input name="role" placeholder="Role / title"><input name="org" placeholder="Org"></div>'+
+ '<div class="row"><select name="tier"><option value="influencer">influencer</option><option value="vc">VC</option><option value="dev">developer</option><option value="partner">partner</option><option value="internal">internal</option></select>'+
+ '<input name="next_step" placeholder="Next step"><input type="date" name="nsd" title="Next-step due"></div>'+
+ '<button class="act" type="submit">+ add person</button></form>'+
+ (list.length?list.map(c=>'<div class="card" data-person="'+c.id+'"><div class="grow"><div class="name">'+esc(c.name)+'</div><div class="sub">'+esc(c.role||'')+(c.org?' @ '+esc(c.org):'')+' &middot; '+esc(c.tier||'')+'</div></div><span class="due'+(c.next_step_due&&dd(c.next_step_due)<0?' hot':'')+'">'+dueTxt(c.next_step_due)+'</span></div>').join(''):'<div class="empty">no people yet &mdash; add the first above</div>');
+ $('#pf').onsubmit=e=>{e.preventDefault();const f=new FormData(e.target);D.contacts.push({id:uid('c'),name:f.get('name'),role:f.get('role'),org:f.get('org'),tier:f.get('tier'),warmth:50,next_step:f.get('next_step'),next_step_due:f.get('nsd'),history:[],tags:[]});save('contacts.json',D.contacts).then(render)};
+ wire();}
+function renderPerson(m){const c=D.contacts.find(x=>x.id===openId);if(!c){openId=null;return renderPeople(m)}
+ const hist=(c.history||[]).slice().reverse();
+ const tasks=D.tasks.filter(t=>t.who===c.id);
+ m.innerHTML='<span class="back" data-back="1">&larr; all people</span>'+
+ '<h2>'+esc(c.name)+'</h2><div class="card" style="cursor:default"><div class="grow"><div class="name">'+esc(c.role||'')+(c.org?' @ '+esc(c.org):'')+'</div><div class="sub">'+esc(c.tier||'')+' &middot; warmth '+(c.warmth||50)+'/100</div></div></div>'+
+ '<h2>Their tasks</h2>'+(tasks.length?tasks.map(t=>taskCard(t,true)).join(''):'<div class="empty">no tasks linked</div>')+
+ '<h2>History</h2><div id="hist">'+(hist.length?hist.map(h=>'<div class="hist">'+esc(h.ts)+' &middot; '+esc(h.note)+'</div>').join(''):'<div class="empty">no history yet</div>')+'</div>'+
+ '<form id="hf"><div class="row"><input name="note" placeholder="Add a history note..." required><input type="date" name="ts" value="'+today()+'"></div><button class="act" type="submit">log it</button></form>'+
+ '<form id="nf"><h2 style="margin-top:16px">Update next step</h2><div class="row"><input name="ns" placeholder="'+esc(c.next_step||'Next step')+'"><input type="date" name="nsd"></div><button class="act" type="submit">set</button></form>';
+ $('#hf').onsubmit=e=>{e.preventDefault();const f=new FormData(e.target);(c.history=c.history||[]).push({ts:f.get('ts')||today(),note:f.get('note'),by:'her'});c.warmth=Math.min(100,(c.warmth||50)+3);save('contacts.json',D.contacts).then(()=>renderPerson($('#main')))};
+ $('#nf').onsubmit=e=>{e.preventDefault();const f=new FormData(e.target);if(f.get('ns'))c.next_step=f.get('ns');if(f.get('nsd'))c.next_step_due=f.get('nsd');save('contacts.json',D.contacts).then(()=>renderPerson($('#main')))};
+ wire();}
+function renderTasks(m){const open=D.tasks.filter(t=>t.status!=='done'&&t.status!=='dropped').sort((a,b)=>(a.due||'9999').localeCompare(b.due||'9999'));
+ const done=D.tasks.filter(t=>t.status==='done').slice(-5);
+ m.innerHTML='<h2>Tasks &middot; open '+open.length+'</h2>'+
+ '<form id="tf"><div class="row"><input name="title" placeholder="Task title" required><select name="kind"><option>followup</option><option>talk</option><option>roundtable</option><option>meetup</option><option>cast</option><option>admin</option></select><input type="date" name="due"></div>'+
+ '<div class="row"><select name="who"><option value="">who?</option>'+D.contacts.map(c=>'<option value="'+c.id+'">'+esc(c.name)+'</option>').join('')+'</select><input name="ns" placeholder="Next step"><select name="priority"><option value="2">p2</option><option value="1">p1</option><option value="3">p3</option></select></div>'+
+ '<button class="act" type="submit">+ add task</button></form>'+
+ (open.length?open.map(t=>taskCard(t,true)).join(''):'<div class="empty">no open tasks</div>')+
+ (done.length?'<h2>Recently done</h2>'+done.map(t=>taskCard(t,true)).join(''):'');
+ $('#tf').onsubmit=e=>{e.preventDefault();const f=new FormData(e.target);D.tasks.push({id:uid('t'),title:f.get('title'),kind:f.get('kind'),due:f.get('due'),who:f.get('who'),next_step:f.get('ns'),priority:f.get('priority'),status:'open',created_by:'her'});save('tasks.json',D.tasks).then(render)};
+ wire();}
+function renderEvents(m){const ev=[...D.events].sort((a,b)=>(b.when||'').localeCompare(a.when||''));
+ m.innerHTML='<h2>Events &middot; '+ev.length+'</h2>'+
+ '<form id="ef"><div class="row"><input name="title" placeholder="Event title" required><select name="type"><option>meetup</option><option>talk</option><option>roundtable</option><option>cast</option><option>call</option><option>other</option></select><input type="date" name="when"><input name="where" placeholder="Where"></div>'+
+ '<div class="row"><select name="prep"><option value="topic">topic</option><option value="outline">outline</option><option value="slides">slides</option><option value="recorded">recorded</option><option value="published">published</option></select><input name="lc" placeholder="Linked contacts (names, comma-sep)"></div>'+
+ '<button class="act" type="submit">+ add event</button></form>'+
+ (ev.length?ev.map(e=>'<div class="card" style="cursor:default"><div class="grow"><div class="name">'+esc(e.title)+'</div><div class="sub">'+esc(e.type||'')+' &middot; '+esc(e.where||'')+' &middot; prep: '+esc(e.prep_status||'&mdash;')+'</div></div><span class="due">'+dueTxt(e.when)+'</span></div>').join(''):'<div class="empty">no events yet</div>');
+ $('#ef').onsubmit=e=>{e.preventDefault();const f=new FormData(e.target);const lc=String(f.get('lc')||'').split(',').map(s=>s.trim()).filter(Boolean).map(n=>{const c=D.contacts.find(x=>x.name.toLowerCase()===n.toLowerCase());return c?c.id:n});D.events.push({id:uid('e'),title:f.get('title'),type:f.get('type'),when:f.get('when'),where:f.get('where'),prep_status:f.get('prep'),linked_contacts:lc,notes:''});save('events.json',D.events).then(render)};
+ wire();}
+function wire(){
+ document.querySelectorAll('[data-person]').forEach(el=>el.onclick=()=>{openId=el.dataset.person;view='people';render()});
+ document.querySelectorAll('[data-back]').forEach(el=>el.onclick=()=>{openId=null;render()});
+ document.querySelectorAll('[data-task]').forEach(el=>el.onclick=ev=>{if(ev.target.dataset.done)return;const t=D.tasks.find(x=>x.id===el.dataset.task);if(t){openId=t.who;view='people';render()}});
+ document.querySelectorAll('[data-done]').forEach(b=>b.onclick=ev=>{ev.stopPropagation();const t=D.tasks.find(x=>x.id===b.dataset.done);if(t){t.status=t.status==='done'?'open':'done';save('tasks.json',D.tasks).then(render)}});
+}
+loadAll().then(render);
+</script></body></html>

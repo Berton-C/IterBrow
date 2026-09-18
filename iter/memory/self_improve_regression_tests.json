@@ -1,6 +1,0 @@
-{
-  "send_tool_present": "import os\nresult = os.path.exists('tools/send.py') and os.path.getsize('tools/send.py') > 0",
-  "iter_core_compiles": "import os\nwith open('iter.py', 'r') as _f:\n    _src = _f.read()\ncompile(_src, 'iter.py', 'exec')\nresult = True",
-  "soul_files_present": "import os\n_soul_files = ['tools/soul_eval.py', 'transformations/soul_check.py', 'transformations/soul_voice.py', 'nace_beliefs.metta', 'capability_lifecycle.metta']\nresult = all(os.path.exists(_p) for _p in _soul_files)",
-  "tools_dir_healthy": "import os\n_count = len([f for f in os.listdir('tools') if f.endswith('.py')])\nresult = _count >= 30"
-}

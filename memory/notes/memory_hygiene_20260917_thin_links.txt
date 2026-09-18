@@ -1,0 +1,10 @@
+MEMORY HYGIENE SCAN — THIN EVIDENCE LINKS (2026-09-17 21:25, autonomous, read-only)
+Scanned iter/chroma_db/memories.json directly (chroma_query tool was flapping/timeouts).
+Result: 197 LTM items, ALL with <=2 linked episodes (mostly 0).
+- ~30 items from Aug-29 init-era are explicitly [HISTORICAL] or describe superseded builds
+  (rollup_helper, zz_context_budget v1, self_improve phases) — candidates for archival
+  retirement rather than deletion (mem_type=fact/belief are durable anyway).
+- 0 evidence links across the whole store suggests linked-episode backfill never ran at
+  scale, not that memories are untrustworthy — many are corroborated by tier files.
+Follow-up options (deferred, not urgent): batch link_episode pass using metadata times
+against recap episode ranges; or leave as-is (LTM links are ground truth, tiers are display).
