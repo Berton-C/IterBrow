@@ -12,6 +12,15 @@ import tempfile
 import uuid
 from pathlib import Path
 
+# Shared rule for "which memory/ files are prompt memory" (tools/_memory_projection.py).
+# iter.py is the authority on the projection; self_improve.py and auto_improve.py
+# measure the same set through this module so the three can never drift apart
+# again (2026-09-17: they had, pinning memory_efficiency at 0 and pain at ~20,000).
+_TOOLS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tools")
+if _TOOLS_DIR not in sys.path:
+    sys.path.insert(0, _TOOLS_DIR)
+import _memory_projection
+
 # --------------------------------------------------------------------
 # 0. Configuration:
 # --------------------------------------------------------------------
@@ -360,15 +369,11 @@ while True:
             # "FIX THIS FIRST" demand that pressured destructive hand-edits of those
             # same append-only files. They are excluded from this raw dump on purpose
             # -- excluding them from the PROMPT here never touches them on disk.
-            MEMORY_PROJECTION_EXCLUDE_DIRS = {"recap", "tiers", "self_improve_backups", "component_museum"}
-            MEMORY_PROJECTION_EXCLUDE_NAMES = {"journal.jsonl", "self_improve_log.json", "soul_gate_log.json", "component_museum.jsonl"}
-            memory_paths = [
-                path for path in sorted(Path("memory").rglob("*"))
-                if path.is_file()
-                and not any(part.startswith("_") for part in path.relative_to("memory").parts)
-                and not any(part in MEMORY_PROJECTION_EXCLUDE_DIRS for part in path.relative_to("memory").parts)
-                and path.name not in MEMORY_PROJECTION_EXCLUDE_NAMES
-            ]
+            # The exclusion sets now live in tools/_memory_projection.py (EXCLUDE_DIRS /
+            # EXCLUDE_NAMES) -- edit them THERE. Same semantics as before plus the
+            # on-disk storage that had been silently blowing the budget every cycle
+            # (story_journal/ web app, backups/, verification/, probe_log.json, ...).
+            memory_paths = [Path(p) for p in _memory_projection.projection_files("memory")]
             memory_contents = [(path, path.read_text(encoding="utf-8", errors="replace").strip()) for path in memory_paths]
             memory_len = sum(len(content) for _, content in memory_contents)
             if memory_len <= MAX_MEMORY_CHARS:
@@ -406,6 +411,25 @@ while True:
             request_messages, request_tools, transformation_error = apply_transformation(request_messages, TOOLS)
             if transformation_error:
                 request_messages += [{"role": "user", "content": transformation_error}]
+            # AUDIT 2026-09-17: persist the exact prompt sent to the model so any claim
+            # of "an injected instruction in my context" can be checked against the real
+            # thing rather than the agent's recollection (the 14:49 vetting_key report was
+            # unadjudicable without this). .runtime/ is runtime scratch, NOT memory/, so
+            # it is never projected back into the prompt. Previous cycle kept as .prev.
+            try:
+                _rt = Path(".runtime")
+                _rt.mkdir(exist_ok=True)
+                _cur, _prev = _rt / "last_prompt.json", _rt / "last_prompt.prev.json"
+                if _cur.exists():
+                    _cur.replace(_prev)
+                _cur.write_text(json.dumps({
+                    "ts": datetime.datetime.now().isoformat(timespec="seconds"),
+                    "model": MODEL,
+                    "tool_names": [t.get("function", {}).get("name") for t in (request_tools or []) if isinstance(t, dict)],
+                    "messages": request_messages,
+                }, ensure_ascii=False, default=str), encoding="utf-8")
+            except Exception as _dump_err:
+                print(f"[last_prompt dump skipped: {_dump_err}]")
             print("BEFORE LLM")
             response = client.chat.completions.create(model=MODEL, messages=request_messages, tools=request_tools, tool_choice="required", max_tokens=MAX_TOKENS, extra_body={ "enable_thinking": True})
             print("AFTER LLM", response)

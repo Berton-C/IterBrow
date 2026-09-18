@@ -29,7 +29,12 @@ SECTIONS = [
     ("--- AGENTS.md (auto-included) ---", "CRITICAL", "AGENTS.md", 0.40),
     ("## Tiered Memory Pyramid",         "HIGH",     "TieredMemory", 0.35),
     ("## Episode Recap",                  "MEDIUM",   "Recap",        0.20),
-    ("transcript:",                       "LOW",      "Transcript",   0.10),
+    # Marker is the BLOCK HEADER form (colon then newline). The bare substring
+    # "transcript:" also matched the transformation listing line that iter.py
+    # writes into the base prompt ("transcript: Maintains transcript of ..."),
+    # which re-labelled the ENTIRE memory projection after it as a LOW section
+    # and silently dropped it in every long conversation (found 2026-09-17).
+    ("\ntranscript:\n",                   "LOW",      "Transcript",   0.10),
     ("--- \u26a0\ufe0f AGENTS.md STALENESS WARNING ---", "LOW", "Staleness", 0.05),
 ]
 
@@ -52,6 +57,8 @@ def _split_sections(content):
     for marker, priority, label, max_frac in SECTIONS:
         idx = content.find(marker)
         if idx >= 0:
+            if marker.startswith("\n"):
+                idx += 1  # newline-anchored marker: section starts at the header line itself
             markers.append((idx, marker, priority, label, max_frac))
     markers.sort(key=lambda m: m[0])
     if not markers:

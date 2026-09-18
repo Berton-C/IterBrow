@@ -173,7 +173,11 @@ DESCRIPTION = (
 
 
 def _unavailable_msg():
-    return json.dumps({"error": "pymetta engine not installed — MeTTa reasoning degraded to silent-fail (by design). Install: pip install 'pymetta[engine]' + SWI-Prolog 9.3+."})
+    # FIX (2026-09-17 audit): this used bare json.dumps() but the module only
+    # imports json as _json -- calling this raised NameError instead of
+    # returning the intended message. Dead code today (no caller found in a
+    # full-codebase grep), fixed so it is safe the moment something calls it.
+    return _json.dumps({"error": "pymetta engine not installed — MeTTa reasoning degraded to silent-fail (by design). Install: pip install 'pymetta[engine]' + SWI-Prolog 9.3+."})
 
 def run(code):
     code = str(code).strip()
