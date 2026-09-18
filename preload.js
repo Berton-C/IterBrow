@@ -46,6 +46,7 @@ contextBridge.exposeInMainWorld('iterApi', {
 
   exportState: () => ipcRenderer.invoke('state:export'),
   importState: () => ipcRenderer.invoke('state:import'),
+  restoreState: () => ipcRenderer.invoke('state:restore'),
   resetState: () => ipcRenderer.invoke('state:reset'),
 
   onTabsUpdate: (cb) => ipcRenderer.on('tabs:update', (_e, list) => cb(list)),
@@ -65,6 +66,7 @@ contextBridge.exposeInMainWorld('iterApi', {
   terminalStop: () => ipcRenderer.invoke('terminal:stop'),
   openDashboards: () => ipcRenderer.invoke('dashboards:open'),
   openPWQ: () => ipcRenderer.invoke('pwq:open'),
+  openCRM: () => ipcRenderer.invoke('crm:open'),
   onTerminalData: (cb) => ipcRenderer.on('terminal:data', (_e, chunk) => cb(chunk)),
   onTerminalDone: (cb) => ipcRenderer.on('terminal:done', (_e, info) => cb(info)),
 });

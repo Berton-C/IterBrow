@@ -52,3 +52,8 @@ iter/task_state.metta
 # contacts, warmth scores, notes, history. Keep iter/crm/index.html tracked,
 # never commit the data files (2026-09-17, same category as the private/ leak).
 /iter/crm/data/
+
+# Godot 4.5 editor, auto-downloaded by install.sh's TheWholeEnchilada extras
+# step into tools/Godot.app -- a ~500MB binary app bundle, never source, and
+# fully reproducible from the pinned SHA-512-verified download in install.sh.
+/tools/

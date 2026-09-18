@@ -8,9 +8,12 @@
 #    3. SWI-Prolog          (optional — powers real MeTTa reasoning)
 #    4. Python 3.12 venv    (Iter agent's own process, with pinned deps)
 #    5. npm install         (Electron + its native deps)
-#    6. Seed data for this branch's extra features (COS CRM + NodeQuest --
-#       see "TheWholeEnchilada extras" step below; a no-op if iter/crm/
-#       isn't present, i.e. on the vanilla main branch)
+#    6. Seed data + Godot 4.5 editor for this branch's extra features (COS CRM
+#       + NodeQuest -- see "TheWholeEnchilada extras" step below; a no-op if
+#       iter/crm/ isn't present, i.e. on the vanilla main branch). Godot is
+#       only needed to EDIT iter/nodequest/godot/project/ -- playing the
+#       already-compiled game (iter/nodequest/godot/export/) needs nothing
+#       but a browser and never touches this download.
 #
 #  Usage:
 #     git clone https://github.com/Berton-C/IterBrow.git                        # vanilla (main)
@@ -189,6 +192,60 @@ SCHEMA_EOF
     warn "browsers block the wasm/pck fetches it needs. Serve it locally instead:"
     warn "   cd iter/nodequest/godot/export && python3 -m http.server 8765"
     warn "then open http://localhost:8765/index.html in a tab."
+  fi
+
+  # Godot 4.5 editor -- only needed if you want to open/edit/rebuild
+  # iter/nodequest/godot/project/ and evolve NodeQuest or build more games
+  # (this is meant as an ongoing learning environment, not a one-off game).
+  # Playing the already-compiled export above needs none of this. Pinned to
+  # the exact 4.5-stable macOS universal build (arm64 + x86_64) with an
+  # official SHA-512 check against godotengine/godot-builds' own release
+  # manifest, so a corrupted or tampered download is refused rather than
+  # silently installed.
+  GODOT_DIR="$ROOT_DIR/tools"
+  GODOT_APP="$GODOT_DIR/Godot.app"
+  GODOT_ZIP_URL="https://github.com/godotengine/godot-builds/releases/download/4.5-stable/Godot_v4.5-stable_macos.universal.zip"
+  GODOT_SHA512="59d195d1876210fa0f8c36bc10b147339fc8e076c684b74111533992f1a1dcdc0f760461f4cadad627e5b11e74468b54b9355fc6ea0c507c52533dfa7aa0c617"
+
+  if [[ -d "$GODOT_APP" ]]; then
+    ok "Godot editor already installed at tools/Godot.app -- skipping download."
+  else
+    warn "Downloading Godot 4.5 editor (~160MB, macOS universal) -- this can take a few minutes."
+    mkdir -p "$GODOT_DIR"
+    GODOT_TMPDIR="$(mktemp -d)"
+    GODOT_ZIP="$GODOT_TMPDIR/godot.zip"
+    if curl -fL --progress-bar -o "$GODOT_ZIP" "$GODOT_ZIP_URL"; then
+      ACTUAL_SHA512="$(shasum -a 512 "$GODOT_ZIP" | awk '{print $1}')"
+      if [[ "$ACTUAL_SHA512" == "$GODOT_SHA512" ]]; then
+        unzip -q -o "$GODOT_ZIP" -d "$GODOT_DIR"
+        if [[ -d "$GODOT_APP" ]]; then
+          xattr -dr com.apple.quarantine "$GODOT_APP" 2>/dev/null || true
+          if "$GODOT_APP/Contents/MacOS/Godot" --version >/dev/null 2>&1; then
+            ok "Godot $("$GODOT_APP/Contents/MacOS/Godot" --version) installed and verified at tools/Godot.app."
+          else
+            warn "Godot.app unzipped but didn't run cleanly (--version check failed)."
+            warn "Check System Settings -> Privacy & Security if macOS blocked it, then"
+            warn "open tools/Godot.app once manually to approve it."
+          fi
+        else
+          warn "Godot zip extracted but tools/Godot.app wasn't found afterward --"
+          warn "the release asset layout may have changed. NodeQuest's shipped build"
+          warn "still plays fine without this; download manually from"
+          warn "https://godotengine.org/download/macos/ (pick 4.5-stable) if needed."
+        fi
+      else
+        warn "Godot download failed checksum verification (expected $GODOT_SHA512,"
+        warn "got $ACTUAL_SHA512) -- refusing to install a corrupted/tampered copy."
+        warn "Playing the shipped NodeQuest build still works with zero Godot install --"
+        warn "only editing iter/nodequest/godot/project/ needs the editor. Re-run"
+        warn "install.sh to retry the download."
+      fi
+    else
+      warn "Godot download failed (network issue?) -- continuing without it."
+      warn "Playing the shipped NodeQuest build still works with zero Godot install."
+      warn "Re-run install.sh any time to retry."
+    fi
+    rm -rf "$GODOT_TMPDIR"
   fi
 else
   ok "Vanilla branch -- no CRM/NodeQuest extras to seed."

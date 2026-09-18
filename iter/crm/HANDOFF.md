@@ -33,20 +33,20 @@ iter/tools/
   gmail_scan.py        # Gmail scanner — SKELETON only
 ```
 
-**Working now (open `crm/index.html` in any browser):**
+**Working now — open the CRM via the toolbar's new "CRM" button (not by typing a `file://` URL):**
 
-*Honest caveat (2026-09-18): in a plain browsed tab the page renders but has NO disk bridge — it can neither read nor write `crm/data/*.json` (live-probed `window.iterApi` = undefined in the open tab). Since all four JSONs are currently empty, the bridge-less empty state looks identical to the real quiet state. Disk JSONs are the source of truth; edit them directly (schema: `crm/data/schema.md`) until the page is opened in a bridged window.*
+*Fixed 2026-09-18: the CRM tab now opens through `crm:open` (main.js) into a scoped, navigation-locked tab created via `tabs.createTab(url, { preload: 'bridge/crm_preload.js', restrictNavigation: true })`. `bridge/crm_preload.js` exposes only `window.iterApi.crmRead`/`crmWrite` — nothing else the chrome views get — and the tab is barred from ever navigating to a different URL (`will-navigate`/`setWindowOpenHandler` guards in `bridge/tab_manager.js`), so the bridge can never attach to an untrusted page loaded into that same tab. Verified with a real headless Electron process (not simulated): `window.iterApi.crmRead`/`crmWrite` round-tripped a write to disk in the CRM tab, an ordinary tab created the same way with no `opts` still got `iterApi === undefined` (zero regression to normal browsing), and a navigation attempt to `example.com` inside the CRM tab was blocked. Manually typing a `file://` URL into the address bar (old workflow) still has no bridge, by design — always use the toolbar button.*
 - **Briefing view** — overdue/soon tasks, hot relationships, upcoming events, empty state messaging, and the Signals section (renders whatever is in `captures.json`)
 - **People / Tasks / Events** — full CRUD against the JSON files, with the next-step fields enforced
-- **Persistence (design intent, not yet exercised end-to-end)** — page saves via `window.iterApi.crmWrite` → `crm:write` IPC (whitelist: the 4 CRM JSONs; `fs.writeFileSync` in main.js). The bridge is exposed only in the app's chrome views (sidebar/toolbar/tabstrip preloads), which no page can be opened in — so the write path is verified by code-read only. In browsed tabs the save bar will show `SAVE FAILED` on edit.
+- **Persistence — working, disk round-trip verified** — page saves via `window.iterApi.crmWrite` → `crm:write` IPC (whitelist: the 4 CRM JSONs; `fs.writeFileSync` in main.js), reachable now because the CRM tab carries its own scoped preload. No more `SAVE FAILED` when opened via the toolbar button.
 
-**Verified live 2026-09-17 and again 2026-09-18 post-restart:** the page renders, the Briefing shows the quiet state correctly, the Signals section appears (empty until scanners run).
+**Verified live 2026-09-17 and again 2026-09-18 post-restart:** the page renders, the Briefing shows the quiet state correctly, the Signals section appears (empty until scanners run). Bridge fix verified 2026-09-18 (see above).
 
 ## 3. Status Ledger (the honest four-state split)
 
 | State | Item | Detail |
 |---|---|---|
-| ✅ Render verified / 🟡 disk round-trip NOT exercised | CRM page (Briefing/People/Tasks/Events) | in-browser render + in-memory CRUD verified 09-17/09-18; the disk save path needs the app bridge, which browsed tabs lack (probed 09-18). JSONs remain the source of truth |
+| ✅ Render + disk round-trip verified | CRM page (Briefing/People/Tasks/Events) | in-browser render + in-memory CRUD verified 09-17/09-18; disk save path fixed and verified 09-18 via a scoped, navigation-locked preload opened from the toolbar's CRM button (see §2) |
 | ✅ Built & verified live | Signals display in Briefing | renders `captures.json` cards; test cards confirmed rendering (in-memory only, then cleared) |
 | ✅ Built & verified live | Data schemas | `crm/data/schema.md` is canonical |
 | 🟡 Built but blocked on config | Mattermost scanner | `tools/mm_scan.py` is fully coded (REST v4 via urllib, read-only, NOAUTH-safe). Needs: `mm_token.txt`, `mm_server.txt`, `mm_watchers.txt` in `private/crm/` |

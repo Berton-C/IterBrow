@@ -35,6 +35,7 @@ btnReload.addEventListener('click', () => activeTabId && window.iterApi.reload(a
 document.getElementById('btn-go').addEventListener('click', go);
 document.getElementById('btn-dashboards').addEventListener('click', () => window.iterApi.openDashboards());
 document.getElementById('btn-pwq').addEventListener('click', () => window.iterApi.openPWQ());
+document.getElementById('btn-crm').addEventListener('click', () => window.iterApi.openCRM());
 addr.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
 
 function go() {

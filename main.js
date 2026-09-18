@@ -201,6 +201,65 @@ const PERSONAL_STATE_PATHS = [
   '.runtime', 'private', 'crm/data',
 ];
 
+// ---------------------------------------------------------------------
+// Automatic rolling backups -- independent of the user-triggered Export
+// button, so there's always a recent safety net even if you never click
+// Export yourself. Runs every AUTO_BACKUP_INTERVAL_MS in the background
+// (started from app.whenReady() below) and keeps only the newest
+// AUTO_BACKUP_KEEP zips, deleting older ones as new ones land -- 6h x 4
+// kept = a rolling 24h window. Stored under Electron's own userData path,
+// NOT inside this git repo, so these can never end up committed/pushed
+// by accident regardless of .gitignore correctness. The Restore button
+// (below) lets you pick any of the kept backups, not just the newest, in
+// case the most recent one turns out to be bad.
+// ---------------------------------------------------------------------
+const AUTO_BACKUP_DIR = path.join(app.getPath('userData'), 'auto_backups');
+const AUTO_BACKUP_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
+const AUTO_BACKUP_KEEP = 4; // -> 24h rolling window at the interval above
+let autoBackupTimer = null;
+
+async function runAutoBackup() {
+  try {
+    fs.mkdirSync(AUTO_BACKUP_DIR, { recursive: true });
+    saveTabSession();
+    const wanted = [...STATE_PATHS, ...PERSONAL_STATE_PATHS];
+    const existing = wanted.filter((p) => fs.existsSync(path.join(ITER_DIR, p)));
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const zipPath = path.join(AUTO_BACKUP_DIR, `autobackup-${stamp}.zip`);
+    await runCLI('zip', ['-r', zipPath, ...existing], ITER_DIR);
+    pruneAutoBackups();
+    pushLog(`[auto-backup] saved ${existing.length} item(s) -> ${path.basename(zipPath)}`);
+  } catch (e) {
+    pushLog(`[auto-backup] failed: ${e.message}`);
+  }
+}
+
+function listAutoBackupsSorted() {
+  if (!fs.existsSync(AUTO_BACKUP_DIR)) return [];
+  return fs.readdirSync(AUTO_BACKUP_DIR)
+    .filter((f) => f.startsWith('autobackup-') && f.endsWith('.zip'))
+    .map((f) => {
+      const full = path.join(AUTO_BACKUP_DIR, f);
+      const stat = fs.statSync(full);
+      return { file: f, full, mtimeMs: stat.mtimeMs, size: stat.size };
+    })
+    .sort((a, b) => b.mtimeMs - a.mtimeMs);
+}
+
+function pruneAutoBackups() {
+  const all = listAutoBackupsSorted();
+  for (const old of all.slice(AUTO_BACKUP_KEEP)) fs.rmSync(old.full, { force: true });
+}
+
+function startAutoBackupTimer() {
+  if (autoBackupTimer) return;
+  // Take one shortly after launch if none exist yet (fresh install, or the
+  // folder was cleared), so there's a safety net soon instead of waiting a
+  // full interval.
+  if (!listAutoBackupsSorted().length) setTimeout(runAutoBackup, 30 * 1000);
+  autoBackupTimer = setInterval(runAutoBackup, AUTO_BACKUP_INTERVAL_MS);
+}
+
 function runCLI(cmd, args, cwd) {
   return new Promise((resolve, reject) => {
     execFile(cmd, args, { cwd, maxBuffer: 1024 * 1024 * 256 }, (err, stdout, stderr) => {
@@ -244,8 +303,14 @@ async function importState() {
     filters: [{ name: 'Zip archive', extensions: ['zip'] }],
   });
   if (canceled || !filePaths || !filePaths[0]) return { canceled: true };
-  const zipPath = filePaths[0];
+  return restoreFromZipPath(filePaths[0]);
+}
 
+// Shared by importState() (user picks a zip via the file dialog) and
+// restoreAutoBackup() (Restore button -- path is already known, one of
+// the rolling AUTO_BACKUP_KEEP snapshots in AUTO_BACKUP_DIR, no dialog
+// needed). Identical restore behavior either way.
+async function restoreFromZipPath(zipPath) {
   const wasRunning = !!iterProcess;
   if (wasRunning) stopIter();
 
@@ -302,6 +367,50 @@ async function importState() {
 
   if (wasRunning) startIter();
   return { imported: zipPath, restarted: wasRunning, itemCount: importedSummary.restored.length, notFoundInZip: importedSummary.notFoundInZip };
+}
+
+// Restore button: no file dialog -- the caller (renderer, after showing the
+// user the rolling list from listAutoBackupsSorted()) already knows exactly
+// which auto-backup zip to use.
+async function restoreAutoBackup(backupFull) {
+  if (!fs.existsSync(backupFull)) return { error: 'That backup no longer exists (it may have aged out of the rolling window).' };
+  return restoreFromZipPath(backupFull);
+}
+
+// Restore button entry point: shows a native picker over the up-to-4 kept
+// auto-backups (newest first) so you can fall back to an older one if the
+// newest turns out to be bad, then restores the chosen one. No file-picker
+// dialog -- these are the app's own rolling snapshots, not a user-chosen zip.
+async function restoreState() {
+  if (!win) return { error: 'no window' };
+  const backups = listAutoBackupsSorted();
+  if (!backups.length) {
+    await dialog.showMessageBox(win, {
+      type: 'warning',
+      title: 'No auto-backups yet',
+      message: 'No auto-backups exist yet. They start after the app has been running about 30 seconds, then every 6 hours after that.',
+      buttons: ['OK'],
+    });
+    return { canceled: true, reason: 'no-backups' };
+  }
+  const labels = backups.map((b) => {
+    const when = new Date(b.mtimeMs).toLocaleString();
+    const mb = (b.size / (1024 * 1024)).toFixed(1);
+    return `${when}  (${mb} MB)`;
+  });
+  const buttons = [...labels, 'Cancel'];
+  const { response } = await dialog.showMessageBox(win, {
+    type: 'question',
+    title: 'Restore from auto-backup',
+    message: 'Choose a backup to restore. This replaces your current state -- pick an earlier one if the most recent looks wrong.',
+    buttons,
+    cancelId: buttons.length - 1,
+    defaultId: 0,
+  });
+  if (response === buttons.length - 1) return { canceled: true };
+  const chosen = backups[response];
+  const result = await restoreAutoBackup(chosen.full);
+  return { ...result, restoredFrom: chosen.file };
 }
 
 function resetState() {
@@ -1180,6 +1289,7 @@ function createWindow() {
 
   win.on('closed', () => {
     clearTimeout(tabSessionSaveTimer);
+    if (autoBackupTimer) { clearInterval(autoBackupTimer); autoBackupTimer = null; }
     saveTabSession(); // flush the last state synchronously, don't rely on the debounce timer surviving shutdown
     for (const tab of tabs.tabs.values()) tab.view.webContents.close();
     sidebarView.webContents.close();
@@ -1193,6 +1303,7 @@ function createWindow() {
   });
 
   startBridgeServer(tabs, pushLog);
+  startAutoBackupTimer();
 }
 
 // ---------------------------------------------------------------------
@@ -1278,6 +1389,7 @@ ipcMain.handle('permissions:openSystemSettings', (_e, kind) => {
 
 ipcMain.handle('state:export', () => exportState());
 ipcMain.handle('state:import', () => importState());
+ipcMain.handle('state:restore', () => restoreState());
 ipcMain.handle('state:reset', () => resetState());
 
 ipcMain.handle('sidebar:resize-start', () => sidebarResizeStart());
@@ -1320,6 +1432,15 @@ ipcMain.handle('terminal:interrupt', () => interruptTerminal());
 ipcMain.handle('terminal:stop', () => stopTerminal());
 ipcMain.handle('dashboards:open', () => tabs.createTab('file://' + path.join(ITER_DIR, 'dashboard_gallery.html')));
 ipcMain.handle('pwq:open', () => tabs.createTab('file://' + path.join(ITER_DIR, 'pwq.html')));
+// CRM opens through a scoped, navigation-locked tab (see bridge/tab_manager.js
+// createTab's opts.preload/opts.restrictNavigation) so window.iterApi.crmRead/
+// crmWrite actually exist there -- a plain tabs.createTab(url) call, like the
+// two lines above, never gets a preload and would leave the CRM page's saves
+// permanently failing (this was the case until this fix; see crm/HANDOFF.md).
+ipcMain.handle('crm:open', () => tabs.createTab('file://' + path.join(ITER_DIR, 'crm', 'index.html'), {
+  preload: path.join(__dirname, 'bridge', 'crm_preload.js'),
+  restrictNavigation: true,
+}));
 
 app.whenReady().then(createWindow);
 app.on('window-all-closed', () => {
