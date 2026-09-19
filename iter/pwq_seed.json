@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "items": [
+    {
+      "id": "pwq-welcome",
+      "title": "Welcome to your work queue",
+      "ask": "PWQ is where Iter proposes work and you answer with clicks. To try it, pick how Iter should handle decisions it can't make alone:",
+      "proposed_shape": "Iter asks small questions directly in chat, and uses PWQ for bigger work proposals like this one.",
+      "options": [
+        {
+          "label": "A \u2014 Ask me in chat",
+          "desc": "Small questions go to chat; PWQ stays for work items"
+        },
+        {
+          "label": "B \u2014 Everything through PWQ",
+          "desc": "Even small questions become queue items you answer with clicks"
+        },
+        {
+          "label": "C \u2014 Decide alone",
+          "desc": "Iter decides small things itself; PWQ only for big choices"
+        }
+      ],
+      "status": "proposed",
+      "user_input": "",
+      "orders_given": false,
+      "selected_option": null,
+      "created": "2026-09-19 13:03:00",
+      "alarm": null,
+      "negotiation_log": [
+        {
+          "time": "2026-09-19 13:03:00",
+          "who": "iter",
+          "text": "Seeded by pwq_build_design.md. Click an option below to exercise the full chain (status -> negotiating, log entry, save to disk). Then delete me with the x."
+        }
+      ]
+    }
+  ]
+}

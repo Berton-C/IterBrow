@@ -182,6 +182,21 @@ SCHEMA_EOF
   fi
   ok "CRM data files + schema seeded empty at iter/crm/data/."
 
+  # PWQ (Pending Work Queue) runtime data is deliberately gitignored too --
+  # it is Iter's live, per-user negotiation state (real proposals, real user
+  # answers), not shippable content. Without any seed at all, a fresh clone's
+  # PWQ tab just renders an empty "Queue is clear" state and never
+  # demonstrates the actual click-to-negotiate mechanism. iter/pwq_seed.json
+  # (tracked, generic, no personal data) fixes that: pwq.html's load()
+  # already falls back to it when .runtime/pwq.json doesn't exist yet, so no
+  # copy is even required here -- this just documents the mechanism inline.
+  PWQ_RUNTIME_DIR="$ROOT_DIR/iter/.runtime"
+  mkdir -p "$PWQ_RUNTIME_DIR"
+  if [[ ! -f "$PWQ_RUNTIME_DIR/pwq.json" && -f "$ROOT_DIR/iter/pwq_seed.json" ]]; then
+    ok "PWQ tab will show generic example content (iter/pwq_seed.json) until"
+    ok "your own Iter curates real proposals into iter/.runtime/pwq.json."
+  fi
+
   mkdir -p "$ROOT_DIR/private/crm"
   ok "private/crm/ ready for connector config (Mattermost token, Gmail OAuth client --"
   ok "see iter/crm/HANDOFF.md section 7, 'First Session Quickstart', for exact steps)."
