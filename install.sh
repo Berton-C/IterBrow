@@ -121,11 +121,18 @@ fi
 ok "Python dependencies installed into iter/.venv."
 
 if ! ./.venv/bin/python3 -c "import janus_swi" >/dev/null 2>&1; then
-  warn "janus_swi (real MeTTa evaluation) didn't import cleanly — this is"
-  warn "expected if SWI-Prolog failed to install above. Everything else"
-  warn "in Iter works fine without it."
+  warn "janus_swi didn't import cleanly (only used by an older, unused code"
+  warn "path) — harmless, safe to ignore."
+fi
+
+if ! ./.venv/bin/python3 -c "import hyperon" >/dev/null 2>&1; then
+  warn "hyperon (the real MeTTa engine behind iter/metta_server.py) didn't"
+  warn "import cleanly. It should have installed from requirements.txt above"
+  warn "— if this persists, run: ./.venv/bin/pip install hyperon==0.2.10"
+  warn "and re-check. Everything else in Iter works fine without it; only"
+  warn "the persistent MeTTa/NACE reasoning server won't start."
 else
-  ok "janus_swi / MeTTa engine import OK."
+  ok "hyperon / MeTTa engine import OK."
 fi
 cd "$ROOT_DIR"
 
