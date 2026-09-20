@@ -15,7 +15,16 @@ returns). No context budget consumed unless action is needed.
 
 Avoids repeats: checks self_improve_log.json lineage before proposing.
 """
-import os, json, re
+import os, json, re, sys
+
+# Shared "what counts as prompt memory" rule (tools/_memory_projection.py).
+# Lives in tools/ because that is where iter.py and self_improve.py already
+# look for underscore helpers (_memory_guard). Imported here so this file,
+# self_improve.py and iter.py can never disagree again about the budget.
+_TOOLS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tools")
+if _TOOLS_DIR not in sys.path:
+    sys.path.insert(0, _TOOLS_DIR)
+import _memory_projection as _projection
 
 DESCRIPTION = ("Auto-improve: threshold-gated self-improvement loop. "
                "Detects pain from tool reliability, errors, memory pressure. "
@@ -196,7 +205,13 @@ def _compute_pain():
         contribution = ERROR_WEIGHT * error_count
         pain += contribution
         signals.append("errors: %d recent (+%.1f)" % (error_count, contribution))
-    mem_size = _dir_size_chars(os.path.join(ITER_ROOT, "memory"))
+    # FIX 2026-09-17: measure the PROMPT PROJECTION, not the raw folder.
+    # The raw walk counted ~1 MB of on-disk storage that iter.py never
+    # projects, producing a pain score of ~20,000 vs threshold 3.0 and
+    # re-arming .improve_needed every cycle. Iter diagnosed and prescribed
+    # exactly this fix in memory/.improve_dismissed on 2026-09-15 (deferred
+    # under service-before-growth). Rule: tools/_memory_projection.py.
+    mem_size = _projection.projection_chars(os.path.join(ITER_ROOT, "memory"))
     if mem_size > MAX_MEMORY_CHARS:
         over = (mem_size - MAX_MEMORY_CHARS) / 100.0
         contribution = MEMORY_PRESSURE_WEIGHT * over
@@ -224,7 +239,7 @@ def _build_proposal(pain, signals, mem_size, reliability):
     if mem_size > MAX_MEMORY_CHARS:
         lines.append("")
         lines.append("Suggested action:")
-        lines.append("  Memory folder is %d chars (limit %d). Consolidate or compress tier files." % (
+        lines.append("  Prompt-projected memory is %d chars (limit %d). Archive resolved items or call rebuild_tiers." % (
             mem_size, MAX_MEMORY_CHARS))
     log = _read_log()
     lines.append("")

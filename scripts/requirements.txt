@@ -4,7 +4,14 @@ docstring_parser==0.18.0
 h11==0.16.0
 httpcore2==2.12.0
 httpx2==2.12.0
+hyperon==0.2.10
 idna==3.19
+# janus_swi / pymetta below are the OLD MeTTa engine tools/metta.py used
+# before it was rewritten around the real hyperon engine (metta_server.py +
+# tools/_metta_bridge.py). Nothing in the current codebase imports them
+# anymore (only the old tools/metta.py did) -- left installed for now so
+# anyone who checks out an older commit of this branch isn't broken, but
+# they're candidates for removal in a future cleanup pass.
 janus_swi==1.5.3
 jiter==0.17.0
 openai==3.13.0
