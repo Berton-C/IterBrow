@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const { spawn, execFile } = require('child_process');
+const net = require('net');
 
 const { TabManager } = require('./bridge/tab_manager');
 const { startBridgeServer } = require('./bridge/browser_bridge_server');
@@ -62,6 +63,9 @@ const CLOSED_TABS_LIMIT = 20;
 const TAB_GROUPS_PATH = path.join(ITER_DIR, '.runtime', 'tab_groups.json');
 const VENV_PYTHON = path.join(ITER_DIR, '.venv', 'bin', 'python3');
 const SIDEBAR_BG = '#0d0f12'; // matches renderer/style.css --bg
+// Persistent MeTTa atomspace server (metta_server.py) -- see startMettaServer()
+// below. Unix socket, same protocol shape as ITER_BRIDGE_SOCKET above.
+const ITER_METTA_SOCKET = process.env.ITER_METTA_SOCKET || '/tmp/iter-metta-bridge.sock';
 
 let win = null;
 let sidebarView = null;
@@ -70,6 +74,7 @@ let tabstripView = null;
 let tabs = null;
 let chatBridge = null;
 let iterProcess = null;
+let mettaProcess = null;
 let iterLog = [];
 let sidebarWidth = DEFAULT_SIDEBAR_WIDTH;
 let tabstripHeight = DEFAULT_TABSTRIP_HEIGHT;
@@ -140,6 +145,75 @@ function stopIter() {
   if (!iterProcess) return { already: true };
   iterProcess.kill('SIGTERM');
   return { stopping: true };
+}
+
+// Checks whether metta_server.py is already alive and answering, by making
+// one real request over its socket rather than just checking the socket
+// file exists (a stale file from a previous crash would otherwise look
+// like "running"). Mirrors the same trust boundary as the browser bridge:
+// local-machine only, short timeout, fails closed.
+function pingMettaServer(timeoutMs = 1500) {
+  return new Promise((resolve) => {
+    if (!fs.existsSync(ITER_METTA_SOCKET)) return resolve(false);
+    const sock = net.createConnection(ITER_METTA_SOCKET);
+    let done = false;
+    const finish = (ok) => {
+      if (done) return;
+      done = true;
+      try { sock.destroy(); } catch (_) {}
+      resolve(ok);
+    };
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    sock.on('connect', () => sock.write(JSON.stringify({ method: 'status', params: {} }) + '\n'));
+    sock.on('data', (chunk) => {
+      clearTimeout(timer);
+      try {
+        finish(!!JSON.parse(chunk.toString().split('\n')[0]).ok);
+      } catch (_) {
+        finish(false);
+      }
+    });
+    sock.on('error', () => { clearTimeout(timer); finish(false); });
+  });
+}
+
+// Starts (or confirms) the persistent MeTTa atomspace server -- see
+// metta_server.py's own docstring for the full design rationale. Called
+// once from createWindow() below, satisfying the "npm start starts it, or
+// checks it's already running and starts it if not -- one command to
+// remember" requirement (2026-09-19).
+//
+// Launched detached + unref()'d so it deliberately OUTLIVES this Electron
+// process: the whole point is persistence across app restarts (real atoms
+// accumulating in memory across many npm-start/quit cycles), not just
+// within one session, so window-all-closed / app quit does NOT kill it --
+// see that handler below, which only kills iterProcess/termProcess.
+async function startMettaServer() {
+  const alreadyRunning = await pingMettaServer();
+  if (alreadyRunning) {
+    pushLog('[metta] persistent MeTTa server already running, reusing it');
+    return { already: true };
+  }
+  // Stale socket file with nothing listening on it -- clear it so the new
+  // process can bind cleanly.
+  try { fs.unlinkSync(ITER_METTA_SOCKET); } catch (_) {}
+  const logPath = path.join(ITER_DIR, '.runtime', 'metta_server.log');
+  fs.mkdirSync(path.dirname(logPath), { recursive: true });
+  const logFd = fs.openSync(logPath, 'a');
+  try {
+    mettaProcess = spawn(pythonBin(), ['metta_server.py'], {
+      cwd: ITER_DIR,
+      env: { ...process.env, ITER_METTA_SOCKET, ITER_DIR, PYTHONUNBUFFERED: '1' },
+      detached: true,
+      stdio: ['ignore', logFd, logFd],
+    });
+    mettaProcess.unref();
+    pushLog('[metta] started persistent MeTTa server (pid ' + mettaProcess.pid + '); log: ' + logPath);
+    return { started: true, pid: mettaProcess.pid };
+  } catch (e) {
+    pushLog('[metta] FAILED to start MeTTa server: ' + e.message);
+    return { error: e.message };
+  }
 }
 
 // ---------------------------------------------------------------------
@@ -1155,6 +1229,7 @@ function createWindow() {
   });
 
   startBridgeServer(tabs, pushLog);
+  startMettaServer();
 }
 
 // ---------------------------------------------------------------------
@@ -1209,6 +1284,8 @@ ipcMain.handle('tabs:reload', (_e, id) => {
 ipcMain.handle('chat:send', (_e, content) => chatBridge.sendToIter(content));
 ipcMain.handle('iter:start', () => startIter());
 ipcMain.handle('iter:stop', () => stopIter());
+ipcMain.handle('metta:status', async () => ({ running: await pingMettaServer() }));
+ipcMain.handle('metta:start', () => startMettaServer());
 ipcMain.handle('iter:status', () => ({ running: !!iterProcess }));
 ipcMain.handle('iter:recentLog', () => iterLog.slice(-200));
 ipcMain.handle('settings:load', () => loadSettings());
