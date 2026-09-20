@@ -91,11 +91,21 @@ class TabManager {
     return !!(tab && tab.pinned);
   }
 
-  createTab(url = 'https://www.google.com') {
+  // opts.preload: absolute path to a scoped preload script for this tab only
+  //   (ordinary tabs pass nothing -> stay exactly as before, no preload, no
+  //   window.iterApi). Used for single-purpose internal pages (e.g. the CRM
+  //   tab) that need a narrow slice of the app bridge without giving every
+  //   browsed tab access to it.
+  // opts.restrictNavigation: when true, blocks this tab from ever navigating
+  //   (via link click, JS redirect, or window.open) away from its starting
+  //   URL. Required whenever opts.preload is set -- a bridged tab must never
+  //   be able to load a different, untrusted page while still holding the
+  //   bridge. Non-bridged tabs never set this and keep full normal browsing.
+  createTab(url = 'https://www.google.com', opts = {}) {
     const id = nextId++;
-    const view = new WebContentsView({
-      webPreferences: { contextIsolation: true, sandbox: true },
-    });
+    const webPreferences = { contextIsolation: true, sandbox: true };
+    if (opts.preload) webPreferences.preload = opts.preload;
+    const view = new WebContentsView({ webPreferences });
     const tab = { id, view, title: 'New Tab', url, locked: false, pinned: false };
     this.tabs.set(id, tab);
     view.webContents.on('page-title-updated', (_e, title) => {
@@ -110,6 +120,13 @@ class TabManager {
       tab.url = navUrl;
       this._notify();
     });
+    if (opts.restrictNavigation) {
+      const startUrl = url;
+      view.webContents.on('will-navigate', (e, navUrl) => {
+        if (navUrl !== startUrl) e.preventDefault();
+      });
+      view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    }
     view.webContents.loadURL(url);
     this.switchTab(id);
     // A new tab also becomes the implicit target for bare navigate/eval/

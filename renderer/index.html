@@ -50,12 +50,15 @@
     <div style="font-size:10px;color:var(--muted)">
       Export saves Iter's accumulated memory, vector store, backups, and knowledge files (not the
       tool/transformation code) to a zip you choose. Import restores that state from a zip (stopping
-      Iter first if it's running). Reset permanently deletes all accumulated state and starts fresh —
+      Iter first if it's running). Restore picks from the app's own automatic backups, taken every 6
+      hours (last 4 kept, a rolling 24h window) — no file picker, and you can fall back to an older one
+      if the newest looks wrong. Reset permanently deletes all accumulated state and starts fresh —
       your tools/transformations code is never touched by any of these.
     </div>
     <div class="row">
       <button id="btn-export-state">Export…</button>
       <button id="btn-import-state">Import…</button>
+      <button id="btn-restore-state">Restore…</button>
       <button id="btn-reset-state">Reset</button>
     </div>
     <div id="state-mgmt-status" style="font-size:10px;color:var(--muted)"></div>

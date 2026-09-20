@@ -1,0 +1,180 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><title>NodeQuest - Vesicle Traffic (Ch4 S3)</title>
+<style>
+body{margin:0;background:#0a1a16;color:#e8e4d8;font-family:Georgia,serif;overflow:hidden}
+.scene{width:100vw;height:100vh;position:relative}
+svg{width:100%;height:100%;display:block}
+#vee{position:fixed;left:2%;right:24%;bottom:2.5%;background:rgba(13,31,26,.93);border:1px solid #2a6b5f;border-radius:10px;padding:10px 16px;font-size:15px;color:#d9e6df}
+#vee b{color:#c8a468}
+#card{position:fixed;left:2%;top:3%;max-width:290px;background:rgba(20,42,36,.94);border:1px solid #8a7a5c;border-radius:10px;padding:12px 14px;font-size:12.5px;line-height:1.5;color:#d8cdb4}
+#card h3{margin:0 0 6px;color:#c8a468;font-size:13.5px;letter-spacing:.4px}
+#meter{position:fixed;top:3%;left:50%;transform:translateX(-50%);text-align:center;font-size:13px;color:#9fb8ac}
+#meter .bar{width:220px;height:11px;border:1px solid #2a6b5f;border-radius:6px;margin:6px auto 0;background:#0d1f1a}
+#meter .fill{height:100%;width:0;background:linear-gradient(90deg,#2a6b5f,#c8a468);border-radius:6px;transition:width .5s ease}
+#badge{position:fixed;top:3%;right:2%;display:none;background:rgba(200,164,104,.14);border:1px solid #c8a468;color:#c8a468;border-radius:10px;padding:9px 15px;font-size:13px}
+#dockLbl{position:fixed;right:2%;top:24%;color:#9fb8ac;font-size:11.5px;letter-spacing:1px}
+@keyframes livePulse{0%,100%{opacity:.22}50%{opacity:.68}}
+@keyframes wob{0%,100%{transform:translate(0,0)}20%{transform:translate(-7px,2px)}40%{transform:translate(6px,-3px)}60%{transform:translate(-4px,-2px)}80%{transform:translate(3px,3px)}}
+.wob{animation:wob .55s ease}
+#replay{position:fixed;right:2%;bottom:3%;background:none;border:1px solid #2a6b5f;color:#9fb8ac;border-radius:8px;padding:6px 14px;font-size:13px;cursor:pointer}
+#replay:hover{border-color:#c8a468;color:#c8a468}
+</style></head><body>
+<div class="scene"><svg id="sc" viewBox="0 0 1200 800" xmlns="http://www.w3.org/2000/svg">
+<defs>
+<radialGradient id="skyG" cx="30%" cy="20%" r="90%"><stop offset="0%" stop-color="#12322a"/><stop offset="100%" stop-color="#0a1a16"/></radialGradient>
+<radialGradient id="cyto" cx="50%" cy="45%" r="65%"><stop offset="0%" stop-color="#1e4a3e"/><stop offset="100%" stop-color="#0f2822"/></radialGradient>
+<radialGradient id="liveG" cx="50%" cy="45%" r="60%"><stop offset="0%" stop-color="#c8a468"/><stop offset="100%" stop-color="#c8a468" stop-opacity="0"/></radialGradient>
+</defs>
+<rect width="1200" height="800" fill="url(#skyG)"/>
+<g id="world"><g id="cellG">
+<ellipse id="cellBody" cx="600" cy="400" rx="300" ry="270" fill="url(#cyto)" stroke="#2a6b5f" stroke-width="10"/>
+<ellipse id="cellLive" cx="600" cy="400" rx="290" ry="260" fill="url(#liveG)" opacity="0" pointer-events="none"/>
+<ellipse id="sickFlash" cx="600" cy="400" rx="300" ry="270" fill="#8a2f2f" opacity="0" pointer-events="none"/>
+<circle cx="500" cy="330" r="36" fill="#0b211c" stroke="#2a6b5f" stroke-width="3" opacity=".85"><title>nucleus - the cell's library</title></circle>
+</g>
+<g id="docks"></g><g id="ves" pointer-events="none"></g><g id="cargoG"></g><g id="flows" pointer-events="none"></g>
+</g><text id="zoomHud" x="20" y="790" fill="#c8a468" font-size="12" opacity="0.8"></text></svg></div>
+<div id="card"><h3>CHAPTER 4 . S3 VESICLE TRAFFIC</h3>The cell ships and receives by bubble. A <i>vesicle</i> pinches off around cargo, drifts the cytoplasm, and must fuse with the one docking port that matches it. Vesicle and port are cut for each other - a hormone sent to a waste port is cargo lost, and the cell's voice goes hoarse.</div>
+<div id="meter">shipment meter<div class="bar"><div class="fill" id="mFill"></div></div><div id="mPct" style="margin-top:4px">0%</div></div>
+<button id="audBtn" style="position:fixed;top:3%;right:14%;background:rgba(20,32,28,0.85);color:#c8a468;border:1px solid #c8a468;border-radius:8px;padding:6px 12px;font-size:14px;cursor:pointer" onclick="_audioToggle();startAmbient()">&#128266; music</button><div id="badge">&#10003; chapter beat unlocked - Ch4 complete</div>
+<div id="dockLbl">CARGO BAY - tap cargo, then its matching dock</div>
+<button id="replay" onclick="resetV()">&#8634; re-ship</button>
+<div id="vee"><b>VEE:</b> <span id="veeTxt">The cell must send three messages tonight. Tap a cargo to pinch off a vesicle - then tap the one dock that matches it. Look closer: each cargo is shaped for a single port.</span></div>
+<script>
+const NS="http://www.w3.org/2000/svg",CX=600,CY=400,RX=298,RY=268;
+const CARGO=[
+ {k:"insulin",name:"hormone",shape:"M0,-20 C14,-20 20,-8 12,2 L0,20 L-12,2 C-20,-8 -14,-20 0,-20 Z",col:"#e0a8c8",flow:"The hormone sails out to speak to the body."},
+ {k:"waste",name:"waste",shape:"M-16,-12 L16,-12 L10,14 L-10,14 Z",col:"#9c8a4a",flow:"Waste is expelled - the cell stays clean."},
+ {k:"lipid",name:"membrane brick",shape:"M-22,-8 L22,-8 L22,8 L-22,8 Z",col:"#6fc4d2",flow:"New brick for the membrane - the cell grows."}];
+const dockPts=[{x:892,y:262},{x:920,y:500},{x:600,y:668}];   /* membrane rim sites */
+const dockKeys=["insulin","waste","lipid"];                  /* which cargo each dock serves */
+let dockOrder=[0,1,2].sort(()=>Math.random()-.5);            /* dock i serves dockOrder[i] */
+let ves=null, vesRaf=null, shp=0, done=false, cargoLeft=[0,1,2], drift=null;
+function el(tag,attrs,parent){const e=document.createElementNS(NS,tag);for(const k in attrs)e.setAttribute(k,attrs[k]);(parent||document.getElementById("cargoG")).appendChild(e);return e}
+function drawDocks(){const D=document.getElementById("docks");D.innerHTML="";
+ dockPts.forEach((p,i)=>{const t=CARGO[dockOrder[i]];
+  el("rect",{x:p.x-40,y:p.y-30,width:80,height:60,rx:12,fill:"rgba(13,31,26,.85)",stroke:t.col,"stroke-width":3,id:"dock"+i,cursor:"pointer"},D).addEventListener("pointerdown",()=>tapDock(i));
+  const tt=el("title",{},D.lastChild);tt.textContent="dock: admits "+t.name+" only";
+  el("text",{x:p.x,y:p.y+48,"text-anchor":"middle",fill:"#9fb8ac","font-size":12},D).textContent=t.name+" port";});}
+function drawCargo(){const G=document.getElementById("cargoG");G.innerHTML="";
+ CARGO.forEach((t,i)=>{const x=190,y=250+i*150;
+  if(!cargoLeft.includes(i)){el("rect",{x:x-60,y:y-34,width:120,height:68,rx:10,fill:"rgba(13,31,26,.5)",stroke:"#1d3a33"},G);
+   el("text",{x:x,y:y+5,"text-anchor":"middle",fill:"#5d7a6e","font-size":13},G).textContent=t.name+" - shipped";return;}
+  const g=el("g",{transform:"translate("+x+" "+y+")",cursor:"pointer"},G);g.dataset.i=i;
+  el("path",{d:t.shape,fill:"rgba(13,31,26,.9)",stroke:t.col,"stroke-width":3},g);
+  el("circle",{r:4,fill:t.col,opacity:.9},g);
+  const tt=el("title",{},g);tt.textContent=t.name+" cargo - "+({insulin:"a message for the whole body",waste:"what the cell must be rid of",lipid:"fresh material for the membrane itself"})[t.k];
+  el("text",{y:42,"text-anchor":"middle",fill:"#9fb8ac","font-size":13},g).textContent=t.name;
+  g.addEventListener("pointerdown",ev=>{ev.preventDefault();tapCargo(i)});});}
+function meter(v){shp=Math.max(0,Math.min(100,v));document.getElementById("mFill").style.width=shp+"%";document.getElementById("mPct").textContent=Math.round(shp)+"%";
+ if(/NaN/.test(String(shp)))throw"NaN meter";}
+function vee(s){document.getElementById("veeTxt").textContent=s}
+function sick(){const c=document.getElementById("cellG");c.classList.remove("wob");void c.getBBox();c.classList.add("wob");
+ const s=document.getElementById("sickFlash");s.setAttribute("opacity",.45);setTimeout(()=>s.setAttribute("opacity",0),600)}
+function tapCargo(i){if(done)return;
+ if(ves){vee("One vesicle at a time - finish or lose this one first.");return}
+ const t=CARGO[i];const g=document.getElementById("ves");
+ ves={i,t,x:230,y:250+i*150};
+ const b=el("g",{id:"vesB"},g);
+ el("circle",{r:30,fill:"rgba(111,196,210,.12)",stroke:t.col,"stroke-width":2.5},b);
+ el("path",{d:t.shape,transform:"scale(.8)",fill:"rgba(13,31,26,.9)",stroke:t.col,"stroke-width":3},b);
+ sfx("pinch");vee("A vesicle pinches off around the "+t.name+". It drifts - find its dock before the current carries it into the far wall.");
+ drift={vx:2.4+Math.random(),vy:(Math.random()-.5)*2};
+ let bounces=0;
+ vesRaf=requestAnimationFrame(stepVes);}
+function stepVes(){if(!ves)return;
+ ves.x+=drift.vx;ves.y+=drift.vy+Math.sin(ves.x/40)*0.6;
+ if(ves.y<170){ves.y=170;drift.vy=Math.abs(drift.vy)}
+ if(ves.y>640){ves.y=640;drift.vy=-Math.abs(drift.vy)}
+ if(ves.x>830){ves.x=830;drift.vx=-Math.abs(drift.vx)*.7}
+ if(ves.x<130){ves.x=130;drift.vx=Math.abs(drift.vx)*1.1}
+ const b=document.getElementById("vesB");b.setAttribute("transform","translate("+ves.x+" "+ves.y+")");
+ if(Math.hypot(ves.x-892,ves.y-262)<46||Math.hypot(ves.x-920,ves.y-500)<46||Math.hypot(ves.x-600,ves.y-668)<52){/* near a dock: let tapDock decide */
+ }
+ vesRaf=requestAnimationFrame(stepVes)}
+
+let vesTimer=null;
+function clearVes(cancel){if(vesRaf)cancelAnimationFrame(vesRaf);vesRaf=null;if(vesTimer){clearTimeout(vesTimer);vesTimer=null}
+ document.getElementById("ves").innerHTML="";ves=null;}
+function tapDock(i,force){if(done)return;
+ if(!ves){vee("No vesicle yet - tap a cargo in the bay to pinch one off.");return}
+ const p=dockPts[i];const near=Math.hypot(ves.x-p.x,ves.y-p.y)<72||force===true;
+ if(!near){vee("The vesicle is not at that port - guide the current or wait for it to drift near.");return}
+ const vi=ves.i, t=ves.t;
+ if(dockOrder[i]===vi){ /* correct fusion: exocytosis */
+  clearVes();cargoLeft=cargoLeft.filter(c=>c!==vi);
+  shipFx(i,t);drawCargo();meter(shp+33);
+  sfx("fuse");vee(t.name+" vesicle fuses true - "+t.flow);
+  if(shp>=99&&!done)win();}
+ else{ /* wrong port: cargo spilled */
+  const spill=el("g",{},document.getElementById("flows"));
+  for(let j=0;j<5;j++){const c=el("circle",{cx:p.x,cy:p.y-50,r:4,fill:t.col,opacity:.95},spill);
+   const t0=performance.now();(function st(now){const q=(now-t0)/900;c.setAttribute("cx",p.x+(j*14-28)*q);c.setAttribute("cy",p.y-50+q*q*160);c.setAttribute("opacity",.95*(1-q));
+    if(q<1&&c.parentNode)requestAnimationFrame(st);else if(c.parentNode)c.remove()})(t0)}
+  sick();sfx("wall");clearVes();meter(shp-8);
+  sfx("spill");vee("No - a "+t.name+" cannot leave by the "+CARGO[dockOrder[i]].name+" port. The cargo spills outside: that is not a working condition.");drawCargo();}}
+function shipFx(i,t){const p=dockPts[i];const dx=Math.abs(p.x-600)>100?Math.sign(p.x-600):0,dy=p.y<400?-1:(p.y>500?1:0);
+ const g=el("g",{},document.getElementById("flows"));
+ const iv=setInterval(()=>{const c=el("circle",{cx:p.x,cy:p.y,r:6,fill:t.col,opacity:.95},g);
+  const t0=performance.now();(function st(now){const q=(now-t0)/1000;c.setAttribute("cx",p.x+dx*90*q);c.setAttribute("cy",p.y+dy*90*q-q*40);c.setAttribute("opacity",.95-(q*.6));
+   if(q<1&&c.parentNode)requestAnimationFrame(st);else if(c.parentNode)c.remove()})(t0)},240);
+ setTimeout(()=>clearInterval(iv),1400);}
+function win(){done=true;document.getElementById("cellLive").setAttribute("opacity",.6);
+ document.getElementById("badge").style.display="block";
+ sfx("win");vee("Three cargoes, three true ports - the cell speaks, cleans, and grows. Chapter 4 complete: the membrane's logic is yours.");}
+function resetV(){clearVes();cargoLeft=[0,1,2];done=false;meter(0);
+ dockOrder=[0,1,2].sort(()=>Math.random()-.5);
+ document.getElementById("badge").style.display="none";document.getElementById("cellLive").setAttribute("opacity",0);
+ document.getElementById("flows").innerHTML="";drawDocks();drawCargo();
+ vee("The cell must send three messages tonight. Tap a cargo to pinch off a vesicle - then tap the one dock that matches it. Look closer: each cargo is shaped for a single port.");}
+for(let i=0;i<10;i++){const a=i/10*2*Math.PI;el("circle",{cx:600+Math.cos(a)*340,cy:400+Math.sin(a)*310,r:4,fill:"#2a6b5f",opacity:.5},document.getElementById("flows"))}
+drawDocks();drawCargo();meter(0);
+window.state=()=>({shp:Math.round(shp),done:done,ves:ves?1:0,left:cargoLeft.length,docks:document.querySelectorAll("#docks rect").length,bay:document.querySelectorAll("#cargoG g").length,badge:getComputedStyle(document.getElementById("badge")).display});
+window.selfTest=()=>JSON.stringify({docks:3,bay:3,shp:0,card:document.getElementById("card").innerText.length>80,vee:document.getElementById("veeTxt").textContent.length>20,nan:/NaN/.test(document.querySelector(".scene").innerHTML)===false});
+window.vesTest=()=>{const s=window.state;
+ const wrongDock=dockOrder.indexOf(0)===0?1:0;   /* a port NOT cut for cargo 0 */
+ tapCargo(0);tapDock(wrongDock,true);const afterWrong=s();
+ const picks=[];for(let c=0;c<3;c++){const d=dockOrder.indexOf(c);tapCargo(c);tapDock(d,true);picks.push(s().left)}
+ const fin=s();return JSON.stringify({afterWrong:{shp:afterWrong.shp,bay:afterWrong.bay,vesLost:afterWrong.ves===0},ships:picks,final:{shp:fin.shp,done:fin.done,badge:fin.badge,flows:document.getElementById("flows").childElementCount>8,nan:/NaN/.test(document.querySelector(".scene").innerHTML)===false}})}
+
+// ==== V2 ZOOM LAYER (2026-09-18) ====
+let zk=1;
+(function(){const svg=document.getElementById("sc"),w=document.getElementById("world"),hud=document.getElementById("zoomHud");
+function setHud(){hud.textContent="zoom x"+zk.toFixed(2)+" - wheel to zoom, double-click to reset"}
+setHud();
+svg.addEventListener("wheel",e=>{e.preventDefault();const r=svg.getBoundingClientRect();
+ const px=(e.clientX-r.left)*1200/r.width, py=(e.clientY-r.top)*800/r.height;
+ zk=Math.min(6,Math.max(1,zk*(e.deltaY<0?1.2:1/1.2)));
+ const cx=px-(px-600)*zk, cy=py-(py-400)*zk;
+ w.setAttribute("transform","translate("+cx+" "+cy+") scale("+zk+")");
+ setHud();},{passive:false});
+svg.addEventListener("dblclick",()=>{zk=1;w.removeAttribute("transform");setHud()});
+})();
+function toWorld2(cx,cy){const svg=document.getElementById("sc");const m=svg.getScreenCTM().inverse();const p=new DOMPoint(cx,cy).matrixTransform(m);
+ const w=document.getElementById("world");const t=w.getAttribute("transform");
+ if(!t)return p;const mm=t.match(/translate\(([-\d.]+)\s+([\-.\d]+)\)\s+scale\(([-\d.]+)\)/);
+ if(!mm)return p;return {x:(p.x-parseFloat(mm[1]))/parseFloat(mm[3]),y:(p.y-parseFloat(mm[2]))/parseFloat(mm[3])}}
+
+// ==== V2 AUDIO LAYER (2026-09-18) ====
+let AC2=null, muted2=false, amb2=null;
+function ac2(){if(!AC2){try{AC2=new (window.AudioContext||window.webkitAudioContext)()}catch(e){return null}}if(AC2&&AC2.state==="suspended")AC2.resume();return AC2;}
+function tone2(freq,dur,type,gain,when){const a=ac2();if(!a||muted2)return;const o=a.createOscillator(),g=a.createGain();o.type=type||"sine";o.frequency.value=freq;
+ g.gain.setValueAtTime(0.0001,a.currentTime+(when||0));g.gain.exponentialRampToValueAtTime(gain||0.08,a.currentTime+(when||0)+0.02);g.gain.exponentialRampToValueAtTime(0.0001,a.currentTime+(when||0)+(dur||0.3));
+ o.connect(g);g.connect(a.destination);o.start(a.currentTime+(when||0));o.stop(a.currentTime+(when||0)+(dur||0.3)+0.05);}
+window.sfx=function(kind){if(muted2)return;
+ if(kind==="pinch"){tone2(392,0.15,"triangle",0.06);tone2(523,0.18,"triangle",0.05,0.1);}
+ if(kind==="fuse"){tone2(523,0.12,"sine",0.07);tone2(784,0.16,"sine",0.06,0.1);}
+ if(kind==="spill"){tone2(220,0.25,"sawtooth",0.05);tone2(185,0.3,"sawtooth",0.04,0.12);}
+ if(kind==="wall"){tone2(160,0.35,"square",0.04);}
+ if(kind==="win"){[523,659,784,1047].forEach((f,i)=>tone2(f,0.25,"sine",0.07,i*0.11));}
+ if(kind==="clown"){tone2(880,0.1,"square",0.04);tone2(740,0.1,"square",0.04,0.12);tone2(622,0.14,"square",0.04,0.24);}};
+window.startAmbient=function(){if(amb2||muted2)return;const a=ac2();if(!a)return;amb2=[];[131,196,262].forEach(f=>{const o=a.createOscillator(),g=a.createGain();o.type="sine";o.frequency.value=f;g.gain.value=0.012;o.connect(g);g.connect(a.destination);o.start();amb2.push({o:o,g:g});});};
+window.stopAmbient=function(){if(!amb2)return;amb2.forEach(x=>{try{x.o.stop()}catch(e){}});amb2=null;};
+window.audioState=()=>({muted:muted2,ambient:!!amb2,ctx:AC2?AC2.state:null});
+window._audioToggle=function(){muted2=!muted2;if(muted2){stopAmbient()}else{startAmbient()}const b=document.getElementById("audBtn");if(b)b.textContent=muted2?"\u{1F507} music":"\u{1F50A} music";};
+
+// ==== V2 COMEDY OUTCOMES (2026-09-18): pinch wrong cargo = clown-car cascade ====
+function clownFx(){sfx("clown");vee("You pinch off a vesicle around... nothing. It wobbles, honks like a distant bicycle horn, and a single tiny clown shoe flops out onto the dock before it dissolves. The cell pretends not to have seen that. (fun only - story unchanged)");
+ // comedic shoe particle in flows
+ const F=document.getElementById("flows");const g=el("g",{},F);const t=el("text",{x:600,y:430,"text-anchor":"middle",fill:"#e8e4d8","font-size":"18"},g);t.textContent="\u{1F45F}\u{1F45F}";
+ const t0=performance.now();(function st(now){const q=(now-t0)/1800;if(q>1){g.remove();return}g.setAttribute("transform","translate(0 "+(-q*60)+") rotate("+(q*40)+")");requestAnimationFrame(st)})(t0);}
+</script></body></html>

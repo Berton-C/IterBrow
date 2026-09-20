@@ -24,6 +24,14 @@
   .stat { background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
     padding: 8px 16px; font-size: 13px; color: var(--muted); }
   .stat b { color: var(--ink); font-size: 16px; margin-right: 4px; }
+  .fbtn { background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    padding: 8px 16px; font-size: 13px; color: var(--muted); cursor: pointer;
+    transition: border-color .15s, color .15s; }
+  .fbtn:hover { border-color: var(--gold); color: var(--ink); }
+  .fbtn b { color: var(--ink); font-size: 16px; margin-right: 4px; }
+  .fbtn.on { border-color: var(--gold); color: var(--ink);
+    box-shadow: 0 0 0 1px var(--gold) inset; }
+  .fbtn.on b { color: var(--gold); }
   .card {
     background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
     padding: 20px 22px; margin-bottom: 20px; position: relative;
@@ -102,6 +110,7 @@
 <header>
   <h1>PW<span class="q">Q</span></h1>
   <span class="sub">Pending Work Queue — where iter proposes, you dispose</span>
+<span class="sub" id="seedNote" style="display:none;color:var(--amber)"> · showing example content — no queue file yet</span>
 </header>
 <div class="stats" id="stats"></div>
 <div id="queue"></div>
@@ -110,6 +119,7 @@
 <script>
 const PWQ_PATH = '.runtime/pwq.json';
 let data = null;
+let filter = 'waiting'; // waiting | orders | done | all
 
 function fmtAge(iso) {
   const then = new Date(iso.replace(' ', 'T'));
@@ -138,23 +148,40 @@ function nowStr() {
 }
 
 let canPersist = false;
+let usingSeed = false;
 
 async function load() {
   // Preferred: app bridge (when running inside the IterBrow shell)
-  try {
-    if (window.iterApi && window.iterApi.fsRead) {
+  if (window.iterApi && window.iterApi.fsRead) {
+    try {
       const r = await window.iterApi.fsRead(PWQ_PATH);
       data = JSON.parse(r.content);
       canPersist = true;
       render();
       return;
-    }
-  } catch (e) { /* fall through */ }
+    } catch (e) { /* no curated queue yet (fresh install) -- try the generic seed */ }
+    try {
+      const r = await window.iterApi.fsRead('pwq_seed.json');
+      data = JSON.parse(r.content);
+      usingSeed = true;
+      render();
+      return;
+    } catch (e) { /* fall through to standalone fetch path */ }
+  }
   // Fallback: direct file fetch (standalone tab)
   try {
     const resp = await fetch('.runtime/pwq.json');
     if (!resp.ok) throw new Error('HTTP ' + resp.status);
     data = JSON.parse(await resp.text());
+    render();
+    return;
+  } catch (e) { /* fall through */ }
+  // No runtime queue and no app bridge -- try the generic seed via direct fetch
+  try {
+    const resp = await fetch('pwq_seed.json');
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    data = JSON.parse(await resp.text());
+    usingSeed = true;
     render();
     return;
   } catch (e) { /* fall through */ }
@@ -176,26 +203,51 @@ async function save() {
 
 function toast(msg) {
   const t = document.getElementById('toast');
-  t.textContent = msg; t.classList.add('show');
+  t.textContent = msg + (canPersist ? '' : ' (saved to mirror — sync via Iter)'); t.classList.add('show');
   setTimeout(() => t.classList.remove('show'), 2200);
 }
 
+function matchesFilter(i) {
+  if (filter === 'waiting') return i.status !== 'done' && !i.orders_given;
+  if (filter === 'orders')  return i.orders_given && i.status !== 'done';
+  if (filter === 'done')    return i.status === 'done';
+  return true;
+}
+function fbtn(f, n, label, extra) {
+  return '<div class="fbtn' + (filter === f ? ' on' : '') + '" data-f="' + f + '">' +
+    '<b>' + n + '</b> ' + label + (extra ? '<span style="margin-left:8px;opacity:.75">' + extra + '</span>' : '') +
+    (filter === f ? '  ▾' : '') + '</div>';
+}
+
 function render() {
+  const seedNote = document.getElementById('seedNote');
+  if (seedNote) seedNote.style.display = usingSeed ? 'inline' : 'none';
   const q = document.getElementById('queue');
   const stats = document.getElementById('stats');
   const items = data.items;
   const waiting = items.filter(i => i.status !== 'done').length;
-  const orders = items.filter(i => i.orders_given).length;
+  const orders = items.filter(i => i.orders_given && i.status !== 'done').length;
+  const done = items.filter(i => i.status === 'done').length;
   const oldest = items.filter(i => i.status !== 'done')
     .map(i => i.created).sort()[0];
   stats.innerHTML =
-    '<div class="stat"><b>' + waiting + '</b> waiting on you</div>' +
-    '<div class="stat"><b>' + orders + '</b> orders given</div>' +
-    '<div class="stat"><b>' + items.length + '</b> total</div>' +
-    (oldest ? '<div class="stat">oldest: ' + fmtAge(oldest) + '</div>' : '');
-  document.getElementById('empty').style.display = items.length ? 'none' : 'block';
+    fbtn('waiting', waiting, 'waiting on you') +
+    fbtn('orders', orders, 'orders given') +
+    fbtn('done', done, 'completed') +
+    fbtn('all', items.length, 'total', oldest ? 'oldest ' + fmtAge(oldest) + ' waiting' : '');
+  Array.from(stats.querySelectorAll('.fbtn')).forEach(b => {
+    b.addEventListener('click', () => {
+      filter = b.dataset.f;
+      render();
+    });
+  });
+  const shown = items.filter(matchesFilter);
+  document.getElementById('empty').style.display = shown.length ? 'none' : 'block';
+  if (!shown.length && items.length)
+    document.getElementById('empty').textContent = 'Nothing in this view — click another filter. 🌙';
   q.innerHTML = '';
-  items.forEach((item, idx) => {
+  shown.forEach((item) => {
+    const idx = items.indexOf(item);
     const card = document.createElement('div');
     card.className = 'card ' + (item.status === 'done' ? 'done' : ageClass(item.created));
     card.innerHTML = renderCard(item, idx);

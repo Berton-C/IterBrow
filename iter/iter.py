@@ -49,7 +49,7 @@ MAX_TOOLS = 80  # raised from 30: the tools/ directory has grown to 55+ public t
                 # could not respond to the user despite the silent_streak safety net repeatedly demanding
                 # it call send. See PROTECTED_TOOL_NAMES below for defense-in-depth against a recurrence.
 MAX_TOOL_DESCRIPTION_CHARS = 500
-DYNAMIC_TIMEOUT = 5
+DYNAMIC_TIMEOUT = 15
 METTA_GATE_PATH = Path("tools/_metta_gate.py")  # Phase 3 reasoning-substrate dispatch gate; see tools/_metta_gate.py
 GATE_LOG_PATH = Path("transformations/.runtime/gate_health.log")  # trail for gate ALLOW-via-fail-open/crash cases, which iter.py's dispatch loop otherwise never surfaces (see _log_gate_issue)
 MODEL = os.getenv("LLM_MODEL", "mlx-community/gemma-4-26b-a4b-it-4bit")

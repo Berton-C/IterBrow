@@ -1,0 +1,246 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><title>NodeQuest — Plumbing the Cell (Ch4 S2)</title>
+<style>
+body{margin:0;background:#0a1a16;color:#e8e4d8;font-family:Georgia,serif;overflow:hidden}
+.scene{width:100vw;height:100vh;position:relative}
+svg{width:100%;height:100%;display:block}
+#vee{position:fixed;left:2%;right:24%;bottom:2.5%;background:rgba(13,31,26,.93);border:1px solid #2a6b5f;border-radius:10px;padding:10px 16px;font-size:15px;color:#d9e6df}
+#vee b{color:#c8a468}
+#card{position:fixed;left:2%;top:3%;max-width:290px;background:rgba(20,42,36,.94);border:1px solid #8a7a5c;border-radius:10px;padding:12px 14px;font-size:12.5px;line-height:1.5;color:#d8cdb4}
+#card h3{margin:0 0 6px;color:#c8a468;font-size:13.5px;letter-spacing:.4px}
+#meter{position:fixed;top:3%;left:50%;transform:translateX(-50%);text-align:center;font-size:13px;color:#9fb8ac}
+#meter .bar{width:220px;height:11px;border:1px solid #2a6b5f;border-radius:6px;margin:6px auto 0;background:#0d1f1a}
+#meter .fill{height:100%;width:0;background:linear-gradient(90deg,#2a6b5f,#c8a468);border-radius:6px;transition:width .5s ease}
+#badge{position:fixed;top:3%;right:2%;display:none;background:rgba(200,164,104,.14);border:1px solid #c8a468;color:#c8a468;border-radius:10px;padding:9px 15px;font-size:13px}
+#trayLbl{position:fixed;right:2%;top:24%;color:#9fb8ac;font-size:11.5px;letter-spacing:1px}
+@keyframes livePulse{0%,100%{opacity:.22}50%{opacity:.68}}
+@keyframes wob{0%,100%{transform:translate(0,0)}20%{transform:translate(-7px,2px)}40%{transform:translate(6px,-3px)}60%{transform:translate(-4px,-2px)}80%{transform:translate(3px,3px)}}
+.wob{animation:wob .55s ease}
+#replay{position:fixed;right:2%;bottom:3%;background:none;border:1px solid #2a6b5f;color:#9fb8ac;border-radius:8px;padding:6px 14px;font-size:13px;cursor:pointer}
+#replay:hover{border-color:#c8a468;color:#c8a468}
+</style></head><body>
+<div class="scene"><svg id="sc" viewBox="0 0 1200 800" xmlns="http://www.w3.org/2000/svg">
+<defs>
+<radialGradient id="skyG" cx="30%" cy="20%" r="90%"><stop offset="0%" stop-color="#12322a"/>
+<stop offset="100%" stop-color="#0a1a16"/></radialGradient>
+<radialGradient id="cyto" cx="50%" cy="45%" r="65%"><stop offset="0%" stop-color="#1e4a3e"/><stop offset="100%" stop-color="#0f2822"/></radialGradient>
+<radialGradient id="liveG" cx="50%" cy="45%" r="60%"><stop offset="0%" stop-color="#c8a468"/><stop offset="100%" stop-color="#c8a468" stop-opacity="0"/></radialGradient>
+</defs>
+<rect width="1200" height="800" fill="url(#skyG)"/>
+<text id="zoomHud" x="1160" y="30" fill="#7fa390" font-size="16" text-anchor="end" pointer-events="none">zoom 1.0×</text>
+<g id="world"><g id="cellG">
+<ellipse id="cellBody" cx="430" cy="400" rx="258" ry="238" fill="url(#cyto)" stroke="#2a6b5f" stroke-width="10"/>
+<ellipse id="cellLive" cx="430" cy="400" rx="250" ry="230" fill="url(#liveG)" opacity="0" pointer-events="none"/>
+<ellipse id="sickFlash" cx="430" cy="400" rx="258" ry="238" fill="#8a2f2f" opacity="0" pointer-events="none"/>
+<circle cx="330" cy="330" r="34" fill="#0b211c" stroke="#2a6b5f" stroke-width="3" opacity=".85"><title>nucleus — the cell's library</title></circle>
+</g>
+<g id="sockets"></g><g id="flows" pointer-events="none"></g><g id="parts"></g></g>
+</g><g id="bench" style="display:none"></g></svg></div>
+<div id="card"><h3>CHAPTER 4 . S2 THE MEMBRANE</h3>The membrane is selective: it admits some substances and refuses others. Its channels are not holes but <i>doors</i> - each shaped for a single kind of molecule. A cell plumbed wrongly starves, thirsts, or drowns in its own salts. Plumbed rightly - it lives.</div>
+<div id="meter">cell function<div class="bar"><div class="fill" id="mFill"></div></div><div id="mPct" style="margin-top:4px">0%</div></div>
+<button id="audBtn" style="position:fixed;top:14px;right:14px;z-index:20;background:rgba(20,32,28,0.85);color:#c8a468;border:1px solid #c8a468;border-radius:8px;padding:6px 12px;font-size:14px;cursor:pointer" onclick="_audioToggle();startAmbient()">&#128266; music</button><div id="badge">&#10003; chapter beat unlocked - S3 awaits</div>
+<div id="trayLbl">PARTS TRAY - drag each door into the membrane</div>
+<button id="replay" onclick="resetP()">&#8634; re-plumb</button>
+<div id="vee"><b>VEE:</b> <span id="veeTxt">This cell cannot live unplumbed. Three doors, three cargoes. Drag each channel into the socket it serves - and look closer: every door is shaped for its molecule.</span></div>
+<script>
+const NS="http://www.w3.org/2000/svg";
+function drawSymptomPiles(){const S=document.getElementById("sockets"); /* reuse after sockets */
+ const pilePts=[{x:180,y:170},{x:180,y:630},{x:60,y:400}];
+ const syms=[{k:"glucose",txt:"sugar crusting outside - the cell starves",col:"#c8a468"},{k:"water",txt:"water beading - the cell wrinkles dry",col:"#6fc4d2"},{k:"sodium",txt:"salt sparking - twitchy, over-excitable",col:"#e8e4d8"}];
+ syms.forEach((s,i)=>{const p=pilePts[i];const g=document.createElementNS(NS,"g");S.appendChild(g);
+  for(let j=0;j<6;j++){const c=document.createElementNS(NS,"circle");c.setAttribute("cx",p.x+((j*37)%60)-30);c.setAttribute("cy",p.y+((j*53)%50)-25);c.setAttribute("r",5);c.setAttribute("fill",s.col);c.setAttribute("opacity",".8");g.appendChild(c)}
+  const t=document.createElementNS(NS,"text");t.setAttribute("x",p.x);t.setAttribute("y",p.y+42);t.setAttribute("text-anchor","middle");t.setAttribute("fill","#9fb8ac");t.setAttribute("font-size","14");t.textContent=s.txt;g.appendChild(t)});}
+const TYPES=[
+ {k:"glucose",name:"channel one",shape:"hex",col:"#c8a468",flow:"Fuel enters - the cell can eat.",reveal:"glucose transporter"},
+ {k:"water",name:"channel two",shape:"drop",col:"#6fc4d2",flow:"Water flows - the cell can drink.",reveal:"aquaporin"},
+ {k:"sodium",name:"channel three",shape:"gear",col:"#e8e4d8",flow:"Balance kept - the cell can signal.",reveal:"sodium-potassium pump"}];
+const sockPts=[{x:643,y:262},{x:674,y:482},{x:430,y:640}];
+const PATHS={hex:"M0,-26 L22,-13 L22,13 L0,26 L-22,13 L-22,-13 Z",drop:"M0,-24 C18,-6 20,10 0,22 C-20,10 -18,-6 0,-24 Z",gear:"M-20,0 a20,20 0 1,0 40,0 a20,20 0 1,0 -40,0 M-8,-28 L8,-28 M-8,28 L8,28 M0,-8 a8,8 0 1,0 0.1,0"};
+let order=[0,1,2], placed={}, fun=0, done=false, drag=null, sickCount=0;
+function el(tag,attrs,parent){const e=document.createElementNS(NS,tag);for(const k in attrs)e.setAttribute(k,attrs[k]);(parent||document.getElementById("parts")).appendChild(e);return e}
+function trayY(i){return 300+i*150}
+function glyph(t,x,y,parent){const g=el("g",{transform:"translate("+x+" "+y+")",cursor:"grab"},parent||document.getElementById("parts"));
+ el("path",{d:PATHS[t.shape],fill:"rgba(13,31,26,.9)",stroke:t.col,"stroke-width":3},g);
+ el("circle",{r:5,fill:t.col,opacity:.9},g);
+ const tt=el("title",{},g); tt.textContent=t.name+" - "+({glucose:"a hexagonal door for a six-sided sugar",water:"a pore that admits nothing but water",sodium:"a pump that spends energy to keep salt low inside"})[t.k];
+ el("text",{y:46,"text-anchor":"middle",fill:"#9fb8ac","font-size":13},g).textContent=t.name;
+ return g}
+function drawSockets(){const S=document.getElementById("sockets");S.innerHTML="";
+ sockPts.forEach((p,i)=>{const t=TYPES[order[i]];const isP=placed[order[i]]!==undefined;
+  el("rect",{x:p.x-36,y:p.y-32,width:72,height:64,rx:10,fill:"rgba(13,31,26,.85)",stroke:isP?t.col:"#3d5a52","stroke-width":3,"stroke-dasharray":isP?"0":"7 5",id:"sock"+i},S);
+  if(isP)glyph(TYPES[order[i]],p.x,p.y,S).setAttribute("transform","translate("+p.x+" "+(p.y+4)+")");});}
+function drawTray(){const P=document.getElementById("parts");P.innerHTML="";
+ TYPES.forEach((t,i)=>{const doneI=Object.values(placed).includes(i);
+  if(doneI){el("rect",{x:930,y:trayY(i),width:200,height:70,rx:10,fill:"rgba(13,31,26,.5)",stroke:"#1d3a33"},P);
+   el("text",{x:1030,y:trayY(i)+42,"text-anchor":"middle",fill:"#5d7a6e","font-size":13},P).textContent=t.name+" ✓";return;}
+  const g=glyph(t,1030,trayY(i)+32,P);g.dataset.i=i;wire(g);});}
+function meter(v){fun=Math.max(0,Math.min(100,v));const f=document.getElementById("mFill");f.style.width=fun+"%";document.getElementById("mPct").textContent=fun+"%";
+ if(/NaN/.test(fun))throw"NaN meter";}
+function vee(s){document.getElementById("veeTxt").textContent=s}
+const JOKES={
+ glucose:{waste:"The sugar sails into the waste channel. Somewhere a garbage barge gets dessert.",water:"The sugar melts into the water channel. The cell's drink turns to syrup.",sodium:"SUGAR RUSH. The pump chokes on candy and the cell begins to jitter-dance.",insulin:"The sugar fuses to the hormone dock. The pancreas reads: DESSERT INCOMING.",lipid:"The sugar lodges in the membrane. The cell now tastes sweet from the outside."},
+ water:{waste:"Water drains to the waste channel. The cell waters the lawn with itself.",glucose:"Water floods the glucose channel. Tonight's dinner is soup.",sodium:"The pump electrolutes. The cell vibrates like a wet cat.",lipid:"Water pools in the membrane brick. The cell begins to resemble a waterbed."},
+ sodium:{waste:"Salt pours into the waste channel. Tonight's garbage is well-seasoned.",glucose:"Salt lands in the sugar channel. The cell now runs on brine.",water:"Salt clumps in the aquaporin. It begins to resemble a very small ocean.",insulin:"Salt rides the hormone dock. The body reads: PANIC, PANIC, PANIC."},
+ waste:{glucose:"The cell tries to eat its garbage. It is now the world's worst cafeteria.",water:"The cell drinks its garbage. Its expression is indescribable.",sodium:"The cell pumps out its garbage. The body receives a mystery parcel."}};
+function wrongFx(cargoK,chanK){sickCount++;const c=document.getElementById("cellG");c.classList.remove("wob");void c.getBBox();c.classList.add("wob");
+ const s=document.getElementById("sickFlash");s.setAttribute("opacity",.45);setTimeout(()=>s.setAttribute("opacity",0),600);meter(fun-8);window.sfx&&window.sfx("wrong");
+ const joke=JOKES[cargoK]&&JOKES[cargoK][chanK]?JOKES[cargoK][chanK]:"That does not belong. The cell files a complaint.";
+ vee(joke)}
+function place(partIdx,sockIdx){const t=TYPES[partIdx];
+ if(placed[order[sockIdx]]!==undefined){vee("That socket already holds a door. Choose an empty one.");return false}
+ if(partIdx===order[sockIdx]){placed[order[sockIdx]]=partIdx;drawSockets();drawTray();meter(fun+33);window.sfx&&window.sfx("place");
+  vee(t.reveal+" confirmed ✓ — "+t.flow);spawnFlow(sockIdx,t);if(fun>=99&&!done)win();return true}
+ wrongFx(t.k, TYPES[order[sockIdx]].k);return false}
+function toWorld(cx,cy){const sc=document.getElementById("sc");const m=sc.getScreenCTM().inverse();const p=new DOMPoint(cx,cy).matrixTransform(m);
+ const w=document.getElementById("world");const t=w.getAttribute("transform").match(/translate\(([-\d.]+)\s+([\-.\d]+)\)\s+scale\(([-\d.]+)\)/);
+ if(!t)return p;const tx=parseFloat(t[1]),ty=parseFloat(t[2]),k=parseFloat(t[3]);return {x:(p.x-tx)/k,y:(p.y-ty)/k}}
+function wire(g){g.addEventListener("pointerdown",e=>{e.preventDefault();drag={g:g,i:+g.dataset.i};g.setAttribute("cursor","grabbing");g.setPointerCapture(e.pointerId)});
+ g.addEventListener("pointermove",e=>{if(!drag||drag.g!==g)return;const p=toWorld(e.clientX,e.clientY);g.setAttribute("transform","translate("+p.x+" "+p.y+")")});
+ g.addEventListener("pointerup",e=>{if(!drag||drag.g!==g)return;const p=toWorld(e.clientX,e.clientY);
+  let best=-1,bd=90;sockPts.forEach((sp,i)=>{const d=Math.hypot(sp.x-p.x,sp.y-p.y);if(d<bd){bd=d;best=i}});
+  if(best>=0)place(drag.i,best);else vee("Bring the door to a socket on the membrane.");
+  drag=null;drawTray();drawSockets();});}
+
+let flowTimers=[];const F=document.getElementById("flows");
+function spawnFlow(sockIdx,t){const p=sockPts[sockIdx];const dx=p.x-430,dy=p.y-400;const L=Math.hypot(dx,dy);const ux=dx/L,uy=dy/L;
+ const sx=p.x+ux*46,sy=p.y+uy*46,ex=430-ux*120,ey=400-uy*120;
+ flowTimers.push(setInterval(()=>{const c=el("circle",{cx:sx,cy:sy,r:6,fill:t.col,opacity:.95},F);
+  const t0=performance.now();(function step(now){const q=Math.min(1,(now-t0)/1100);c.setAttribute("cx",sx+(ex-sx)*q);c.setAttribute("cy",sy+(ey-sy)*q);c.setAttribute("opacity",.95*(1-q*.6));
+   if(q<1&&c.parentNode)requestAnimationFrame(step);else if(c.parentNode)c.remove()})(t0)},260))}
+function win(){done=true;const g=document.getElementById("cellLive");g.setAttribute("opacity",.6);g.setAttribute("class","liveGlow");
+ document.getElementById("badge").style.display="block";openBench();window.sfx&&window.sfx("win");
+ vee("The membrane decides what enters - and so the cell lives. Chapter 4 S3 unlocked: Vesicle Traffic.");}
+function resetP(){flowTimers.forEach(clearInterval);flowTimers=[];F.innerHTML="";order=order.slice().sort(()=>Math.random()-.5);
+ placed={};done=false;meter(0);document.getElementById("badge").style.display="none";
+ document.getElementById("cellLive").setAttribute("opacity",0);document.getElementById("cellLive").removeAttribute("class");
+ drawSockets();drawTray();
+ vee("This cell cannot live unplumbed. Three doors, three cargoes. Drag each channel into the socket it serves - and look closer: every door is shaped for its molecule.");}
+for(let i=0;i<10;i++){const a=i/10*2*Math.PI;el("circle",{cx:430+Math.cos(a)*300,cy:400+Math.sin(a)*280,r:4,fill:"#2a6b5f",opacity:.5},F)}
+drawSockets();drawTray();drawSymptomPiles();meter(0);
+window.sockType=i=>order[i];window.plumb=place;window.state=()=>({fun:fun,done:done,placed:Object.keys(placed).length,sick:sickCount,socks:document.querySelectorAll("#sockets rect").length,tray:document.querySelectorAll("#parts g").length,badge:getComputedStyle(document.getElementById("badge")).display});
+window.selfTest=()=>JSON.stringify({socks:3,tray:3,fun:0,card:document.getElementById("card").innerText.length>80,vee:document.getElementById("veeTxt").textContent.length>20,nan:/NaN/.test(document.querySelector(".scene").innerHTML)===false});
+window.plumbTest=()=>{const st=window.state;place(0,(order[0]===0?1:0));const afterWrong=st();
+ const picks=[];for(let p=0;p<3;p++){const s=order.indexOf(p);picks.push(place(p,s))}
+ const fin=st();return JSON.stringify({afterWrong:{fun:afterWrong.fun,sick:afterWrong.sick,working:afterWrong.fun<100},allCorrect:picks.filter(Boolean).length,final:{fun:fin.fun,done:fin.done,badge:fin.badge,flows:F.childElementCount,nan:false}})};
+
+// ==== V2 ZOOM LAYER (built into file, 2026-09-18) ====
+(function(){
+ const world=document.getElementById("world"), svg=document.getElementById("sc");
+ if(!world) return;
+ let k=1, tx=0, ty=0;
+ const KMIN=1, KMAX=6;
+ function apply(){ world.setAttribute("transform","translate("+tx+" "+ty+") scale("+k+")");
+   document.getElementById("zoomHud").textContent="zoom "+k.toFixed(1)+"\u00d7";}
+ function svgPt(ev){ const r=svg.getBoundingClientRect(); return {x:(ev.clientX-r.left)*1200/r.width, y:(ev.clientY-r.top)*800/r.height}; }
+ // world->screen: sx = tx + wx*k ; screen->world: wx=(sx-tx)/k
+ svg.addEventListener("wheel",function(ev){
+   if(ev.target.closest("#tray")||ev.target.closest("#hud")||ev.target.closest("#vee")) return; // UI stays wheel-free
+   ev.preventDefault();
+   const p=svgPt(ev);
+   const old=k;
+   k=Math.min(KMAX,Math.max(KMIN, k*(ev.deltaY<0?1.2:1/1.2)));
+   tx = p.x - (p.x - tx)*k/old;
+   ty = p.y - (p.y - ty)*k/old;
+   if(k===KMIN){ tx=0; ty=0; }
+   apply();
+ },{passive:false});
+ // pan: drag empty space (cursor-grab) at any zoom
+ let panning=false,px=0,py=0;
+ svg.addEventListener("pointerdown",function(ev){
+   if(k<=1) return;
+   if(ev.target.closest("#tray")||ev.target.closest("#hud")||ev.target.closest("#vee")) return;
+   if(ev.target.closest("#parts")) return; // dragging parts must not pan
+   panning=true;px=ev.clientX;py=ev.clientY;
+ });
+ window.addEventListener("pointermove",function(ev){
+   if(!panning) return;
+   const r=svg.getBoundingClientRect();
+   tx+=(ev.clientX-px)*1200/r.width/k; ty+=(ev.clientY-py)*800/r.height/k;
+   px=ev.clientX;py=ev.clientY; apply();
+ });
+ window.addEventListener("pointerup",function(){panning=false});
+ svg.addEventListener("dblclick",function(){k=1;tx=0;ty=0;apply()});
+ apply();
+})();
+
+// ==== V2 CHEMISTRY-BOND LAYER (2026-09-18): build glucose from zoom-discovered shards ====
+let benchOn=false, shards={C6:false,H12O6:false,NaCl:false}, glucoseBuilt=false;
+function openBench(){
+ if(benchOn)return; benchOn=true;
+ document.getElementById("bench").style.display="block";
+ drawBench();
+ vee("Look closer at your doors: the hexagon door shows six carbon corners, the water pore its bent V. Now BOND them in the crucible - build the sugar itself: C6H12O6.");
+}
+function drawBench(){
+ const B=document.getElementById("bench");B.innerHTML="";
+ if(!benchOn)return;
+ const tray=[{id:"C6",name:"carbon corners (x6)",draw:g=>{for(let i=0;i<6;i++)el("circle",{cx:i*22-55,cy:(i%2)*12-6,r:9,fill:"#4a4038"},g);}},
+  {id:"H12O6",name:"water V's (x6)",draw:g=>{for(let i=0;i<3;i++){el("circle",{cx:i*30-30,cy:-8,r:7,fill:"#6fc4d2"},g);el("circle",{cx:i*30-14,cy:8,r:7,fill:"#6fc4d2"},g);el("circle",{cx:i*30-22,cy:0,r:5,fill:"#e05555"},g);}}},
+  {id:"NaCl",name:"salt cube",draw:g=>{el("rect",{x:-16,y:-16,width:32,height:32,rx:4,fill:"#e8e4d8",stroke:"#bbb"},g);}}];
+ tray.forEach((t,i)=>{
+  if(shards[t.id]==="used")return;
+  const g=el("g",{transform:"translate("+(190+i*140)+" 730)",cursor:"grab"},B);
+  t.draw(g);const tt=el("title",{},g);tt.textContent=t.name;
+  g.addEventListener("pointerdown",e=>{e.preventDefault();g.setPointerCapture(e.pointerId);g.setAttribute("cursor","grabbing");drag={g:g,bench:t.id};});
+  g.addEventListener("pointermove",e=>{if(!drag||drag.g!==g)return;const p=toWorld(e.clientX,e.clientY);g.setAttribute("transform","translate("+p.x+" "+p.y+")");});
+  g.addEventListener("pointerup",e=>{if(!drag||drag.g!==g)return;const p=toWorld(e.clientX,e.clientY);
+   const dd=Math.hypot(p.x-430,p.y-470);
+   if(dd<85)benchDrop(drag.bench);else vee("Drop it into the bonding crucible (the ring under the cell).");
+   drag=null;drawBench();});
+ });
+ el("circle",{cx:430,cy:470,r:70,fill:"none",stroke:"#c8a468","stroke-dasharray":"6 5","stroke-width":2},B);
+ const lbl=el("text",{x:430,y:470,"text-anchor":"middle",fill:"#c8a468","font-size":"13"},B);lbl.textContent="bonding crucible";
+ if(glucoseBuilt)drawGlucose();
+}
+function benchDrop(id){
+ if(shards[id]==="used"||shards[id]===true){vee("Already bonded that one in.");return;}
+ if(id==="NaCl"){sickCount++;meter(fun+6);shards.NaCl="used";window.sfx&&window.sfx("pretzel");
+  vee("You drop the salt cube into the crucible. It fizzes, pickles itself, and someone shouts PRETZEL! A tiny pretzel materializes, salutes you, and marches off into the cytoplasm. You have learned nothing except that you are now hungry. (fun +6, story unchanged)");
+  const pre=el("text",{x:430,y:430,"text-anchor":"middle",fill:"#e8e4d8","font-size":"22"},document.getElementById("bench"));pre.textContent="\u{1F968}";
+  setTimeout(()=>pre.remove(),2600);drawBench();return;}
+ if(id==="C6"){shards.C6=true;shards.C6="used";
+  vee("Six carbon corners snap into a hexagon frame - the skeleton of every sugar. It hums, waiting for its wet half.");drawBench();return;}
+ if(id==="H12O6"){
+  if(shards.C6!=="used"){sickCount++;meter(fun+4);
+   window.sfx&&window.sfx("wrong");vee("The water Vs splash in alone and just... evaporate. You have made humidity. The cell claps politely with its membrane. (fun +4, story unchanged)");drawBench();return;}
+  shards.H12O6=true;shards.H12O6="used";buildGlucose();}
+}
+function drawGlucose(){
+ const B=document.getElementById("bench");
+ if(!document.getElementById("glucoseMol")){const g=el("g",{id:"glucoseMol",transform:"translate(430 470)"},B);
+  for(let i=0;i<6;i++){const a=i/6*2*Math.PI;el("circle",{cx:Math.cos(a)*46,cy:Math.sin(a)*46,r:11,fill:"#4a4038"},g);
+   el("circle",{cx:Math.cos(a)*74,cy:Math.sin(a)*74,r:6,fill:"#6fc4d2"},g);}
+  el("circle",{cx:0,cy:0,r:10,fill:"#c8a468",opacity:"0.7"},g);
+  const lbl2=el("text",{x:0,y:100,"text-anchor":"middle",fill:"#c8a468","font-size":"15"},g);lbl2.textContent="GLUCOSE C6H12O6 - the sugar itself";
+ }
+}
+function buildGlucose(){glucoseBuilt=true;
+ try{localStorage.setItem("grotto_items_glucose","built");}catch(e){}
+ meter(fun+10);drawGlucose();window.sfx&&window.sfx("bond");
+ const txt=el("text",{x:430,y:620,"text-anchor":"middle",fill:"#c8a468","font-size":"16"},document.getElementById("bench"));
+ txt.textContent="\u2713 Collectible stored: glucose. The Grotto's hunger can now be answered.";
+ vee("The carbons and waters bond - and there it is: glucose, C6H12O6, the sugar that feeds every cell. Stored as a Grotto collectible. Chapter beat complete.");
+}
+window.benchDrop=benchDrop;window.benchState=()=>({benchOn:benchOn,shards:shards,glucoseBuilt:glucoseBuilt,item:(()=>{try{return localStorage.getItem("grotto_items_glucose")}catch(e){return null}})()});
+
+// ==== V2 AUDIO LAYER (2026-09-18): WebAudio synth ambient + SFX + toggle ====
+let AC=null, muted=false, ambGains=null;
+function ac(){if(!AC){try{AC=new (window.AudioContext||window.webkitAudioContext)()}catch(e){return null}}if(AC&&AC.state==="suspended")AC.resume();return AC;}
+function tone(freq,dur,type,gain,when){const a=ac();if(!a||muted)return;const o=a.createOscillator(),g=a.createGain();o.type=type||"sine";o.frequency.value=freq;g.gain.setValueAtTime(0.0001,a.currentTime+(when||0));g.gain.exponentialRampToValueAtTime(gain||0.08,a.currentTime+(when||0)+0.02);g.gain.exponentialRampToValueAtTime(0.0001,a.currentTime+(when||0)+(dur||0.3));o.connect(g);g.connect(a.destination);o.start(a.currentTime+(when||0));o.stop(a.currentTime+(when||0)+(dur||0.3)+0.05);}
+window.sfx=function(kind){
+ if(muted)return;
+ if(kind==="grab"){tone(660,0.08,"triangle",0.05);}
+ if(kind==="place"){tone(523,0.12,"sine",0.07);tone(784,0.14,"sine",0.06,0.09);}
+ if(kind==="wrong"){tone(220,0.25,"sawtooth",0.05);tone(185,0.3,"sawtooth",0.05,0.12);}
+ if(kind==="win"){[523,659,784,1047].forEach((f,i)=>tone(f,0.25,"sine",0.07,i*0.11));}
+ if(kind==="bond"){tone(392,0.3,"sine",0.06);tone(523,0.35,"sine",0.06,0.15);tone(659,0.4,"sine",0.06,0.3);}
+ if(kind==="prezel"||kind==="pretzel"){tone(880,0.1,"square",0.04);tone(740,0.1,"square",0.04,0.12);tone(622,0.12,"square",0.04,0.24);}
+};
+window.startAmbient=function(){
+ if(ambGains||muted)return;const a=ac();if(!a)return;
+ ambGains=[];[147,220,294].forEach((f,i)=>{const o=a.createOscillator(),g=a.createGain();o.type="sine";o.frequency.value=f;g.gain.value=0.012;o.connect(g);g.connect(a.destination);o.start();ambGains.push({o:o,g:g});});
+};
+window.stopAmbient=function(){if(!ambGains)return;ambGains.forEach(x=>{try{x.o.stop()}catch(e){}});ambGains=null;};
+function audioToggle(){muted=!muted;if(muted){stopAmbient()}else{startAmbient()}const b=document.getElementById("audBtn");if(b)b.textContent=muted?"\u{1F507} music":"\u{1F50A} music";}
+window.audioState=()=>({muted:muted,ambient:!!ambGains,ctx:AC?AC.state:null});
+window._audioToggle=audioToggle;
+</script></body></html>

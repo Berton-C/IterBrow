@@ -1,0 +1,23 @@
+NODEQUEST CH1 BUILD — LESSON (2026-09-17 21:16, completed task)
+Godot 4.5 (macOS universal zip -> /tmp/Godot.app), project at iter/nodequest/godot/project,
+export served via `python3 -m http.server 8765` from iter/nodequest/godot/export/.
+
+ROOT CAUSE of the grey screen: text-patch scripts (python str.replace / sed) corrupted
+GDScript indentation — _draw_gate lost `var col`, _draw_zoom lost `var c`/`var names`,
+and 2 mouse-dispatch lines got appended to a draw function. Godot --export-release
+reports success even with unparsable scripts; the failure only shows at runtime as a
+blank canvas with NO JS console errors.
+
+VERIFICATION THAT ACTUALLY WORKED (machine_verify_ui for WebGL games):
+1) Godot --headless --quit — parse errors appear HERE, cheaply, before export.
+2) In-browser: canvas pixel sampling via gl.readPixels — histogram of colors compared
+   against the game's palette constants (BG 14,20,32; panels 20,27,40; text 90,107,127).
+   Palette match = engine running + game loop drawing.
+3) Canvas internal size 1526x1864 differed from design 1280x720 (DPR/aspect handling
+   in export bootstrap) — check aspect if layout looks stretched.
+4) window.engine status can stay null even while the game runs fine — NOT a reliable
+   boot indicator; pixel sampling is.
+
+Lessons: never patch GDScript by sed/replace without a headless parse check after
+every edit; verify exports with runtime pixel evidence, not export logs.
+chroma was flapping (timeout at 21:15) — this note is the durable copy.

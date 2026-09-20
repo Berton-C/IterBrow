@@ -58,6 +58,37 @@ def _read_json(path):
         return {}
 
 def _memory_chars():
+    """Prompt-projection size of memory/ -- the same number iter.py compares
+    against MAX_MEMORY_CHARS.
+
+    2026-09-19 fix: previously walked RAW disk bytes with a hand-rolled
+    exclusion list, counting ~1.4 MB of on-disk storage (component_museum
+    PNGs, journals, recap/, backups) that never reaches the prompt. This
+    re-armed the improve flag on phantom memory pressure 3+ times (see
+    memory/.improve_dismissed standing dismissals from 2026-09-15). Now
+    delegates to tools/_memory_projection.py -- the shared single source of
+    truth from the 2026-09-17 audit that iter.py, self_improve.py, and
+    auto_improve.py already use.
+
+    Fail-open: if the projection module can't be imported or raises, fall
+    back to the old raw walk (an overestimate, never zero) rather than
+    breaking the budget computation.
+    """
+    try:
+        import sys
+        proj_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                os.pardir, "tools")
+        if proj_dir not in sys.path:
+            sys.path.insert(0, proj_dir)
+        from _memory_projection import projection_chars
+        return projection_chars(MEMORY_DIR), 0
+    except Exception as e:
+        _log_issue("projection_chars() unavailable, falling back to raw walk: %s: %s" % (type(e).__name__, e))
+        return _memory_chars_raw()
+
+
+def _memory_chars_raw():
+    # Legacy raw-disk-bytes walk (kept as the fail-open fallback only).
     # NOTE: stat's directly rather than checking os.path.isfile()/isdir()
     # first -- those helpers swallow their own OSError and just return False,
     # which meant a broken symlink or a permission-denied entry used to be
@@ -101,6 +132,7 @@ def _memory_chars():
     if skipped:
         _log_issue("%d memory entries unreadable during size measurement (total may be an undercount)" % skipped)
     return total, skipped
+
 
 def _compute_budget(reliability, stall, mem_chars):
     budget = BASE_BUDGET

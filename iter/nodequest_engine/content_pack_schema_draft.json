@@ -1,0 +1,20 @@
+{
+  "schema": "nodequest.content-pack/0.1 (DRAFT from user's template md)",
+  "license": {"code": "CC-BY-4.0", "must_verify": true, "nc_sa_blocked": false},
+  "book": {"title": "…", "unit_count": 0, "region_count": 0},
+  "regions": [{
+    "id": "r-…", "book_chapter": 4, "name": "…",
+    "narrative": {"catastrophe_flavor": "…", "companion_intro": "…"},
+    "visible_restoration": "what regrows and how it demonstrates the concept (slot 8)",
+    "fragments": [{
+      "id": "f-…", "learning_objective": "verbatim from book",
+      "content_type": "taxonomy|procedure|narrative|spatial|application|debate",
+      "diegetic_format": "countdown_show|training_transmission|lost_archive|companion_demo|encounter|artifact_inspection|field_mission",
+      "reveal_payload": {"script": "…", "facts": []},
+      "evidence_bank": [{"item_id": "e-…", "prompt": "…", "response_type": "choice|action|dialogue", "isomorphic_group": "g-…", "difficulty": 0.5}],
+      "codex_entries": ["key terms…"], "format_note": "interactive formats carry highest-value objectives"
+    }],
+    "boss_beat": {"type": "unit_boss", "evidence_items": "cross-section cumulative"}
+  }],
+  "mastery": {"threshold": 0.9, "decay_days": 14, "review_format": "defense_mission_with_twist", "thin_evidence_policy": "new_angle_variant", "frustration_policy": "companion_demo_plus_adjacent_fragment"}
+}

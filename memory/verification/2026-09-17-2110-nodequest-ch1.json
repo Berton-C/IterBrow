@@ -1,0 +1,28 @@
+{
+  "task": "nodequest_ch1_godot_build",
+  "date": "2026-09-17 21:10",
+  "suites": [
+    {"name": "gdscript_parse", "checks": [
+      {"name": "Godot --headless --quit after indentation repair", "result": "PASS: zero parse errors"},
+      {"name": "root cause identified: sed/python-patch corrupted _draw_gate (var col), _draw_zoom (var c/names), stray mouse lines", "result": "PASS: repaired and documented"}
+    ], "summary": "2/2"},
+    {"name": "export", "checks": [
+      {"name": "--export-release Web -> iter/nodequest/godot/export/index.html", "result": "PASS"},
+      {"name": "http://localhost:8765/index.html HTTP status", "result": "PASS: 200 (re-confirmed 21:18)"}
+    ], "summary": "2/2"},
+    {"name": "runtime_render", "checks": [
+      {"name": "canvas WebGL context active", "result": "PASS"},
+      {"name": "pixel histogram matches game palette (BG 14,20,32; panels 20,27,40; text 90,107,127)", "result": "PASS via gl.readPixels multi-point sampling"}
+    ], "summary": "2/2"}
+  ],
+  "mitigations": [
+    {"item": "title overlay colors close to bg — possible low readability", "status": "pending (disclosed to user; gameplay unaffected)"},
+    {"item": "canvas internal size 1526x1864 vs design 1280x720 (DPR/aspect)", "status": "pending (check if layout looks stretched)"}
+  ],
+  "not_covered": [
+    "Full play-through of all three rooms by agent (only boot+palette verified, not puzzle logic end-to-end)",
+    "Keyboard input path in the actual user's tab (not simulated)",
+    "Title screen legibility (colors may be too subtle)"
+  ],
+  "failure_answers": "Verification fails if the game later shows a grey screen: most likely a re-corrupted main.gd from text-patching — run Godot --headless --quit first. If canvas blank but page loads: check http.server 8765 still running."
+}

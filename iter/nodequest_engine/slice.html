@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><title>NodeQuest — The Withering: Grotto Sector</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family:Georgia,'Times New Roman',serif}
+body{background:#171326;color:#e8dfc8;min-height:100vh;padding:18px}
+h1{font-size:21px;color:#d4a94e;letter-spacing:.5px}
+h2{font-size:15px;color:#a89468;margin:12px 0 6px}
+.top{display:flex;justify-content:space-between;align-items:flex-start;gap:14px}
+.map{background:#1f1a33;border:1px solid #3a3160;border-radius:10px;padding:10px;min-width:280px}
+.mapgrid{display:grid;grid-template-columns:repeat(4,34px);gap:5px;margin-top:6px}
+.tile{height:34px;border-radius:6px;background:#565040;border:1px solid #6a6250;transition:all .6s}
+.tile.live{background:linear-gradient(135deg,#3a6b4a,#6dbb7d);border-color:#8fe0a0;box-shadow:0 0 8px #4dbb6a}
+.tile.fr{background:#5b5433}
+.tile.boss{background:#4a2a3a;border-color:#8a4a6a}
+.stage{margin-top:14px;background:#1c1730;border:1px solid #3a3160;border-radius:12px;padding:16px 18px;max-width:860px}
+.fmt{color:#8f7ae0;font-style:italic;font-size:13px}
+.cards{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}
+.cont{background:#241e3d;border:1px solid #4a4170;border-radius:9px;padding:9px 11px;width:150px;cursor:pointer;transition:all .25s}
+.cont:hover{border-color:#d4a94e}
+.cont.picked{border-color:#6dbb7d;background:#20382a}
+.cont b{color:#d4a94e;font-size:14px;display:block}
+.cont span{font-size:11.5px;color:#9d92b8}
+.claims{margin-top:10px;display:flex;flex-direction:column;gap:8px}
+.claim{background:#221c3a;border-left:3px solid #d4a94e;border-radius:7px;padding:9px 12px;font-size:14px}
+.sig{margin-top:10px;font-size:12.5px;color:#a89468}
+.sigbar{height:7px;background:#3a3160;border-radius:4px;overflow:hidden;margin-top:4px}
+.sigfill{height:100%;width:0;background:linear-gradient(90deg,#8f7ae0,#6dbb7d);transition:width .5s}
+.hotspots{display:grid;grid-template-columns:repeat(5,120px);gap:10px;margin-top:10px}
+.hs{background:#2a2447;border:1px dashed #6a6250;border-radius:9px;padding:9px;min-height:66px;font-size:12px;color:#9d92b8}
+.hs.done{border:1px solid #6dbb7d;color:#c9f2cf;background:#223528}
+.hs b{color:#d4a94e;font-size:12.5px}
+.vee{margin-top:14px;background:#241e3d;border:1px solid #4a4170;border-radius:9px;padding:10px 13px;font-size:13.5px;color:#b8c9e8}
+.vee b{color:#8f7ae0}
+.locked{margin-top:14px;color:#8a80a0;font-style:italic;font-size:13.5px}
+.badge{position:fixed;top:8px;right:14px;background:#2a5a38;color:#b8f2c6;border:1px solid #6dbb7d;border-radius:7px;padding:5px 10px;font-size:12px;font-family:monospace;z-index:99}
+.bloom{animation:bloom 1.2s ease}
+@keyframes bloom{0%{transform:scale(.6);opacity:.2}100%{transform:scale(1);opacity:1}}
+</style>
+</head>
+<body>
+<div class="badge" id="badge">SELF-TEST: pending…</div>
+<div class="top">
+ <div>
+  <h1>NodeQuest — The Withering</h1>
+  <div style="font-size:13px;color:#a89468">Grotto Sector · Biome 4 of the Microverse</div>
+ </div>
+ <div class="map"><h2>Microverse</h2><div class="mapgrid" id="map"></div></div>
+</div>
+<div class="stage" id="stage"></div>
+<div class="vee" id="vee"></div>
+<script>
+const ORG=[
+ {id:'mito',n:'Mitochondria',f:'I burn fuel in my double membrane and power everything'},
+ {id:'golgi',n:'Golgi Apparatus',f:'I sort, tag, and ship the proteins out the door'},
+ {id:'ribo',n:'Ribosome',f:'I read the blueprints and assemble proteins piece by piece'},
+ {id:'nucl',n:'Nucleus',f:'I keep the vault of blueprints sealed and safe'},
+ {id:'lyso',n:'Lysosome',f:'I dissolve the junk that would poison this place'}
+];
+const F=[
+ {id:'f1',name:'Recovered Broadcast',fmt:'countdown show',type:'broadcast'},
+ {id:'f2',name:'The Gray Archive',fmt:'artifact inspection',type:'inspection'},
+ {id:'f3',name:'Dormant Sector',fmt:'field mission',type:'locked'}
+];
+const S={ev:{f1:0,f2:0,f3:0},THRESH:0.9,stable:{},regionRestored:false};
+function evPct(f){return Math.min(1,S.ev[f])}
+function stableFrag(f){return S.stable[f]===true}
+function renderMap(){const m=document.getElementById('map');m.innerHTML='';
+ for(let i=0;i<8;i++){const t=document.createElement('div');t.className='tile'+(i===0?' fr':'');
+  if(stableFrag('f1')&&i===0)t.classList.add('live');
+  if(i===1){t.className='tile fr'+(stableFrag('f2')?' live':'')}
+  if(i===2){t.className='tile'+(stableFrag('f3')?' live fr':(S.regionRestored?' boss':''))}
+  if(i>2&&S.regionRestored){t.className='tile'+(i===5?' boss':' live')}
+  m.appendChild(t)}}
+function veeline(txt){document.getElementById('vee').innerHTML='<b>VEE ▸</b> '+txt}
+function regrowCheck(){if(stableFrag('f1')&&stableFrag('f2')&&!S.regionRestored){S.regionRestored=true;
+ veeline('The grotto breathes again. Cells are dividing in the canopy light — the Monoculture withdrew to the ridge. Something still sleeps past the moss gate.');
+ document.querySelectorAll('.tile').forEach(t=>t.classList.add('bloom'))}}
+function renderStage(){const st=document.getElementById('stage');st.innerHTML='';
+ if(!stableFrag('f1')){renderBroadcast(st)}
+ else if(!stableFrag('f2')){renderInspection(st)}
+ else{renderMission(st)}}
+function renderBroadcast(st){const d=document.createElement('div');d.className='fmt';
+ d.textContent='▮ RECOVERED TRANSMISSION — ORGANELLE POWER RANKINGS · episode 1 · signal is weak, stabilize it';st.appendChild(d);
+ const c=document.createElement('div');c.className='cards';st.appendChild(c);
+ ORG.forEach(o=>{const el=document.createElement('div');el.className='cont';el.id='c-'+o.id;
+  el.innerHTML='<b>'+o.n+'</b><span>'+o.f.split('').slice(0,0).join('')+'signal ghost · tap to verify</span>';
+  el.onclick=()=>pick(o);c.appendChild(el)});
+ const cl=document.createElement('div');cl.className='claims';cl.id='claims';st.appendChild(cl);
+ const sg=document.createElement('div');sg.className='sig';sg.innerHTML='SIGNAL INTEGRITY<div class="sigbar"><div class="sigfill" id="sig"></div></div>';st.appendChild(sg);
+ veeline('The broadcast is tangled. Match each transmission to the contestant who made it — that re-tunes the signal.');
+ nextClaim()}
+let cur=null,round=0;
+const CLAIMS=[
+ {t:'“Fifty ATP per sugar. I don\'t do showmanship, I do output.”',a:'mito'},
+ {t:'“Blueprints? I keep them under lock. Nothing gets read without my say.”',a:'nucl'},
+ {t:'“You want it sorted, labeled, and out the door by morning? That\'s my whole personality.”',a:'golgi'}];
+function nextClaim(){const cl=document.getElementById('claims');if(!cl)return;cl.innerHTML='';
+ if(round>=CLAIMS.length){finishFrag('f1');return}
+ cur=CLAIMS[round];const d=document.createElement('div');d.className='claim';d.textContent='T'+(round+1)+' · '+cur.t;cl.appendChild(d)}
+function pick(o){if(!cur)return;const el=document.getElementById('c-'+o.id);if(!el||el.classList.contains
+('picked'))return;el.classList.add('picked');
+ if(o.id===cur.a){S.ev.f1=Math.min(1,S.ev.f1+0.34);veeline('Re-tuned. That signal locks in clean.')}
+ else{veeline('Ghost signal. Wrong contestant — the broadcast stays fuzzy.')}
+ document.getElementById('sig').style.width=(evPct('f1')*100)+'%';
+ if(evPct('f1')>=S.THRESH){S.stable.f1=true}
+ else{round++;nextClaim()}
+ if(stableFrag('f1')){finishFrag('f1')}
+}
+function finishFrag(f){round=0;cur=null;renderMap();renderStage();regrowCheck()}
+function renderInspection(st){const d=document.createElement('div');d.className='fmt';
+ d.textContent='▮ ARTIFACT INSPECTION — THE GRAY ARCHIVE · tag the recovered specimens so the record breathes';st.appendChild(d);
+ const h=document.createElement('div');h.className='hotspots';st.appendChild(h);
+ ORG.forEach(o=>{const el=document.createElement('div');el.className='hs';el.id='h-'+o.id;
+  el.innerHTML='<b>?</b> unlabeled specimen<div style="margin-top:5px" id="tags-'+o.id+'"></div>';h.appendChild(el)});
+ const b=document.createElement('div');b.className='cards';b.id='tagbox';st.appendChild(b);
+ ORG.forEach(o=>{const el=document.createElement('div');el.className='cont';el.id='t-'+o.id;
+  el.innerHTML='<b>'+o.n+'</b><span>'+o.f+'</span>';el.onclick=()=>tag(o);b.appendChild(el)});
+ veeline('The archive is still gray. Five tags, five specimens — place them and the record breathes.')}
+function tag(o){const tgt=document.getElementById('h-'+o.id);if(!tgt||tgt.classList.contains('done'))return;
+ tgt.classList.add('done');tgt.querySelector('b').textContent=o.n;
+ document.getElementById('t-'+o.id).remove();S.ev.f2=Math.min(1,S.ev.f2+0.2);
+ if(evPct('f2')>=S.THRESH){S.stable.f2=true;finishFrag('f2')}else{veeline((ORG.filter(x=>!document.getElementById('h-'+x.id)||!document.getElementById('h-'+x.id).classList.contains('done')).length)+' specimens still gray.')}}
+function renderMission(st){st.innerHTML='<div class="fmt">▮ DORMANT SECTOR — THE MOSS GATE</div><div class="locked">Past the moss gate, something is still asleep. The grotto is alive again — but the ridge hums with the Monoculture\'s gray choirs. The sector isn\'t ready yet… it\'s waiting for the grotto\'s story to finish.</div>';
+ veeline('The grotto is restored. The ridge beyond is a whole other season — VEE marks it for your return.')}
+function assert(c,m){if(!c)throw new Error(m)}
+function selfTest(){let pass=0,total=0;
+ total++;assert(document.querySelectorAll('.cont').length===5,'contestants');pass++;
+ renderStage&&null;
+ for(let i=0;i<3;i++){const a=CLAIMS[i].a;document.getElementById('c-'+a).click();if(i<2)assert(evPct('f1')>0,'ev grows')}
+ total++;assert(stableFrag('f1')===true,'f1 stable');pass++;
+ total++;assert(document.querySelectorAll('.hs').length===5,'hotspots');pass++;
+ ORG.slice().reverse().forEach(o=>document.getElementById('t-'+o.id).click());
+ total++;assert(stableFrag('f2')===true,'f2 stable');pass++;
+ total++;assert(S.regionRestored===true,'region restored');pass++;
+ const s=JSON.stringify(S);total++;assert(!s.includes('NaN'),'no NaN');pass++;
+ total++;assert(document.querySelectorAll('.tile').length===8,'map tiles');pass++;
+ document.getElementById('badge').textContent='SELF-TEST '+pass+'/'+total+' OK';}
+renderMap();renderStage();
+try{selfTest()}catch(e){document.getElementById('badge').textContent='SELF-TEST FAIL: '+e.message}
+</script>
+</body>
+</html>

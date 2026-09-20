@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><title>NodeQuest — Scene Compositor: The Grotto</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family:Georgia,serif}
+body{background:#120e20;color:#e8dfc8;min-height:100vh;padding:16px}
+h1{font-size:19px;color:#d4a94e}.sub{font-size:12.5px;color:#a89468;margin:3px 0 12px;max-width:900px}
+.badge{position:fixed;top:8px;right:14px;background:#2a5a38;color:#b8f2c6;border:1px solid #6dbb7d;border-radius:7px;padding:5px 10px;font-size:12px;font-family:monospace;z-index:99}
+.scene{max-width:1000px;border:1px solid #3a3160;border-radius:12px;overflow:hidden;position:relative;background:#0d0a1a}
+.scene svg{display:block;width:100%;height:auto}
+.mote{animation:drift 7s ease-in-out infinite alternate}
+.mote:nth-child(2n){animation-duration:9s;animation-delay:-3s}
+.mote:nth-child(3n){animation-duration:11s;animation-delay:-5s}
+@keyframes drift{0%{transform:translate(0,0)}100%{transform:translate(14px,-22px)}}
+.fly{animation:fly 5s ease-in-out infinite alternate}
+.fly:nth-child(2n){animation-duration:6.5s;animation-delay:-2s}
+@keyframes fly{0%{transform:translate(0,0);opacity:.9}100%{transform:translate(-18px,10px);opacity:.4}}
+.hs{cursor:pointer}
+.hs:hover circle.hglow{opacity:.85}
+.hs circle.hglow{opacity:0;transition:opacity .3s}
+.vee{margin-top:12px;background:#241e3d;border:1px solid #4a4170;border-radius:9px;padding:10px 13px;font-size:13.5px;color:#b8c9e8;max-width:900px}
+.vee b{color:#8f7ae0}
+.frag{position:absolute;background:#1f1a33;border:1px solid #d4a94e;border-radius:10px;padding:12px 16px;max-width:380px;font-size:13px;color:#e8dfc8;box-shadow:0 8px 30px rgba(0,0,0,.6)}
+.frag b{color:#d4a94e}
+.frag button{margin-top:8px;background:#2a5a38;color:#b8f2c6;border:1px solid #6dbb7d;border-radius:7px;padding:6px 14px;font-size:12px;cursor:pointer}
+.scene stop{transition:stop-color 3.2s ease}.scene svg path{transition:fill 3.2s ease}.scene svg ellipse{transition:fill 3.2s ease}</style></head><body>
+<div class="badge" id="badge">SELF-TEST: pending…</div>
+<h1>NodeQuest — Scene Compositor: The Grotto</h1>
+<div class="sub">Every layer below is code-drawn from (pack vocabulary, seed) — sky, ridge, structures, props, living details — assembled as ONE still-art scene. Same seed → identical scene. Hover the glows; click the fragment.</div>
+<div class="scene" id="scene"></div>
+<div class="vee" id="vee"></div>
+<script>
+const SEED='grotto-v1';
+function h(s){let x=1779033703^s.length;for(let i=0;i<s.length;i++){x=Math.imul(x^s.charCodeAt(i),3432918353);x=x<<13|x>>>19}return function(){x=Math.imul(x^x>>>16,2246822507);x=Math.imul(x^x>>>13,3266489909);x^=x>>>16;return x>>>0}}
+function rng(seedStr){const f=h(seedStr);let a=f();return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+const R=rng(SEED+'|layers');const GOLD='#d4a94e';
+const W=1000,H=620;
+function P(lo,hi){return lo+R()*(hi-lo)}
+function sky(){let s='<defs><linearGradient id="sk" x1="0" y1="0" x2="0" y2="1">'
++'<stop offset="0" stop-color="#0d0a1a"/><stop offset="45%" stop-color="#241e3d"/><stop offset="80%" stop-color="#3a3160"/><stop offset="100%" stop-color="#4a4170"/></linearGradient>'
++'<radialGradient id="moon"><stop offset="0" stop-color="#f2e8c8" stop-opacity=".95"/><stop offset="55%" stop-color="#d4a94e" stop-opacity=".5"/><stop offset="100%" stop-color="#d4a94e" stop-opacity="0"/></radialGradient></defs>'
++'<rect width="'+W+'" height="'+H+'" fill="url(#sk)"/>';
+const mx=P(120,880),my=P(60,150),mr=P(18,30);
+s+='<circle cx="'+mx.toFixed(0)+'" cy="'+my.toFixed(0)+'" r="'+(mr*3).toFixed(0)+'" fill="url(#moon)"/>'
++'<circle cx="'+mx.toFixed(0)+'" cy="'+my.toFixed(0)+'" r="'+mr.toFixed(0)+'" fill="#f2e8c8" stroke="#d4a94e" stroke-width="1.5"/>';
+const nst=Math.floor(P(26,40));let g='<g fill="#e8dfc8">';
+for(let i=0;i<nst;i++){g+='<circle cx="'+P(0,W).toFixed(0)+'" cy="'+P(0,H*.45).toFixed(0)+'" r="'+P(.5,1.7).toFixed(1)+'" fill-opacity="'+P(.25,.85).toFixed(2)+'"/>'}
+return s+g+'</g>'}
+function ridge(y0,color,ampl,det){let pts='M0 '+H+' L0 '+y0.toFixed(0);
+const step=W/det;for(let x=0;x<=W;x+=step){const y=y0+ampl*Math.sin(x/W*Math.PI*P(1,3)+P(0,2))+ampl*.6*Math.sin(x/W*7+P(0,3));pts+=' L'+x.toFixed(0)+' '+y.toFixed(0)}
+pts+=' L'+W+' '+H+' Z';
+return '<path d="'+pts+'" fill="'+color+'"/>'}
+function structures(){let s='<g>';const nA=Math.floor(P(1,3));
+for(let k=0;k<nA;k++){const ax=P(120,880),base=H-P(60,140),w=P(120,220),rise=P(150,260);
+let d='M'+(ax-w/2).toFixed(0)+' '+base.toFixed(0)+' Q '+ax.toFixed(0)+' '+(base-rise).toFixed(0)+' '+(ax+w/2).toFixed(0)+' '+base.toFixed(0);
+s+='<path d="'+d+'" fill="none" stroke="#2a2344" stroke-width="'+P(10,20).toFixed(0)+'" opacity=".85"/>';
+const nSt=Math.floor(P(5,12));for(let i=0;i<nSt;i++){const sx=ax-w/2+P(.1,.9)*w,sy=base-P(4,20),len=P(20,70);
+s+='<path d="M'+sx.toFixed(0)+' '+sy.toFixed(0)+' L'+(sx-P(4,9)).toFixed(0)+' '+(sy+len).toFixed(0)+' L'+(sx+P(4,9)).toFixed(0)+' '+(sy+len).toFixed(0)+' Z" fill="#2a2344" opacity=".8"/>'}}
+return s+'</g>'}
+function propGlyph(kind,cx,cy,sc,hue){const c='hsl('+hue+' 62% 55%)',c2='hsl('+((hue+40)%360)+' 62% 60%)';let s='<g transform="translate('+cx.toFixed(0)+' '+cy.toFixed(0)+') scale('+sc.toFixed(2)+')">';
+if(kind==='membrane'){const steps=12,R0=46,ph=P(0,6.28);let d='';
+for(let i=0;i<=steps;i++){const a=2*Math.PI*i/steps+ph,R=R0+9*Math.sin(3*a);d+=(i?'L':'M')+(R*Math.cos(a)).toFixed(1)+' '+(R*Math.sin(a)).toFixed(1)}
+s+='<path d="'+d+'Z" fill="'+c+'" fill-opacity=".3" stroke="'+GOLD+'" stroke-width="2"/><circle cx="0" cy="0" r="17" fill="'+c2+'" fill-opacity=".65" stroke="'+GOLD+'"/></g>';return s}
+if(kind==='veins'){let d='<g stroke="'+c2+'" stroke-width="1.4" fill="none"><path d="M0 -52 L0 52" stroke="'+GOLD+'" stroke-width="2"/>';
+for(let i=1;i<=6;i++){const y=-52+i*15,len=44*(1-Math.pow(y/52,2)*.7);
+d+='<path d="M0 '+y+' Q '+(len/2)+' '+(y-8)+' '+len+' '+(y+4)+'"/><path d="M0 '+y+' Q '+(-len/2)+' '+(y-8)+' '+(-len)+' '+(y+4)+'"/>'}
+return s+d+'</g></g>'}
+if(kind==='helix'){let p='<path d="';for(let i=0;i<=24;i++){const y=-52+i*52/12,x=18*Math.sin(y/8);p+=(i?'L':'M')+x.toFixed(1)+' '+y.toFixed(1)}
+let s2='<path d="'+p+'" fill="none" stroke="'+GOLD+'" stroke-width="3"/><path d="';for(let i=0;i<=24;i++){const y=-52+i*52/12,x=18*Math.sin(y/8+Math.PI);s2+=(i?'L':'M')+x.toFixed(1)+' '+y.toFixed(1)}
+s2+='" fill="none" stroke="'+c+'" stroke-width="3"/><g>';for(let i=0;i<6;i++){const y=-42+i*16,x=18*Math.sin(y/8),x2=18*Math.sin(y/8+Math.PI);s2+='<line x1="'+x.toFixed(1)+'" y1="'+y+'" x2="'+x2.toFixed(1)+'" y2="'+y+'" stroke="'+c2+'" stroke-width="1.5"/>'}
+return s+s2+'</g></g>'}
+if(kind==='spore'){let s2='<circle cx="0" cy="0" r="26" fill="'+c+'" fill-opacity=".25" stroke="'+GOLD+'" stroke-width="2" stroke-dasharray="4 3"/><g>';for(let i=0;i<9;i++){const a=2*Math.PI*i/9,L=P(30,46);s2+='<circle cx="'+(L*Math.cos(a)).toFixed(1)+'" cy="'+(L*Math.sin(a)).toFixed(1)+'" r="5" fill="'+c2+'" fill-opacity=".8"/>'}
+return s+s2+'<circle cx="0" cy="0" r="11" fill="'+c2+'" stroke="'+GOLD+'" stroke-width="2"/></g></g>'}
+if(kind==='phylo'){let s2='<line x1="0" y1="52" x2="0" y2="0" stroke="'+GOLD+'" stroke-width="3"/><g stroke="'+c2+'" stroke-width="2.5" fill="none">';for(let i=0;i<3;i++){const bx=P(-46,46),by=P(-46,-6);s2+='<line x1="0" y1="0" x2="'+bx.toFixed(1)+'" y2="'+by.toFixed(1)+'"/><line x1="'+bx.toFixed(1)+'" y1="'+by.toFixed(1)+'" x2="'+(bx+P(-26,26)).toFixed(1)+'" y2="'+(by-28).toFixed(1)+'"/>'}
+return s+s2+'</g><circle cx="0" cy="-6" r="7" fill="'+c+'" stroke="'+GOLD+'" stroke-width="1.5"/></g>'}
+if(kind==='radiate'){let d='<circle cx="0" cy="0" r="13" fill="'+c2+'" fill-opacity=".8" stroke="'+GOLD+'" stroke-width="2"/><g>';
+for(let i=0;i<10;i++){const a=2*Math.PI*i/10,L=P(38,64);d+='<line x1="0" y1="0" x2="'+(L*Math.cos(a)).toFixed(1)+'" y2="'+(L*Math.sin(a)).toFixed(1)+'" stroke="'+GOLD+'" stroke-width="1.2"/><circle cx="'+(L*Math.cos(a)).toFixed(1)+'" cy="'+(L*Math.sin(a)).toFixed(1)+'" r="4" fill="'+c+'" fill-opacity=".8"/>'}
+return s+d+'</g></g>'}
+let d='<circle cx="0" cy="0" r="10" fill="'+c2+'" fill-opacity=".7" stroke="'+GOLD+'" stroke-width="1.5"/>';
+for(let i=0;i<4;i++){const a=P(0,6.28),bx=P(20,40),by=P(20,40);d+='<line x1="0" y1="0" x2="'+bx.toFixed(1)+'" y2="'+by.toFixed(1)+'" stroke="'+GOLD+'" stroke-width="1"/><circle cx="'+bx.toFixed(1)+'" cy="'+by.toFixed(1)+'" r="5.5" fill="'+c+'" fill-opacity=".75"/>'}
+return s+d+'</g>'}
+function props(){const ks=['membrane','veins','radiate','web','helix','spore','phylo','molecule'];
+const tt={membrane:'Cell membrane — what lets life keep its inside in',veins:'Leaf veins — nature\'s supply network',radiate:'Radial body plan — jellyfish, anemones',web:'Food web — who eats whom',helix:'DNA helix — the instruction archive',spore:'Spore crown — dispersal strategy',phylo:'Phylogeny — family tree of species',molecule:'Transport molecules — carrying cargo'};
+let s='<g>';ks.forEach((k,i)=>{const x=80+i*121,scale=P(.55,.9),y=500+P(-36,36);s+=propGlyph(k,x,y,scale,(i*47+150)%360).replace(/>/,'><title>'+tt[k]+'</title>')});return s+'</g>'}
+function reflections(){let s='<g opacity=".5">';for(let i=0;i<5;i++){const rx=P(60,940),ry=H-P(8,30);s+='<ellipse cx="'+rx.toFixed(0)+'" cy="'+ry.toFixed(0)+'" rx="'+P(14,50).toFixed(0)+'" ry="'+P(2,5).toFixed(1)+'" fill="#d4a94e" fill-opacity="'+P(.06,.16).toFixed(2)+'"/>'}return s+'</g>'}
+function spores(){let s='<g class="fly">';for(let i=0;i<10;i++){s+='<circle cx="'+P(0,W).toFixed(0)+'" cy="'+P(120,H-160).toFixed(0)+'" r="'+P(3,6).toFixed(1)+'" fill="#e8dfc8" fill-opacity=".25"/><circle cx="'+P(0,W).toFixed(0)+'" cy="'+P(120,H-160).toFixed(0)+'" r="2" fill="#c8a468"/>'}return s+'</g>'}
+function living(){let s='<g>';const nm=Math.floor(P(8,14));
+for(let i=0;i<nm;i++){s+='<circle class="mote" cx="'+P(0,W).toFixed(0)+'" cy="'+P(200,H-80).toFixed(0)+'" r="'+P(2,4).toFixed(1)+'" fill="#f2e8c8" fill-opacity=".5"/>'}
+const nf=Math.floor(P(4,8));
+for(let i=0;i<nf;i++){s+='<g class="fly"><circle cx="'+P(60,W-60).toFixed(0)+'" cy="'+P(160,H-120).toFixed(0)+'" r="2.5" fill="#d4a94e"/><circle cx="'+P(60,W-60).toFixed(0)+'" cy="'+P(160,H-120).toFixed(0)+'" r="8" fill="#d4a94e" fill-opacity=".18"/></g>'}
+return s+'</g>'}
+function pool(){return '<ellipse cx="500" cy="'+(H-28)+'" rx="470" ry="38" fill="#1b1633" opacity=".95"/><ellipse cx="500" cy="'+(H-26)+'" rx="420" ry="30" fill="#2a2344" opacity=".6"/><ellipse cx="480" cy="'+(H-30)+'" rx="60" ry="8" fill="#d4a94e" opacity=".14"/>'}
+let HS=[],foundN=0;
+function hotspots(){let s='';for(let i=0;i<3;i++){const fx=P(150,850).toFixed(0),fy=P(280,470).toFixed(0);HS.push([fx,fy]);
+s+='<g class="hs" id="hs'+i+'" onclick="pick('+i+')"><circle class="hglow" cx="'+fx+'" cy="'+fy+'" r="26" fill="#d4a94e" opacity="0"/><circle cx="'+fx+'" cy="'+fy+'" r="7" fill="#f2e8c8" stroke="#d4a94e" stroke-width="2"/><circle cx="'+fx+'" cy="'+fy+'" r="13" fill="none" stroke="#d4a94e" stroke-width="1" opacity=".7" stroke-dasharray="3 5"/></g>'}return s}
+function bpart(k){const ps=document.querySelectorAll('#world > path');
+if(k>=1)ps.forEach(p=>p.setAttribute('fill',p.getAttribute('fill')==='#1b1633'?'#2a4a2e':p.getAttribute('fill')));
+if(k>=2){document.querySelectorAll('#scene [fill="#2a2344"]').forEach(e=>e.setAttribute('fill','#5b4a2f'));document.querySelectorAll('#scene [stroke="#2a2344"]').forEach(e=>e.setAttribute('stroke','#5b4a2f'))}
+if(k>=3){const cols=['#16351f','#3d6b42','#7fa86b','#c8a468'];document.querySelectorAll('#sk stop').forEach((s,i)=>s.setAttribute('stop-color',cols[i]));document.querySelectorAll('#world > g:not(.fly):not(.hs) ellipse').forEach((e,i)=>e.setAttribute('fill',i?'#4f6b52':'#33523a'));document.getElementById('vee').innerHTML='<b>VEE:</b> All three signals stable. <i>Look — the Grotto blooms.</i> Moss on stone, teal lifting out of purple. That is what you carry, explorer.'}}
+function pick(i){if(i===undefined)i=0;if(document.getElementById('hs'+i).getAttribute('data-f'))return;document.getElementById('hs'+i).setAttribute('data-f','1');
+const msgs=['“Signal Integrity I” — one receiver said “always”; one is lying.','“Signal Integrity II” — the broadcast repeats every 7 tides; the false one drifts.','“Echo Depth” — the oldest transmission calls the moss by name.'];
+const s=document.getElementById('scene'),f=document.createElement('div');f.className='frag';
+f.style.left=Math.min(parseFloat(HS[i][0])/W,0.5)*100+'%';f.style.top=(parseFloat(HS[i][1])/H*100+6)+'%';
+f.innerHTML='<b>⚡ Fragment '+(i+1)+'/3 — '+msgs[i]+'</b><br><button onclick="this.parentElement.remove()">✓ File to Gray Archive</button>';s.appendChild(f);
+foundN++;bpart(foundN);document.getElementById('hs'+i).setAttribute('opacity','.25')}
+function render(){document.getElementById('scene').innerHTML='<svg viewBox="0 0 '+W+' '+H+'" xmlns="http://www.w3.org/2000/svg"><g id="world">'+sky()+ridge(H-P(80,140),'#1b1633',34,14)+structures()+ridge(H-P(30,60),'#120e20',22,10)+props()+pool()+reflections()+living()+spores()+hotspots()+'</g></svg>'}
+function selfTest(){let pass=0,total=0;try{
+const layers=document.querySelectorAll('#world > g, #world > path, #world > rect').length;total++;if(layers>=8)pass++;
+total++;if(document.getElementById('hs0'))pass++;
+document.querySelectorAll('.mote').length>=6?(pass++):0;total++;
+total++;if(!document.querySelector('.scene').innerHTML.includes('NaN'))pass++;
+window.pick();window.pick();total++;if(document.querySelectorAll('.frag').length===1)pass++;
+foundN=0;bpart(0);const f2=document.querySelector(".frag");if(f2)f2.remove();document.querySelectorAll(".hs").forEach(g=>{g.removeAttribute("data-f");g.removeAttribute("opacity")});
+document.getElementById('badge').textContent='SELF-TEST '+pass+'/'+total+' OK';picked=false;const f=document.querySelector('.frag');if(f)f.remove();
+}catch(e){document.getElementById('badge').textContent='SELF-TEST FAIL: '+e.message}}
+render();selfTest();initZoom();
+
+function initZoom(){const sc=document.querySelector('.scene');const svg=sc.querySelector('svg');if(!svg)return;const w=document.getElementById('world');if(!w)return;
+const hint=document.createElement('div');hint.id='zoomHint';hint.style.cssText='position:fixed;right:14px;bottom:12px;font-size:12px;opacity:.8;z-index:5';hint.textContent='scroll to look closer ✨ ×1.0';document.body.appendChild(hint);
+let k=1,tx=0,ty=0;const apply=()=>{w.setAttribute('transform','translate('+tx.toFixed(2)+' '+ty.toFixed(2)+') scale('+k.toFixed(3)+')');hint.textContent='looking ×'+k.toFixed(1)+(k>=3?' — closer…':k>=8?' — almost touching':'' )};
+svg.addEventListener('wheel',e=>{e.preventDefault();const ctm=svg.getScreenCTM();const pt=new DOMPoint(e.clientX,e.clientY).matrixTransform(ctm.inverse());
+const oldK=k;const f=e.ctrlKey?Math.exp(-e.deltaY*0.008):(e.deltaY<0?1.16:1/1.16);k=Math.min(14,Math.max(.45,k*f));
+tx=pt.x-(pt.x-tx)*(k/oldK);ty=pt.y-(pt.y-ty)*(k/oldK);apply()},{passive:false});
+let drag=null;svg.addEventListener('pointerdown',e=>{drag={x:e.clientX,y:e.clientY,tx:tx,ty:ty}});
+window.addEventListener('pointerup',e=>{if(!drag)return;const dx=e.clientX-drag.x,dy=e.clientY-drag.y;drag=null;if(dx*dx+dy*dy>25)return;const svg2=document.querySelector('.scene svg');const p=new DOMPoint(e.clientX,e.clientY).matrixTransform(svg2.getScreenCTM().inverse());const k2=Math.min(14,Math.max(.45,k*1.45));const w2=document.getElementById('world');w2.style.transition='transform .35s ease';k=k2;tx=W/2-p.x*k;ty=H/2-p.y*k;apply();setTimeout(()=>w2.style.transition='',400)});
+window.addEventListener('pointermove',e=>{if(!drag)return;const m=svg.getScreenCTM().inverse();const p1=new DOMPoint(e.clientX,e.clientY).matrixTransform(m),p0=new DOMPoint(drag.x,drag.y).matrixTransform(m);tx=drag.tx+(p1.x-p0.x);ty=drag.ty+(p1.y-p0.y);apply()});
+window.addEventListener('pointerup',()=>drag=null);window.zoomState=()=>[k.toFixed(2),tx.toFixed(1),ty.toFixed(1)]}
+</script></body></html>

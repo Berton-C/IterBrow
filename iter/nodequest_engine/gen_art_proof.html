@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><title>NodeQuest — Generative Art Proof</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family:Georgia,serif}
+body{background:#171326;color:#e8dfc8;min-height:100vh;padding:18px}
+h1{font-size:20px;color:#d4a94e}.sub{font-size:13px;color:#a89468;margin:4px 0 12px;max-width:860px}
+.bar{display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
+button{background:#241e3d;color:#d4a94e;border:1px solid #4a4170;border-radius:8px;padding:8px 14px;font-size:13px;cursor:pointer}
+button:hover{border-color:#d4a94e}
+.badge{background:#2a5a38;color:#b8f2c6;border:1px solid #6dbb7d;border-radius:7px;padding:5px 10px;font-size:12px;font-family:monospace}
+.idn{background:#3a3160;color:#c9b8ff;border:1px solid #8f7ae0;border-radius:7px;padding:5px 10px;font-size:12px;font-family:monospace}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px;max-width:960px}
+.tile{background:#1f1a33;border:1px solid #3a3160;border-radius:11px;padding:10px;text-align:center}
+.tile svg{width:170px;height:170px}
+.tile .nm{font-size:12.5px;color:#d4a94e;margin-top:6px}
+.tile .sd{font-size:10px;color:#8a80a0;font-family:monospace}
+.foot{margin-top:16px;font-size:12px;color:#a89468;max-width:860px}
+</style></head><body>
+<h1>NodeQuest — Generative Art Proof</h1>
+<div class="sub">Each glyph below is drawn by code from a content keyword + seed — no hand-drawn art anywhere. Same seed regenerates a byte-identical glyph; new seed gives a new variant of the same motif.</div>
+<div class="bar">
+<button id="reseed">🎲 New seeds — expect variation</button>
+<button id="same">♻ Same seed — expect identical</button>
+<span class="badge" id="badge">SELF-TEST: pending…</span>
+<span class="idn" id="ident"></span>
+</div>
+<div class="grid" id="grid"></div>
+<div class="foot" id="foot"></div>
+<script>
+const UNITS=[
+{kw:'The Chemistry of Life',motif:'molecule',hue:275},
+{kw:'The Cell',motif:'membrane',hue:150},
+{kw:'Genetics',motif:'helix',hue:205},
+{kw:'Evolutionary Processes',motif:'tree',hue:35},
+{kw:'Biological Diversity',motif:'radiate',hue:320},
+{kw:'Plant Structure and Function',motif:'veins',hue:115},
+{kw:'Animal Structure and Function',motif:'radial',hue:10},
+{kw:'Ecology',motif:'web',hue:55}];
+let seedIdx=1;
+function h(s){let x=1779033703^s.length;for(let i=0;i<s.length;i++){x=Math.imul(x^s.charCodeAt(i),3432918353);x=x<<13|x>>>19}return function(){x=Math.imul(x^x>>>16,2246822507);x=Math.imul(x^x>>>13,3266489909);x^=x>>>16;return x>>>0}}
+function rng(seedStr){const f=h(seedStr);let a=f();return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+function P(r,lo,hi){return lo+r()*(hi-lo)}
+function hueC(r,base){return 'hsl('+Math.round(base+P(r,-16,16))+' '+Math.round(P(r,55,75))+'% '+Math.round(P(r,48,66))+'%)'}
+const GOLD='#d4a94e',BG='#1f1a33';
+function svgWrap(inner){return '<rect width="200" height="200" rx="10" fill="'+BG+'"/>'+inner}
+function buildGlyph(u,seedStr){const r=rng(u.kw+'|'+seedStr);let m;
+if(u.motif==='molecule')m=molecule(r,u.hue);
+else if(u.motif==='membrane')m=membrane(r,u.hue);
+else if(u.motif==='helix')m=helix(r,u.hue);
+else if(u.motif==='tree')m=tree(r,u.hue);
+else if(u.motif==='radiate')m=radiate(r,u.hue);
+else if(u.motif==='veins')m=veins(r,u.hue);
+else if(u.motif==='radial')m=radial(r,u.hue);
+else m=web(r,u.hue);
+return svgWrap(m)}
+function molecule(r,hue){const c=hueC(r,hue),n=6+Math.floor(P(r,0,4));let s='<g stroke="'+GOLD+'" stroke-width="1.2" opacity="0.85">';
+const cx=100,cy=100,R=P(r,38,58),pts=[];
+for(let i=0;i<n;i++){const a=2*Math.PI*i/n+P(r,-0.2,0.2);pts.push([cx+R*Math.cos(a),cy+R*Math.sin(a)])}
+pts.forEach(p=>{s+='<line x1="'+cx+'" y1="'+cy+'" x2="'+p[0].toFixed(1)+'" y2="'+p[1].toFixed(1)+'"/>'});
+for(let i=0;i<n;i++){const a=pts[i],b=pts[(i+1)%n];s+='<line x1="'+a[0].toFixed(1)+'" y1="'+a[1].toFixed(1)+'" x2="'+b[0].toFixed(1)+'" y2="'+b[1].toFixed(1)+'"/>'}
+s+='</g><g>';
+pts.forEach(p=>{s+='<circle cx="'+p[0].toFixed(1)+'" cy="'+p[1].toFixed(1)+'" r="'+P(r,7,13).toFixed(1)+'" fill="'+c+'" fill-opacity="0.5" stroke="'+GOLD+'"/>'});
+s+='<circle cx="100" cy="100" r="'+P(r,14,20).toFixed(1)+'" fill="'+c+'" fill-opacity="0.8" stroke="'+GOLD+'" stroke-width="2"/>';return s+'</g>'}
+function membrane(r,hue){const c=hueC(r,hue),c2=hueC(r,hue);let s='<path d="';const steps=14,R0=P(r,52,66),ph=P(r,0,6.28),wob=P(r,4,10);let d='';
+for(let i=0;i<=steps;i++){const a=2*Math.PI*i/steps+ph;const R=R0+wob*Math.sin(3*a+P(r,0,3));const x=100+R*Math.cos(a),y=100+R*Math.sin(a);d+=(i?'L':'M')+x.toFixed(1)+' '+y.toFixed(1)}
+d+='Z" fill="'+c+'" fill-opacity="0.28" stroke="'+GOLD+'" stroke-width="2"/>';
+d+='<circle cx="'+(100+P(r,-14,14)).toFixed(1)+'" cy="'+(100+P(r,-14,14)).toFixed(1)+'" r="'+P(r,15,22).toFixed(1)+'" fill="'+c2+'" fill-opacity="0.6" stroke="'+GOLD+'" stroke-width="1.5"/>';
+const k=2+Math.floor(P(r,0,4));for(let i=0;i<k;i++){d+='<circle cx="'+P(r,40,160).toFixed(1)+'" cy="'+P(r,40,160).toFixed(1)+'" r="'+P(r,5,9).toFixed(1)+'" fill="'+c2+'" fill-opacity="0.5"/>'}
+return d}
+function helix(r,hue){const c1=hueC(r,hue),c2=hueC(r,hue),A=P(r,26,38),k=2+Math.floor(P(r,0,2))*0.5,ph=P(r,0,6.28);let p1='',p2='';
+for(let x=20;x<=180;x+=4){const y1=100+A*Math.sin(2*Math.PI*k*(x-20)/160+ph),y2=100+A*Math.sin(2*Math.PI*k*(x-20)/160+ph+Math.PI);p1+=(p1?'L':'M')+x+' '+y1.toFixed(1);p2+=(p2?'L':'M')+x+' '+y2.toFixed(1)}
+let s='<path d="'+p1+'" fill="none" stroke="'+c1+'" stroke-width="3.5"/><path d="'+p2+'" fill="none" stroke="'+c2+'" stroke-width="3.5"/><g stroke="'+GOLD+'" stroke-width="1.2">';
+for(let x=26;x<=176;x+=16){const y1=100+A*Math.sin(2*Math.PI*k*(x-20)/160+ph),y2=100+A*Math.sin(2*Math.PI*k*(x-20)/160+ph+Math.PI);s+='<line x1="'+x+'" y1="'+y1.toFixed(1)+'" x2="'+x+'" y2="'+y2.toFixed(1)+'"/><circle cx="'+x+'" cy="'+y1.toFixed(1)+'" r="2.6" fill="'+c1+'"/><circle cx="'+x+'" cy="'+y2.toFixed(1)+'" r="2.6" fill="'+c2+'"/>'}
+return s+'</g>'}
+function tree(r,hue){const c=hueC(r,hue),branches=[];const spread=P(r,0.35,0.65),shrink=P(r,0.6,0.75),depth=3+Math.floor(P(r,0,2));
+function grow(x,y,a,len,d){const nx=x+len*Math.cos(a),ny=y-len*Math.sin(a);branches.push([x,y,nx,ny]);
+if(d>=depth)return;grow(nx,ny,a+spread,len*shrink,d+1);grow(nx,ny,a-spread,len*shrink,d+1)}
+grow(100,175,Math.PI/2,P(r,42,58),0);let s='<g stroke="'+GOLD+'" stroke-width="1.6" fill="none" opacity="0.9">';
+branches.forEach(b=>{s+='<line x1="'+b[0].toFixed(1)+'" y1="'+b[1].toFixed(1)+'" x2="'+b[2].toFixed(1)+'" y2="'+b[3].toFixed(1)+'"/>'});
+s+='</g><g>';branches.slice(-Math.pow(2,depth+1)).forEach(b=>{s+='<circle cx="'+b[2].toFixed(1)+'" cy="'+b[3].toFixed(1)+'" r="'+P(r,3,6).toFixed(1)+'" fill="'+c+'" fill-opacity="0.75"/>'});
+s+='<circle cx="100" cy="178" r="6" fill="'+c+'" fill-opacity="0.6"/>';return s+'</g>'}
+function radiate(r,hue){const c=hueC(r,hue),c2=hueC(r,hue),n=12+Math.floor(P(r,0,9));let s='<circle cx="100" cy="100" r="'+P(r,16,26).toFixed(1)+'" fill="'+c+'" fill-opacity="0.7" stroke="'+GOLD+'" stroke-width="2"/><g stroke="'+GOLD+'" stroke-width="1.2">';
+const spokes=[];for(let i=0;i<n;i++){const a=2*Math.PI*i/n,L=P(r,34,72);spokes.push([a,L])}
+spokes.forEach(sp=>{const x2=100+sp[1]*Math.cos(sp[0]),y2=100+sp[1]*Math.sin(sp[0]);s+='<line x1="100" y1="100" x2="'+x2.toFixed(1)+'" y2="'+y2.toFixed(1)+'"/>'});
+s+='</g><g>';spokes.forEach(sp=>{const x2=100+sp[1]*Math.cos(sp[0]),y2=100+sp[1]*Math.sin(sp[0]);s+='<circle cx="'+x2.toFixed(1)+'" cy="'+y2.toFixed(1)+'" r="'+P(r,3.5,7).toFixed(1)+'" fill="'+c2+'" fill-opacity="0.8"/>'});
+return s+'</g>'}
+function veins(r,hue){const c=hueC(r,hue),c2=hueC(r,hue),W=P(r,54,66),H=P(r,78,90),rot=P(r,-14,14);
+let s='<g transform="rotate('+rot.toFixed(1)+' 100 100)">';
+s+='<path d="M100 '+(100-H/2).toFixed(1)+' C '+(100+W/2).toFixed(1)+' '+(100-H/5).toFixed(1)+','+(100+W/2).toFixed(1)+' '+(100+H/5).toFixed(1)+',100 '+(100+H/2).toFixed(1)+' C '+(100-W/2).toFixed(1)+' '+(100+H/5).toFixed(1)+','+(100-W/2).toFixed(1)+' '+(100-H/5).toFixed(1)+',100 '+(100-H/2).toFixed(1)+' Z" fill="'+c+'" fill-opacity="0.25" stroke="'+GOLD+'" stroke-width="2"/>';
+s+='<line x1="100" y1="'+(100-H/2+6).toFixed(1)+'" x2="100" y2="'+(100+H/2-6).toFixed(1)+'" stroke="'+GOLD+'" stroke-width="2"/><g stroke="'+c2+'" stroke-width="1.4" fill="none">';
+const pairs=Math.floor(P(r,5,8));
+for(let i=1;i<=pairs;i++){const y=100-H/2+6+i*(H-12)/(pairs+1);const len=W/2*(1-Math.pow((y-100)/(H/2),2)*0.8)*P(r,0.85,1);
+s+='<path d="M100 '+y.toFixed(1)+' Q '+(100+len/2).toFixed(1)+' '+(y-9).toFixed(1)+' '+(100+len).toFixed(1)+' '+(y+P(r,-4,8)).toFixed(1)+'"/>';
+s+='<path d="M100 '+y.toFixed(1)+' Q '+(100-len/2).toFixed(1)+' '+(y-9).toFixed(1)+' '+(100-len).toFixed(1)+' '+(y+P(r,-4,8)).toFixed(1)+'"/>'}
+return s+'</g></g>'}
+function radial(r,hue){const c=hueC(r,hue),c2=hueC(r,hue),N=5+Math.floor(P(r,0,4));const armL=P(r,50,72),armW=P(r,12,22);
+let arm='<path d="M100 100 L '+(100-armW).toFixed(1)+' '+(100-armL*0.55).toFixed(1)+' Q 100 '+(100-armL).toFixed(1)+' '+(100+armW).toFixed(1)+' '+(100-armL*0.55).toFixed(1)+' Z" fill="'+c+'" fill-opacity="0.6" stroke="'+GOLD+'" stroke-width="1.2"/>';
+let s='<circle cx="100" cy="100" r="14" fill="'+c2+'" fill-opacity="0.8" stroke="'+GOLD+'" stroke-width="2"/><g>';
+for(let i=0;i<N;i++){s+='<g transform="rotate('+(360*i/N).toFixed(1)+' 100 100)">'+arm+'</g>'}
+s+='<g stroke="'+GOLD+'" stroke-width="1" opacity="0.7"><circle cx="100" cy="100" r="'+P(r,42,58).toFixed(1)+'" fill="none"/><circle cx="100" cy="100" r="'+P(r,66,78).toFixed(1)+'" fill="none" stroke-dasharray="4 6"/></g>';
+return s+'</g>'}
+function web(r,hue){const c=hueC(r,hue),c2=hueC(r,hue),n=8+Math.floor(P(r,0,5)),pts=[];
+for(let i=0;i<n;i++)pts.push([P(r,30,170),P(r,30,170)]);
+const links=[];pts.forEach((p,i)=>{const d=pts.map((q,j)=>({j,d:Math.hypot(p[0]-q[0],p[1]-q[1])})).filter(o=>o.j!==i).sort((a,b)=>a.d-b.d);
+for(let k=0;k<2;k++){const j=d[k].j;if(!links.some(L=>(L[0]===i&&L[1]===j)||(L[0]===j&&L[1]===i)))links.push([i,j])}});
+const deg=pts.map((_,i)=>links.filter(L=>L[0]===i||L[1]===i).length);let s='<g stroke="'+GOLD+'" stroke-width="1.1" opacity="0.8">';
+links.forEach(L=>{s+='<line x1="'+pts[L[0]][0].toFixed(1)+'" y1="'+pts[L[0]][1].toFixed(1)+'" x2="'+pts[L[1]][0].toFixed(1)+'" y2="'+pts[L[1]][1].toFixed(1)+'"/>'});
+s+='</g><g>';pts.forEach((p,i)=>{s+='<circle cx="'+p[0].toFixed(1)+'" cy="'+p[1].toFixed(1)+'" r="'+(4+deg[i]*2.2).toFixed(1)+'" fill="'+(deg[i]>2?c:c2)+'" fill-opacity="0.75" stroke="'+GOLD+'"/>'});
+return s+'</g>'}
+let LAST={};
+function render(){const g=document.getElementById('grid');g.innerHTML='';LAST={};
+UNITS.forEach(u=>{const m=buildGlyph(u,'v'+seedIdx);LAST[u.kw]=m;const t=document.createElement('div');t.className='tile';
+t.innerHTML='<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">'+m+'</svg><div class="nm">'+u.kw+'</div><div class="sd">motif:'+u.motif+' · seed:v'+seedIdx+'</div>';g.appendChild(t)})}
+function selfTest(){let pass=0,total=0;try{
+const tiles=document.querySelectorAll('.tile').length;total++;if(tiles===8)pass++;
+const mks=UNITS.map(u=>buildGlyph(u,'X9'));total++;if(new Set(mks).size===8)pass++;
+let det=true;UNITS.forEach(u=>{if(buildGlyph(u,'X9')!==buildGlyph(u,'X9'))det=false});total++;if(det)pass++;
+let varN=0;UNITS.forEach(u=>{if(buildGlyph(u,'X9')!==buildGlyph(u,'X8'))varN++});total++;if(varN>=6)pass++;
+const allMk=Object.values(LAST).join('');total++;if(!allMk.includes('NaN')&&!allMk.includes('undefined'))pass++;
+document.getElementById('badge').textContent='SELF-TEST '+pass+'/'+total+' OK';
+}catch(e){document.getElementById('badge').textContent='SELF-TEST FAIL: '+e.message}}
+document.getElementById('reseed').onclick=()=>{seedIdx++;render();selfTest();document.getElementById('ident').textContent=''};
+document.getElementById('same').onclick=()=>{let same=0;UNITS.forEach(u=>{if(buildGlyph(u,'v'+seedIdx)===LAST[u.kw])same++});
+document.getElementById('ident').textContent='♻ '+same+'/8 byte-identical @ seed v'+seedIdx;
+if(same===8)document.getElementById('ident').style.borderColor='#6dbb7d'};
+document.getElementById('foot').innerHTML='Unit themes: OpenStax <i>Biology 2e</i> (CC BY 4.0) — hand-entered for this proof. In the Phase 2 pipeline these keywords arrive automatically from the compiled content pack. Each glyph is 100% code-drawn: no images, no hand drawing — regenerable from (keyword, seed), licensed with the pack.';
+render();selfTest();
+</script></body></html>
