@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const { spawn, execFile } = require('child_process');
+const net = require('net');
 
 const { TabManager } = require('./bridge/tab_manager');
 const { startBridgeServer } = require('./bridge/browser_bridge_server');
@@ -40,7 +41,8 @@ const SETTINGS_PATH = path.join(ITER_DIR, '.runtime', 'settings.json');
 // local-machine UI state rather than accumulated agent memory, so it stays
 // out of STATE_PATHS / resetState (resetting the agent's memory should
 // never wipe your open tabs) -- but it IS carried along by export/import
-// via TAB_STATE_PATHS below, so tabs travel with you between machines.
+// via PERSONAL_STATE_PATHS below (which now captures the whole .runtime/
+// folder), so tabs travel with you between machines.
 // Added 2026-09-14 because before this, restarting Iter Browser for ANY code
 // change silently threw away every open tab with no way to recover them --
 // discovered while adding the tab-lock feature, which itself needs a
@@ -51,17 +53,20 @@ const TABS_SESSION_PATH = path.join(ITER_DIR, '.runtime', 'tabs_session.json');
 // Closed" submenu and "Reopen Last Closed Tab" -- added 2026-09-14 alongside
 // the menu system, same local-UI-state reasoning as TABS_SESSION_PATH (kept
 // out of STATE_PATHS/resetState, included in export/import via
-// TAB_STATE_PATHS). Capped at CLOSED_TABS_LIMIT, newest first.
+// PERSONAL_STATE_PATHS). Capped at CLOSED_TABS_LIMIT, newest first.
 const CLOSED_TABS_PATH = path.join(ITER_DIR, '.runtime', 'closed_tabs.json');
 const CLOSED_TABS_LIMIT = 20;
 // Named, saved sets of tabs the user can open/switch-to/close as a unit --
 // e.g. "Research" vs "Work" vs "Recipes" -- added 2026-09-14 per user
 // request. Same local-UI-state reasoning as TABS_SESSION_PATH/CLOSED_TABS_PATH
 // (kept out of STATE_PATHS/resetState, included in export/import via
-// TAB_STATE_PATHS).
+// PERSONAL_STATE_PATHS).
 const TAB_GROUPS_PATH = path.join(ITER_DIR, '.runtime', 'tab_groups.json');
 const VENV_PYTHON = path.join(ITER_DIR, '.venv', 'bin', 'python3');
 const SIDEBAR_BG = '#0d0f12'; // matches renderer/style.css --bg
+// Persistent MeTTa atomspace server (metta_server.py) -- see startMettaServer()
+// below. Unix socket, same protocol shape as ITER_BRIDGE_SOCKET above.
+const ITER_METTA_SOCKET = process.env.ITER_METTA_SOCKET || '/tmp/iter-metta-bridge.sock';
 
 let win = null;
 let sidebarView = null;
@@ -70,6 +75,7 @@ let tabstripView = null;
 let tabs = null;
 let chatBridge = null;
 let iterProcess = null;
+let mettaProcess = null;
 let iterLog = [];
 let sidebarWidth = DEFAULT_SIDEBAR_WIDTH;
 let tabstripHeight = DEFAULT_TABSTRIP_HEIGHT;
@@ -142,6 +148,75 @@ function stopIter() {
   return { stopping: true };
 }
 
+// Checks whether metta_server.py is already alive and answering, by making
+// one real request over its socket rather than just checking the socket
+// file exists (a stale file from a previous crash would otherwise look
+// like "running"). Mirrors the same trust boundary as the browser bridge:
+// local-machine only, short timeout, fails closed.
+function pingMettaServer(timeoutMs = 1500) {
+  return new Promise((resolve) => {
+    if (!fs.existsSync(ITER_METTA_SOCKET)) return resolve(false);
+    const sock = net.createConnection(ITER_METTA_SOCKET);
+    let done = false;
+    const finish = (ok) => {
+      if (done) return;
+      done = true;
+      try { sock.destroy(); } catch (_) {}
+      resolve(ok);
+    };
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    sock.on('connect', () => sock.write(JSON.stringify({ method: 'status', params: {} }) + '\n'));
+    sock.on('data', (chunk) => {
+      clearTimeout(timer);
+      try {
+        finish(!!JSON.parse(chunk.toString().split('\n')[0]).ok);
+      } catch (_) {
+        finish(false);
+      }
+    });
+    sock.on('error', () => { clearTimeout(timer); finish(false); });
+  });
+}
+
+// Starts (or confirms) the persistent MeTTa atomspace server -- see
+// metta_server.py's own docstring for the full design rationale. Called
+// once from createWindow() below, satisfying the "npm start starts it, or
+// checks it's already running and starts it if not -- one command to
+// remember" requirement (2026-09-19).
+//
+// Launched detached + unref()'d so it deliberately OUTLIVES this Electron
+// process: the whole point is persistence across app restarts (real atoms
+// accumulating in memory across many npm-start/quit cycles), not just
+// within one session, so window-all-closed / app quit does NOT kill it --
+// see that handler below, which only kills iterProcess/termProcess.
+async function startMettaServer() {
+  const alreadyRunning = await pingMettaServer();
+  if (alreadyRunning) {
+    pushLog('[metta] persistent MeTTa server already running, reusing it');
+    return { already: true };
+  }
+  // Stale socket file with nothing listening on it -- clear it so the new
+  // process can bind cleanly.
+  try { fs.unlinkSync(ITER_METTA_SOCKET); } catch (_) {}
+  const logPath = path.join(ITER_DIR, '.runtime', 'metta_server.log');
+  fs.mkdirSync(path.dirname(logPath), { recursive: true });
+  const logFd = fs.openSync(logPath, 'a');
+  try {
+    mettaProcess = spawn(pythonBin(), ['metta_server.py'], {
+      cwd: ITER_DIR,
+      env: { ...process.env, ITER_METTA_SOCKET, ITER_DIR, PYTHONUNBUFFERED: '1' },
+      detached: true,
+      stdio: ['ignore', logFd, logFd],
+    });
+    mettaProcess.unref();
+    pushLog('[metta] started persistent MeTTa server (pid ' + mettaProcess.pid + '); log: ' + logPath);
+    return { started: true, pid: mettaProcess.pid };
+  } catch (e) {
+    pushLog('[metta] FAILED to start MeTTa server: ' + e.message);
+    return { error: e.message };
+  }
+}
+
 // ---------------------------------------------------------------------
 // Export / Import / Reset — state-management, ported from the old HTML
 // app's "Export", "Import", "Reset" buttons.
@@ -170,17 +245,94 @@ const STATE_PATHS = [
   'experience.json', 'history.metta', 'nace_beliefs.metta', 'nace_pending.metta',
   'nace_substrate.metta', 'space.metta', 'chat.txt', 'transcript.txt',
   '.improve_cooldown', '.stall_state.json', '.history_state', '.transcript_state',
+  // Added 2026-09-18: these were siblings of files already above (same
+  // accumulated-learning role) but had been left out since whenever they
+  // were introduced, so Reset State/Export/Import silently skipped them.
+  'capability_lifecycle.metta', 'self_map.metta', 'task_state.metta', 'atomspace_data.json',
 ];
-// Local-machine UI state -- open tabs, recently-closed history, saved tab
-// groups. Kept separate from STATE_PATHS so Reset State (which wipes
-// STATE_PATHS to clear the agent's accumulated memory/personality) never
-// touches your tabs. Export and Import bundle STATE_PATHS + TAB_STATE_PATHS
-// together, so moving to a new machine (or restoring a snapshot) brings
-// your open tabs, tab groups, and closed-tab history along with the agent's
-// memory. Added 2026-09-14 per user request.
-const TAB_STATE_PATHS = [
-  '.runtime/tabs_session.json', '.runtime/closed_tabs.json', '.runtime/tab_groups.json',
+// Everything that makes up your personal running environment on THIS
+// machine -- open tabs, tab groups, closed-tab history, UI settings, the
+// PWQ queue, CRM contacts/tasks/events, and your private notes -- as
+// opposed to STATE_PATHS above, which is the agent's accumulated
+// memory/learning. Kept separate so Reset State (which wipes STATE_PATHS to
+// clear the agent's memory/personality) never touches any of this. Export
+// and Import bundle STATE_PATHS + PERSONAL_STATE_PATHS together, so moving
+// to a new machine (or restoring a snapshot) brings your whole working
+// environment along, not just the agent's memory.
+//
+// '.runtime' is captured WHOLESALE (the whole folder, not individual
+// filenames) specifically so that anything new added under .runtime/ later
+// -- another JSON file, another dated backup -- is automatically included
+// in every future Export without needing a code change here. This directory
+// never holds login/cookie data (Electron keeps that in its own userData
+// path, entirely outside this repo), so capturing it wholesale cannot leak
+// credentials. Renamed from TAB_STATE_PATHS and broadened 2026-09-18: the
+// old exact-filename list silently dropped settings.json, pwq.json,
+// .runtime/pages/, .runtime/electron_ui/, and any dated backup/journal
+// file -- none of those ever showed up in an export and there was no
+// warning that they were missing.
+const PERSONAL_STATE_PATHS = [
+  '.runtime', 'private', 'crm/data',
 ];
+
+// ---------------------------------------------------------------------
+// Automatic rolling backups -- independent of the user-triggered Export
+// button, so there's always a recent safety net even if you never click
+// Export yourself. Runs every AUTO_BACKUP_INTERVAL_MS in the background
+// (started from app.whenReady() below) and keeps only the newest
+// AUTO_BACKUP_KEEP zips, deleting older ones as new ones land -- 6h x 4
+// kept = a rolling 24h window. Stored under Electron's own userData path,
+// NOT inside this git repo, so these can never end up committed/pushed
+// by accident regardless of .gitignore correctness. The Restore button
+// (below) lets you pick any of the kept backups, not just the newest, in
+// case the most recent one turns out to be bad.
+// ---------------------------------------------------------------------
+const AUTO_BACKUP_DIR = path.join(app.getPath('userData'), 'auto_backups');
+const AUTO_BACKUP_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
+const AUTO_BACKUP_KEEP = 4; // -> 24h rolling window at the interval above
+let autoBackupTimer = null;
+
+async function runAutoBackup() {
+  try {
+    fs.mkdirSync(AUTO_BACKUP_DIR, { recursive: true });
+    saveTabSession();
+    const wanted = [...STATE_PATHS, ...PERSONAL_STATE_PATHS];
+    const existing = wanted.filter((p) => fs.existsSync(path.join(ITER_DIR, p)));
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const zipPath = path.join(AUTO_BACKUP_DIR, `autobackup-${stamp}.zip`);
+    await runCLI('zip', ['-r', zipPath, ...existing], ITER_DIR);
+    pruneAutoBackups();
+    pushLog(`[auto-backup] saved ${existing.length} item(s) -> ${path.basename(zipPath)}`);
+  } catch (e) {
+    pushLog(`[auto-backup] failed: ${e.message}`);
+  }
+}
+
+function listAutoBackupsSorted() {
+  if (!fs.existsSync(AUTO_BACKUP_DIR)) return [];
+  return fs.readdirSync(AUTO_BACKUP_DIR)
+    .filter((f) => f.startsWith('autobackup-') && f.endsWith('.zip'))
+    .map((f) => {
+      const full = path.join(AUTO_BACKUP_DIR, f);
+      const stat = fs.statSync(full);
+      return { file: f, full, mtimeMs: stat.mtimeMs, size: stat.size };
+    })
+    .sort((a, b) => b.mtimeMs - a.mtimeMs);
+}
+
+function pruneAutoBackups() {
+  const all = listAutoBackupsSorted();
+  for (const old of all.slice(AUTO_BACKUP_KEEP)) fs.rmSync(old.full, { force: true });
+}
+
+function startAutoBackupTimer() {
+  if (autoBackupTimer) return;
+  // Take one shortly after launch if none exist yet (fresh install, or the
+  // folder was cleared), so there's a safety net soon instead of waiting a
+  // full interval.
+  if (!listAutoBackupsSorted().length) setTimeout(runAutoBackup, 30 * 1000);
+  autoBackupTimer = setInterval(runAutoBackup, AUTO_BACKUP_INTERVAL_MS);
+}
 
 function runCLI(cmd, args, cwd) {
   return new Promise((resolve, reject) => {
@@ -204,10 +356,17 @@ async function exportState() {
   // normally debounced 400ms after the last tab change, so without this an
   // export taken right after opening/closing a tab could bundle stale data.
   saveTabSession();
-  const existing = [...STATE_PATHS, ...TAB_STATE_PATHS].filter((p) => fs.existsSync(path.join(ITER_DIR, p)));
+  const wanted = [...STATE_PATHS, ...PERSONAL_STATE_PATHS];
+  const existing = wanted.filter((p) => fs.existsSync(path.join(ITER_DIR, p)));
+  // Report anything expected-but-missing instead of silently dropping it --
+  // this used to fail silent, which is exactly how the tab-export gap and
+  // several other missing paths went unnoticed for days. Not finding a path
+  // isn't necessarily wrong (e.g. you may have no private/ folder yet), but
+  // you should be able to see it happened.
+  const missing = wanted.filter((p) => !fs.existsSync(path.join(ITER_DIR, p)));
   if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
   await runCLI('zip', ['-r', filePath, ...existing], ITER_DIR);
-  return { exported: filePath };
+  return { exported: filePath, itemCount: existing.length, missing };
 }
 
 async function importState() {
@@ -218,8 +377,14 @@ async function importState() {
     filters: [{ name: 'Zip archive', extensions: ['zip'] }],
   });
   if (canceled || !filePaths || !filePaths[0]) return { canceled: true };
-  const zipPath = filePaths[0];
+  return restoreFromZipPath(filePaths[0]);
+}
 
+// Shared by importState() (user picks a zip via the file dialog) and
+// restoreAutoBackup() (Restore button -- path is already known, one of
+// the rolling AUTO_BACKUP_KEEP snapshots in AUTO_BACKUP_DIR, no dialog
+// needed). Identical restore behavior either way.
+async function restoreFromZipPath(zipPath) {
   const wasRunning = !!iterProcess;
   if (wasRunning) stopIter();
 
@@ -235,14 +400,26 @@ async function importState() {
       const innerEntries = fs.readdirSync(inner);
       if (innerEntries.some((e) => STATE_PATHS.includes(e))) sourceRoot = inner;
     }
-    for (const rel of [...STATE_PATHS, ...TAB_STATE_PATHS]) {
+    const wanted = [...STATE_PATHS, ...PERSONAL_STATE_PATHS];
+    var restored = [];
+    for (const rel of wanted) {
       const src = path.join(sourceRoot, rel);
       if (!fs.existsSync(src)) continue;
       const dest = path.join(ITER_DIR, rel);
       fs.mkdirSync(path.dirname(dest), { recursive: true });
       fs.rmSync(dest, { recursive: true, force: true });
       fs.cpSync(src, dest, { recursive: true });
+      restored.push(rel);
     }
+    // Report what this zip actually had vs. what this build of Iter Browser
+    // knows to look for. If the zip is missing something this build expects
+    // (e.g. it was exported by an older or newer build with a different
+    // STATE_PATHS/PERSONAL_STATE_PATHS list), surface that now instead of
+    // just silently ending up with a thinner restore than you expected --
+    // this is exactly how a stale build on a different machine can look
+    // like a broken Export when Export was actually fine.
+    var notFoundInZip = wanted.filter((rel) => !restored.includes(rel));
+    var importedSummary = { restored, notFoundInZip };
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
@@ -263,7 +440,51 @@ async function importState() {
   }
 
   if (wasRunning) startIter();
-  return { imported: zipPath, restarted: wasRunning };
+  return { imported: zipPath, restarted: wasRunning, itemCount: importedSummary.restored.length, notFoundInZip: importedSummary.notFoundInZip };
+}
+
+// Restore button: no file dialog -- the caller (renderer, after showing the
+// user the rolling list from listAutoBackupsSorted()) already knows exactly
+// which auto-backup zip to use.
+async function restoreAutoBackup(backupFull) {
+  if (!fs.existsSync(backupFull)) return { error: 'That backup no longer exists (it may have aged out of the rolling window).' };
+  return restoreFromZipPath(backupFull);
+}
+
+// Restore button entry point: shows a native picker over the up-to-4 kept
+// auto-backups (newest first) so you can fall back to an older one if the
+// newest turns out to be bad, then restores the chosen one. No file-picker
+// dialog -- these are the app's own rolling snapshots, not a user-chosen zip.
+async function restoreState() {
+  if (!win) return { error: 'no window' };
+  const backups = listAutoBackupsSorted();
+  if (!backups.length) {
+    await dialog.showMessageBox(win, {
+      type: 'warning',
+      title: 'No auto-backups yet',
+      message: 'No auto-backups exist yet. They start after the app has been running about 30 seconds, then every 6 hours after that.',
+      buttons: ['OK'],
+    });
+    return { canceled: true, reason: 'no-backups' };
+  }
+  const labels = backups.map((b) => {
+    const when = new Date(b.mtimeMs).toLocaleString();
+    const mb = (b.size / (1024 * 1024)).toFixed(1);
+    return `${when}  (${mb} MB)`;
+  });
+  const buttons = [...labels, 'Cancel'];
+  const { response } = await dialog.showMessageBox(win, {
+    type: 'question',
+    title: 'Restore from auto-backup',
+    message: 'Choose a backup to restore. This replaces your current state -- pick an earlier one if the most recent looks wrong.',
+    buttons,
+    cancelId: buttons.length - 1,
+    defaultId: 0,
+  });
+  if (response === buttons.length - 1) return { canceled: true };
+  const chosen = backups[response];
+  const result = await restoreAutoBackup(chosen.full);
+  return { ...result, restoredFrom: chosen.file };
 }
 
 function resetState() {
@@ -1142,6 +1363,7 @@ function createWindow() {
 
   win.on('closed', () => {
     clearTimeout(tabSessionSaveTimer);
+    if (autoBackupTimer) { clearInterval(autoBackupTimer); autoBackupTimer = null; }
     saveTabSession(); // flush the last state synchronously, don't rely on the debounce timer surviving shutdown
     for (const tab of tabs.tabs.values()) tab.view.webContents.close();
     sidebarView.webContents.close();
@@ -1155,6 +1377,18 @@ function createWindow() {
   });
 
   startBridgeServer(tabs, pushLog);
+  startMettaServer();
+  // Watchdog: metta_server.py is a detached background process outside
+  // Electron's own supervision -- if it crashes mid-session nothing else
+  // in this app would ever notice or restart it, silently breaking every
+  // transformation that depends on the MeTTa bridge (this happened for
+  // real on 2026-09-20, cascading into 8 unrelated-looking "TIMEOUT after
+  // 5s" failures). startMettaServer() already pings first and no-ops if
+  // healthy, so calling it repeatedly here is safe.
+  setInterval(() => {
+    startMettaServer().catch((e) => pushLog('[metta] watchdog restart failed: ' + e.message));
+  }, 60000);
+  startAutoBackupTimer();
 }
 
 // ---------------------------------------------------------------------
@@ -1209,6 +1443,8 @@ ipcMain.handle('tabs:reload', (_e, id) => {
 ipcMain.handle('chat:send', (_e, content) => chatBridge.sendToIter(content));
 ipcMain.handle('iter:start', () => startIter());
 ipcMain.handle('iter:stop', () => stopIter());
+ipcMain.handle('metta:status', async () => ({ running: await pingMettaServer() }));
+ipcMain.handle('metta:start', () => startMettaServer());
 ipcMain.handle('iter:status', () => ({ running: !!iterProcess }));
 ipcMain.handle('iter:recentLog', () => iterLog.slice(-200));
 ipcMain.handle('settings:load', () => loadSettings());
@@ -1240,6 +1476,7 @@ ipcMain.handle('permissions:openSystemSettings', (_e, kind) => {
 
 ipcMain.handle('state:export', () => exportState());
 ipcMain.handle('state:import', () => importState());
+ipcMain.handle('state:restore', () => restoreState());
 ipcMain.handle('state:reset', () => resetState());
 
 ipcMain.handle('sidebar:resize-start', () => sidebarResizeStart());
@@ -1262,11 +1499,35 @@ ipcMain.handle('fs:list', (_e, relPath) => fsList(relPath));
 ipcMain.handle('fs:read', (_e, relPath) => fsRead(relPath));
 ipcMain.handle('fs:write', (_e, { path: relPath, content }) => fsWrite(relPath, content));
 
+// ===== CRM bridge (COS Command Center) — disk is the API =====
+const CRM_DIR = path.join(ITER_DIR, 'crm', 'data');
+const CRM_FILES = ['contacts.json','tasks.json','events.json','captures.json'];
+ipcMain.handle('crm:read', (_e, fname) => {
+  if (!CRM_FILES.includes(fname)) return { ok: false, error: 'bad file' };
+  try { return { ok: true, data: JSON.parse(fs.readFileSync(path.join(CRM_DIR, fname), 'utf8')) }; }
+  catch (err) { return { ok: false, error: String(err) }; }
+});
+ipcMain.handle('crm:write', (_e, fname, data) => {
+  if (!CRM_FILES.includes(fname)) return { ok: false, error: 'bad file' };
+  try { fs.writeFileSync(path.join(CRM_DIR, fname), JSON.stringify(data, null, 2), 'utf8'); return { ok: true }; }
+  catch (err) { return { ok: false, error: String(err) }; }
+});
+
 ipcMain.handle('terminal:start', () => startTerminal());
 ipcMain.handle('terminal:run', (_e, cmd) => runTerminalCommand(cmd));
 ipcMain.handle('terminal:interrupt', () => interruptTerminal());
 ipcMain.handle('terminal:stop', () => stopTerminal());
 ipcMain.handle('dashboards:open', () => tabs.createTab('file://' + path.join(ITER_DIR, 'dashboard_gallery.html')));
+ipcMain.handle('pwq:open', () => tabs.createTab('file://' + path.join(ITER_DIR, 'pwq.html')));
+// CRM opens through a scoped, navigation-locked tab (see bridge/tab_manager.js
+// createTab's opts.preload/opts.restrictNavigation) so window.iterApi.crmRead/
+// crmWrite actually exist there -- a plain tabs.createTab(url) call, like the
+// two lines above, never gets a preload and would leave the CRM page's saves
+// permanently failing (this was the case until this fix; see crm/HANDOFF.md).
+ipcMain.handle('crm:open', () => tabs.createTab('file://' + path.join(ITER_DIR, 'crm', 'index.html'), {
+  preload: path.join(__dirname, 'bridge', 'crm_preload.js'),
+  restrictNavigation: true,
+}));
 
 app.whenReady().then(createWindow);
 app.on('window-all-closed', () => {
