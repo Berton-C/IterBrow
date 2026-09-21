@@ -13,7 +13,9 @@ import socket
 SOCKET_PATH = os.environ.get("ITER_BRIDGE_SOCKET", "/tmp/iter-browser-bridge.sock")
 
 
-def call(method, timeout=30, **params):
+def call(method, timeout=30, _raw_params=None, **params):
+    if _raw_params is not None:
+        params = _raw_params  # escape hatch for payload keys colliding with signature names
     if not os.path.exists(SOCKET_PATH):
         raise RuntimeError(
             "Iter Browser is not running (no bridge socket found). Start the Iter "

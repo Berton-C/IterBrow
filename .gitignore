@@ -57,3 +57,8 @@ iter/task_state.metta
 # step into tools/Godot.app -- a ~500MB binary app bundle, never source, and
 # fully reproducible from the pinned SHA-512-verified download in install.sh.
 /tools/
+
+# Local-only crash-hunt debug artifacts (3.6GB, rebuildable, never push)
+/hyperon-src-debug/
+/debug_symbols/
+*.BACKUP_before_singleton_lock_fix

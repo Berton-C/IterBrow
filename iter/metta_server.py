@@ -24,12 +24,35 @@ runtime via the `run` method live only in this process's memory for the
 life of the session; a durable, conflict-free write-back design (or a real
 DAS-backed store) is a deliberate follow-up, not bolted on here.
 
+Single-instance guarantee
+--------------------------
+Only one metta_server.py should ever hold the live atomspace at a time --
+that's the entire point of "persistent for the whole session". The caller
+(main.js's startMettaServer()) already pings the socket before spawning a
+new instance, but that ping can time out and falsely report "dead" if this
+process is deep inside a long-running native MeTTa call that holds the
+GIL and can't service a health-check connection in time. A false "dead"
+verdict used to be fatal: the old code unconditionally unlinked the socket
+and rebound it on every startup, silently orphaning a live, still-running
+atomspace (and everything it had learned) any time that race happened.
+
+To make this safe regardless of what triggered the spawn, this process
+independently enforces ownership itself via an OS-level advisory lock
+(LOCK_PATH, exclusive + non-blocking) rather than trusting a socket ping.
+flock() is arbitrated by the kernel, held by the open file descriptor for
+as long as the process is alive (even if it's GIL-blocked, wedged, or dies
+by SIGSEGV/SIGKILL without running any cleanup code), and is automatically
+released the instant the process actually exits for any reason. So a new
+instance that can't acquire the lock backs off immediately and leaves the
+existing socket alone; only a genuinely-dead prior owner is ever replaced.
+
 Usage: iter/.venv/bin/python3 metta_server.py
 Env vars:
   ITER_METTA_SOCKET  - Unix socket path (default /tmp/iter-metta-bridge.sock)
   ITER_DIR           - directory to scan for *.metta files (default: this
                         script's own directory, i.e. iter/)
 """
+import fcntl
 import json
 import os
 import socket
@@ -40,6 +63,12 @@ import time
 from pathlib import Path
 
 SOCKET_PATH = os.environ.get("ITER_METTA_SOCKET", "/tmp/iter-metta-bridge.sock")
+# Advisory lock guarding sole ownership of SOCKET_PATH -- see the
+# "Single-instance guarantee" note above. Separate from the socket file
+# itself so we never need to touch (let alone unlink) the socket path
+# until we've already proven, via the kernel-arbitrated lock, that no
+# live instance owns it.
+LOCK_PATH = os.environ.get("ITER_METTA_LOCKFILE", SOCKET_PATH + ".lock")
 ITER_DIR = os.environ.get("ITER_DIR", os.path.dirname(os.path.abspath(__file__)))
 # Overridable mainly for testing (e.g. exercising this server against real
 # iter/*.metta files from a restricted-write test harness without touching
@@ -55,6 +84,30 @@ _SKIP_DIR_PARTS = {"node_modules", ".venv", ".git", "build_v3"}
 
 def _log(msg):
     print(f"[metta_server] {msg}", flush=True)
+
+
+def _acquire_singleton_lock():
+    """Try to become the sole owner of SOCKET_PATH.
+
+    Returns the open lock-file handle (keep a reference alive for the
+    life of the process -- closing it, or the process exiting for any
+    reason, releases the lock) on success, or None if another instance
+    already holds it and is therefore still alive.
+    """
+    fh = open(LOCK_PATH, "a+")
+    try:
+        fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        fh.close()
+        return None
+    try:
+        fh.seek(0)
+        fh.truncate()
+        fh.write(str(os.getpid()))
+        fh.flush()
+    except Exception:
+        pass  # best-effort bookkeeping only; the lock itself is what matters
+    return fh
 
 
 def _find_metta_files(root):
@@ -173,6 +226,7 @@ class MettaSpace:
             "boot_atoms_loaded": self.boot_atoms_loaded,
             "boot_atoms_failed": self.boot_atoms_failed,
             "files_loaded": self.loaded_files,
+            "pid": os.getpid(),
         }
 
 
@@ -211,9 +265,24 @@ class _Server(socketserver.ThreadingUnixStreamServer):
 
 
 def main():
+    # Enforce single ownership BEFORE touching the socket at all. If this
+    # fails, a live instance already owns the persistent atomspace (whether
+    # or not it happened to answer a health-check ping in time) -- back off
+    # immediately rather than orphaning it.
+    lock_handle = _acquire_singleton_lock()
+    if lock_handle is None:
+        _log(
+            f"another metta_server.py already holds the lock on {LOCK_PATH} "
+            "and is presumed alive -- refusing to start a second instance "
+            "so the existing persistent atomspace is not orphaned. Exiting."
+        )
+        sys.exit(0)
+
     space = MettaSpace()
     space.load_boot_files()
 
+    # Only safe to clear a stale socket file now that we've proven (via the
+    # lock above) that no live process owns it.
     try:
         os.unlink(SOCKET_PATH)
     except FileNotFoundError:
@@ -223,7 +292,10 @@ def main():
 
     server = _Server(SOCKET_PATH, _Handler)
     server.metta_space = space
-    _log(f"listening on {SOCKET_PATH} (engine_available={space.engine_available})")
+    _log(
+        f"listening on {SOCKET_PATH} (engine_available={space.engine_available}, "
+        f"pid={os.getpid()})"
+    )
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -232,6 +304,11 @@ def main():
         server.server_close()
         try:
             os.unlink(SOCKET_PATH)
+        except Exception:
+            pass
+        try:
+            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+            lock_handle.close()
         except Exception:
             pass
 

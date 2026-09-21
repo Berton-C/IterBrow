@@ -32,7 +32,8 @@
   .fbtn.on { border-color: var(--gold); color: var(--ink);
     box-shadow: 0 0 0 1px var(--gold) inset; }
   .fbtn.on b { color: var(--gold); }
-  .card {
+  .card.order-waiting { border-color: #d4a017; box-shadow: 0 0 0 2px rgba(212,160,23,.25); }
+.card {
     background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
     padding: 20px 22px; margin-bottom: 20px; position: relative;
     transition: border-color .4s, box-shadow .4s;
@@ -115,6 +116,7 @@
 <div class="stats" id="stats"></div>
 <div id="queue"></div>
 <div class="empty" id="empty" style="display:none">Queue is clear. Nothing waiting on your eyes. 🌙</div>
+<div id="orderBell" style="display:none;position:fixed;top:14px;right:16px;background:#6b5a2e;color:#e8c56a;padding:8px 14px;border-radius:8px;font-size:13px;font-family:sans-serif;z-index:50;box-shadow:0 2px 12px rgba(0,0,0,.4)"></div>
 <div class="toast" id="toast"></div>
 <script>
 const PWQ_PATH = '.runtime/pwq.json';
@@ -122,14 +124,21 @@ let data = null;
 let filter = 'waiting'; // waiting | orders | done | all
 
 function fmtAge(iso) {
-  const then = new Date(iso.replace(' ', 'T'));
+  // FIX 2026-09-20 20:53: guard missing/invalid timestamps
+  if (!iso) return 'just now';
+  const then = new Date(String(iso).replace(' ', 'T'));
+  if (isNaN(then.getTime())) return 'just now';
   const hrs = (Date.now() - then.getTime()) / 3600000;
   if (hrs < 1) return 'just now';
   if (hrs < 24) return Math.floor(hrs) + 'h waiting';
   return Math.floor(hrs / 24) + 'd waiting';
 }
 function ageClass(iso) {
-  const days = (Date.now() - new Date(iso.replace(' ', 'T'))) / 86400000;
+  // FIX 2026-09-20 20:53: gate-written cards may lack 'created' — never crash render
+  if (!iso) return 'fresh';
+  const t = new Date(String(iso).replace(' ', 'T'));
+  if (isNaN(t)) return 'fresh';
+  const days = (Date.now() - t) / 86400000;
   if (days >= 3) return 'hot'; if (days >= 1.5) return 'warming'; return 'fresh';
 }
 function statusChip(s) {
@@ -167,6 +176,9 @@ async function load() {
       render();
       return;
     } catch (e) { /* fall through to standalone fetch path */ }
+    // WRITE-THROUGH FIX 2026-09-20: even if the canonical read failed, we can
+    // still persist future edits if the write bridge is available.
+    if (window.iterApi && window.iterApi.fsWrite) canPersist = true;
   }
   // Fallback: direct file fetch (standalone tab)
   try {
@@ -190,8 +202,15 @@ async function load() {
 }
 
 async function save() {
-  if (canPersist && window.iterApi && window.iterApi.fsWrite) {
-    await window.iterApi.fsWrite(PWQ_PATH, JSON.stringify(data, null, 2));
+  // WRITE-THROUGH FIX 2026-09-20: persist whenever the bridge write API exists.
+  // Previously gated on canPersist, which stays false if the canonical read ever
+  // failed (fresh install, transient error) -> clicks silently fell back to
+  // localStorage-only and were lost. fsWrite is independent of how we loaded.
+  if (window.iterApi && window.iterApi.fsWrite) {
+    const r = await window.iterApi.fsWrite(PWQ_PATH, JSON.stringify(data, null, 2));
+    if (r && r.ok === false) toast('⚠️ NOT saved to disk: ' + (r.error || 'write refused') + ' — tell Iter');
+  } else {
+    toast('⚠️ No write bridge — mirror only, tell Iter to sync');
   }
   // Standalone mode: writes are not possible from file:// fetch; queue for iter.
   // iter reads pwq.json + pwq_outbox.json each cycle, so we also try a best-effort
@@ -201,6 +220,36 @@ async function save() {
   } catch (e) { /* ignore */ }
 }
 
+
+function pushOrder(o) {
+  // Append-only, unlosable order log. Survives reloads, card edits, filter views.
+  try {
+    const log = JSON.parse(localStorage.getItem('pwq_order_log') || '[]');
+    log.push(o);
+    localStorage.setItem('pwq_order_log', JSON.stringify(log));
+    showBell(log.filter(x => !x.consumed).length);
+  } catch (e) {}
+  try { localStorage.setItem('pwq_mirror', JSON.stringify(data)); } catch (e) {}
+}
+function showBell(n) {
+  if (!n) { document.title = 'PWQ — Pending Work Queue'; const b = document.getElementById('orderBell'); if (b) b.style.display = 'none'; return; }
+  document.title = '(' + n + ') 🔔 PWQ — order waiting';
+  const b = document.getElementById('orderBell');
+  if (b) { b.textContent = '🔔 ' + n + ' order' + (n > 1 ? 's' : '') + ' pending — Iter will pick up'; b.style.display = 'block'; }
+}
+function restoreBell() {
+  try { showBell(JSON.parse(localStorage.getItem('pwq_order_log') || '[]').filter(x => !x.consumed).length); }
+  catch (e) {}
+}
+function markConsumed() {
+  try {
+    const log = JSON.parse(localStorage.getItem('pwq_order_log') || '[]');
+    log.forEach(x => x.consumed = true);
+    localStorage.setItem('pwq_order_log', JSON.stringify(log));
+    showBell(0);
+  } catch (e) {}
+}
+
 function toast(msg) {
   const t = document.getElementById('toast');
   t.textContent = msg + (canPersist ? '' : ' (saved to mirror — sync via Iter)'); t.classList.add('show');
@@ -208,7 +257,11 @@ function toast(msg) {
 }
 
 function matchesFilter(i) {
-  if (filter === 'waiting') return i.status !== 'done' && !i.orders_given;
+  // FIX 2026-09-20 20:47: a card with a pending user order (user_orders set,
+  // status still 'negotiating') IS waiting -- it was the 'waiting' filter wrongly
+  // hiding cards the user just ordered on (fix #6 class). Only 'orders_given'
+  // (click-consumed) plus not-negotiating counts as ordered.
+  if (filter === 'waiting') return i.status !== 'done' && (!i.orders_given || i.status === 'negotiating');
   if (filter === 'orders')  return i.orders_given && i.status !== 'done';
   if (filter === 'done')    return i.status === 'done';
   return true;
@@ -242,6 +295,8 @@ function render() {
     });
   });
   const shown = items.filter(matchesFilter);
+  let pendingIds = [];
+  try { pendingIds = JSON.parse(localStorage.getItem('pwq_order_log') || '[]').filter(x => !x.consumed).map(x => x.id); } catch (e) {}
   document.getElementById('empty').style.display = shown.length ? 'none' : 'block';
   if (!shown.length && items.length)
     document.getElementById('empty').textContent = 'Nothing in this view — click another filter. 🌙';
@@ -249,7 +304,7 @@ function render() {
   shown.forEach((item) => {
     const idx = items.indexOf(item);
     const card = document.createElement('div');
-    card.className = 'card ' + (item.status === 'done' ? 'done' : ageClass(item.created));
+    card.className = 'card ' + (pendingIds.includes(item.id) ? 'order-waiting ' : '') + (item.status === 'done' ? 'done' : ageClass(item.created));
     card.innerHTML = renderCard(item, idx);
     q.appendChild(card);
   });
@@ -268,20 +323,20 @@ function renderCard(item, idx) {
     h += '<div class="field"><div class="field-label">Options — click to choose</div><div class="options">';
     item.options.forEach((o, oi) => {
       const sel = (item.selected_option === oi) ? ' selected' : '';
-      h += '<div class="opt' + sel + '" data-idx="' + idx + '" data-oi="' + oi + '">' +
+      h += '<div class="opt' + sel + '" data-id="' + esc(item.id) + '" data-oi="' + oi + '">' +
            '<div class="radio"></div><div><b>' + esc(o.label) + '</b><span>' + esc(o.desc) + '</span></div></div>';
     });
     h += '</div></div>';
   }
   h += '<div class="input-row">' +
-       '<textarea id="ta-' + idx + '" placeholder="Your marching orders — fresh input, tweaks, or a whole new shape...">' + esc(item.user_input || '') + '</textarea>' +
-       '<div class="orders-box' + (item.orders_given ? ' given' : '') + '" data-idx="' + idx + '">' +
-       '<input type="checkbox" id="cb-' + idx + '"' + (item.orders_given ? ' checked' : '') + '>' +
-       '<label for="cb-' + idx + '">✅ ORDERS<br>GIVEN</label></div></div>';
+       '<textarea id="ta-' + item.id + '" placeholder="Your marching orders — fresh input, tweaks, or a whole new shape...">' + esc(item.user_input || '') + '</textarea>' +
+       '<div class="orders-box' + (item.orders_given ? ' given' : '') + '" data-id="' + esc(item.id) + '">' +
+       '<input type="checkbox" id="cb-' + item.id + '"' + (item.orders_given ? ' checked' : '') + '>' +
+       '<label for="cb-' + item.id + '">✅ ORDERS<br>GIVEN</label></div></div>';
   h += '<div class="card-actions">' +
-       '<button class="abtn" data-act="negotiate" data-idx="' + idx + '">💬 Counter-propose (log a tweak)</button>' +
-       '<button class="abtn' + (item.alarm ? ' alarm-on' : '') + '" data-act="alarm" data-idx="' + idx + '">⏰ ' + (item.alarm ? 'Alarm set' : 'Escalate to alarm') + '</button>' +
-       (item.status !== 'done' ? '<button class="abtn" data-act="done" data-idx="' + idx + '">✔ Mark done</button>' : '') +
+       '<button class="abtn" data-act="negotiate" data-id="' + esc(item.id) + '">💬 Counter-propose (log a tweak)</button>' +
+       '<button class="abtn' + (item.alarm ? ' alarm-on' : '') + '" data-act="alarm" data-id="' + esc(item.id) + '">⏰ ' + (item.alarm ? 'Alarm set' : 'Escalate to alarm') + '</button>' +
+       (item.status !== 'done' ? '<button class="abtn" data-act="done" data-id="' + esc(item.id) + '">✔ Mark done</button>' : '') +
        '</div>';
   if (item.negotiation_log && item.negotiation_log.length) {
     h += '<div class="neglog"><div class="field-label">Negotiation history</div>';
@@ -298,27 +353,34 @@ function renderCard(item, idx) {
 function wireCards() {
   document.querySelectorAll('.opt').forEach(el => {
     el.onclick = async () => {
-      const idx = +el.dataset.idx, oi = +el.dataset.oi;
-      const item = data.items[idx];
+      const oi = +el.dataset.oi;
+      const item = data.items.find(i => i.id === el.dataset.id);
+      if (!item) return;
+      try {
       item.selected_option = oi;
       item.status = 'negotiating';
+      item.negotiation_log = item.negotiation_log || [];
       item.negotiation_log.push({ time: nowStr(), who: 'user',
         text: 'Leaning toward: ' + item.options[oi].label });
+      pushOrder({id: item.id, kind: 'option', text: item.options[oi].label, ts: nowStr()});
       await save(); render(); toast('Choice noted — iter will see it');
+      } catch (err) { console.error('option click failed:', err); toast('Option failed to save — please type your choice instead'); }
     };
   });
   document.querySelectorAll('.orders-box').forEach(el => {
     el.onclick = async (ev) => {
-      const idx = +el.dataset.idx;
-      const cb = document.getElementById('cb-' + idx);
+      const item = data.items.find(i => i.id === el.dataset.id);
+      if (!item) return;
+      const cb = document.getElementById('cb-' + item.id);
       if (ev.target !== cb) cb.checked = !cb.checked;
-      const item = data.items[idx];
       item.orders_given = cb.checked;
+      item.negotiation_log = item.negotiation_log || [];
       if (cb.checked) {
-        item.user_input = document.getElementById('ta-' + idx).value;
+        item.user_input = document.getElementById('ta-' + item.id).value;
         item.status = 'orders given';
         item.negotiation_log.push({ time: nowStr(), who: 'user',
           text: 'ORDERS GIVEN: ' + (item.user_input || '(option chosen, no extra text)') });
+        pushOrder({id: item.id, kind: 'orders', text: item.user_input || '', ts: nowStr()});
         toast('Marching orders delivered ✅');
       } else {
         item.status = 'negotiating';
@@ -328,31 +390,36 @@ function wireCards() {
   });
   document.querySelectorAll('.abtn').forEach(el => {
     el.onclick = async () => {
-      const idx = +el.dataset.idx, act = el.dataset.act;
-      const item = data.items[idx];
+      const act = el.dataset.act;
+      const item = data.items.find(i => i.id === el.dataset.id);
       if (act === 'negotiate') {
         const txt = prompt('What should change about the shape of this work?');
         if (txt) {
           item.status = 'negotiating';
+          item.negotiation_log = item.negotiation_log || [];
           item.negotiation_log.push({ time: nowStr(), who: 'user', text: txt });
+          pushOrder({id: item.id, kind: 'note', text: txt, ts: nowStr()});
           await save(); render(); toast('Tweak logged — iter will counter-propose');
         }
       } else if (act === 'alarm') {
         if (item.alarm) { item.alarm = null; toast('Alarm cleared'); }
         else {
           const t = prompt('When should this ping you? (e.g. "tomorrow 9am" or "2026-09-18 09:00")', 'tomorrow 9am');
-          if (t) { item.alarm = t; toast('Alarm set: ' + t); }
+          if (t) { item.alarm = t; toast('Alarm set: ' + t); pushOrder({id: item.id, kind: 'alarm', text: t, ts: nowStr()}); }
         }
         await save(); render();
       } else if (act === 'done') {
         item.status = 'done';
+        item.negotiation_log = item.negotiation_log || [];
         item.negotiation_log.push({ time: nowStr(), who: 'user', text: 'Marked done.' });
+        pushOrder({id: item.id, kind: 'done', text: '', ts: nowStr()});
         await save(); render(); toast('Marked done');
       }
     };
   });
 }
 
+restoreBell();
 load();
 </script>
 </body>

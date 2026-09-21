@@ -13,5 +13,7 @@ DESCRIPTION = (
 
 def run(method, cdp_params="{}"):
     params = json.loads(cdp_params) if cdp_params else {}
-    result = call("cdp", method=method, cdpParams=params)
+    # bridge call() has its own first param named "method"; the CDP method and
+    # params ride inside the bridge payload (server: tabs.cdp(id, params.method, params.cdpParams)).
+    result = call("cdp", _raw_params={"method": method, "cdpParams": params})
     return json.dumps(result)

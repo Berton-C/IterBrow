@@ -52,6 +52,7 @@ EXCLUDE_DIRS = frozenset({
     "story_journal",
     "backups",
     "verification",
+    "chroma_db",
 })
 
 # Exact file names.
@@ -64,6 +65,7 @@ EXCLUDE_NAMES = frozenset({
     "champion.json",
     "regression_tests.json",
     "self_improve_regression_tests.json",
+    "_metta_validation_log.json",
 })
 
 

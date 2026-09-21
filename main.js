@@ -1499,6 +1499,26 @@ ipcMain.handle('fs:list', (_e, relPath) => fsList(relPath));
 ipcMain.handle('fs:read', (_e, relPath) => fsRead(relPath));
 ipcMain.handle('fs:write', (_e, { path: relPath, content }) => fsWrite(relPath, content));
 
+// ===== PWQ board bridge (write-through fix 2026-09-20) — disk is the API =====
+// Whitelisted to the single canonical board file so order-clicks persist
+// (previously clicks landed only in localStorage and were lost).
+const PWQ_PATH = path.join(ITER_DIR, '.runtime', 'pwq.json');
+// Read access is whitelisted to the board file + its seed; anything else is refused.
+const PWQ_READ_PATHS = { 'pwq.json': PWQ_PATH, 'pwq_seed.json': path.join(ITER_DIR, 'pwq_seed.json') };
+ipcMain.handle('pwq:read', (_e, rel) => {
+  const target = PWQ_READ_PATHS[rel] || PWQ_PATH;
+  try { return { ok: true, content: fs.readFileSync(target, 'utf8') }; }
+  catch (err) { return { ok: false, error: String(err) }; }
+});
+ipcMain.handle('pwq:write', (_e, rel, content) => {
+  try {
+    if (rel !== 'pwq.json' && rel !== '.runtime/pwq.json') throw new Error('refused: not the board file');
+    JSON.parse(content); // reject non-JSON garbage before touching disk
+    fs.writeFileSync(PWQ_PATH, content, 'utf8');
+    return { ok: true };
+  } catch (err) { return { ok: false, error: String(err) }; }
+});
+
 // ===== CRM bridge (COS Command Center) — disk is the API =====
 const CRM_DIR = path.join(ITER_DIR, 'crm', 'data');
 const CRM_FILES = ['contacts.json','tasks.json','events.json','captures.json'];
@@ -1518,7 +1538,10 @@ ipcMain.handle('terminal:run', (_e, cmd) => runTerminalCommand(cmd));
 ipcMain.handle('terminal:interrupt', () => interruptTerminal());
 ipcMain.handle('terminal:stop', () => stopTerminal());
 ipcMain.handle('dashboards:open', () => tabs.createTab('file://' + path.join(ITER_DIR, 'dashboard_gallery.html')));
-ipcMain.handle('pwq:open', () => tabs.createTab('file://' + path.join(ITER_DIR, 'pwq.html')));
+ipcMain.handle('pwq:open', () => tabs.createTab('file://' + path.join(ITER_DIR, 'pwq.html'), {
+  preload: path.join(__dirname, 'bridge', 'pwq_preload.js'),
+  restrictNavigation: true,
+}));
 // CRM opens through a scoped, navigation-locked tab (see bridge/tab_manager.js
 // createTab's opts.preload/opts.restrictNavigation) so window.iterApi.crmRead/
 // crmWrite actually exist there -- a plain tabs.createTab(url) call, like the

@@ -20,6 +20,7 @@
 // still exposed for advanced cases (network interception, emulation)
 // that really do need the DevTools Protocol.
 const { WebContentsView } = require('electron');
+const path = require('path');
 
 let nextId = 1;
 
@@ -105,6 +106,13 @@ class TabManager {
     const id = nextId++;
     const webPreferences = { contextIsolation: true, sandbox: true };
     if (opts.preload) webPreferences.preload = opts.preload;
+    // Chokepoint: auto-attach the PWQ write bridge to any tab whose URL is the
+    // PWQ page, regardless of creation path (menu, session restore, agent), so
+    // card actions always have the disk-write transport (one canonical writer
+    // stays pwq.html itself; this preload is transport, not a second writer).
+    if (!webPreferences.preload && typeof url === 'string' && url.includes('pwq.html')) {
+      try { webPreferences.preload = path.join(__dirname, 'pwq_preload.js'); } catch (e) {}
+    }
     const view = new WebContentsView({ webPreferences });
     const tab = { id, view, title: 'New Tab', url, locked: false, pinned: false };
     this.tabs.set(id, tab);
