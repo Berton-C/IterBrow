@@ -1,5 +1,6 @@
 node_modules/
 dist/
+.pytest_cache/
 
 # Python virtual envs (rebuilt by install.sh, never checked in)
 iter/.venv/

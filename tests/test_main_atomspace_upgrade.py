@@ -16,6 +16,14 @@ class MainAtomspaceUpgradeTests(unittest.TestCase):
         self.assertIn("if (hasSingleInstanceLock)", source)
         self.assertIn("app.on('second-instance'", source)
 
+    def test_second_start_restores_and_activates_existing_window(self):
+        source = (ROOT / "main.js").read_text(encoding="utf-8")
+        handler = source[source.index("app.on('second-instance'"):]
+        self.assertIn("win.isMinimized()", handler)
+        self.assertIn("win.restore()", handler)
+        self.assertIn("app.focus({ steal: true })", handler)
+        self.assertIn("win.focus()", handler)
+
     def test_browser_bridge_endpoint_is_checkout_scoped(self):
         source = (ROOT / "main.js").read_text(encoding="utf-8")
         self.assertIn(

@@ -2500,7 +2500,13 @@ if (hasSingleInstanceLock) {
   app.on('second-instance', (_event, _argv, _workingDirectory, additionalData) => {
     if (additionalData && additionalData.iterRoot !== __dirname) return;
     if (win) {
-      if (typeof win.show === 'function') win.show();
+      if (typeof win.isMinimized === 'function' && win.isMinimized()
+          && typeof win.restore === 'function') win.restore();
+      if (typeof win.isVisible !== 'function' || !win.isVisible()) win.show();
+      // On macOS, showing a hidden BaseWindow does not necessarily activate
+      // the Electron application. A repeated `npm start` is an explicit user
+      // request to surface this checkout's existing owner.
+      if (typeof app.focus === 'function') app.focus({ steal: true });
       if (typeof win.focus === 'function') win.focus();
     }
   });
