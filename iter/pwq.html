@@ -32,7 +32,7 @@
   .fbtn.on { border-color: var(--gold); color: var(--ink);
     box-shadow: 0 0 0 1px var(--gold) inset; }
   .fbtn.on b { color: var(--gold); }
-  .card.order-waiting { border-color: #d4a017; box-shadow: 0 0 0 2px rgba(212,160,23,.25); }
+  .card.attention-waiting { border-color: #d4a017; box-shadow: 0 0 0 2px rgba(212,160,23,.25); }
 .card {
     background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
     padding: 20px 22px; margin-bottom: 20px; position: relative;
@@ -50,16 +50,25 @@
   .chip { font-size: 11px; letter-spacing: .5px; padding: 3px 10px; border-radius: 20px;
     border: 1px solid var(--line); color: var(--muted); font-family: sans-serif; }
   .chip.proposed    { color: var(--blue); border-color: #2e4a68; }
-  .chip.negotiating { color: var(--amber); border-color: #6b5a2e; }
-  .chip.orders      { color: var(--green); border-color: #2e5a42; }
+  .chip.modified    { color: var(--amber); border-color: #6b5a2e; }
+  .chip.approved    { color: var(--green); border-color: #2e5a42; }
   .chip.in-progress { color: var(--blue); border-color: #2e4a68; }
-  .chip.done        { color: var(--green); border-color: #2e5a42; }
+  .chip.completed   { color: var(--green); border-color: #2e5a42; }
+  .chip.rejected    { color: #c78686; border-color: #684040; }
+  .chip.superseded  { color: var(--muted); border-color: var(--line); }
   .field { margin-bottom: 12px; }
   .field-label { font-size: 11px; text-transform: uppercase; letter-spacing: 1.2px;
     color: var(--muted); font-family: sans-serif; margin-bottom: 4px; }
   .ask { color: var(--ink); font-size: 14.5px; line-height: 1.55; }
   .shape { color: #c8c0e0; font-size: 14px; line-height: 1.5; background: var(--panel2);
     border-left: 3px solid var(--gold-dim); padding: 10px 14px; border-radius: 0 8px 8px 0; }
+  .tracker { margin: 14px 0; padding: 14px; border: 1px solid #35546d;
+    border-radius: 9px; background: #121b2a; }
+  .tracker-head { display: flex; justify-content: space-between; gap: 12px;
+    margin-bottom: 10px; color: var(--blue); font-family: sans-serif; font-size: 12px; }
+  .tracker-row { margin-top: 8px; color: #c8d8e8; font-size: 13px; line-height: 1.45; }
+  .tracker-row b { display: block; color: #7faed5; font-family: sans-serif;
+    font-size: 10px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 2px; }
   .options { display: flex; flex-direction: column; gap: 8px; }
   .opt { display: flex; gap: 10px; align-items: flex-start; background: var(--panel2);
     border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; cursor: pointer;
@@ -120,8 +129,11 @@
 <div class="toast" id="toast"></div>
 <script>
 const PWQ_PATH = '.runtime/pwq.json';
+const LIVE_REFRESH_MS = 2000;
 let data = null;
-let filter = 'waiting'; // waiting | orders | done | all
+let filter = 'waiting'; // waiting | orders | done | archived | all
+let lastRenderedSequence = null;
+let refreshInFlight = null;
 
 function fmtAge(iso) {
   // FIX 2026-09-20 20:53: guard missing/invalid timestamps
@@ -142,12 +154,13 @@ function ageClass(iso) {
   if (days >= 3) return 'hot'; if (days >= 1.5) return 'warming'; return 'fresh';
 }
 function statusChip(s) {
-  const map = { proposed: 'proposed', negotiating: 'negotiating', 'orders given': 'orders',
-    'in progress': 'in-progress', done: 'done' };
+  const map = { proposed: 'proposed', modified: 'modified', approved: 'approved',
+    in_progress: 'in-progress', paused: 'modified', completed: 'completed', rejected: 'rejected',
+    superseded: 'superseded', archived: 'archived' };
   return '<span class="chip ' + (map[s] || 'proposed') + '">' + s.toUpperCase() + '</span>';
 }
 function esc(s) {
-  return String(s).replace(/&/g,'&').replace(/</g,'<').replace(/>/g,'>').replace(/"/g,'"');
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 function nowStr() {
   const d = new Date();
@@ -156,114 +169,147 @@ function nowStr() {
     String(d.getMinutes()).padStart(2,'0') + ':' + String(d.getSeconds()).padStart(2,'0');
 }
 
-let canPersist = false;
+function hasHumanSignature(item) {
+  return (item.approval_signatures || []).some(s => s.role === 'human_owner');
+}
+
+function isTerminal(item) {
+  return ['completed', 'rejected', 'superseded'].includes(item.status);
+}
+
+async function protocolCommand(action, item, payload, commandId) {
+  if (!window.iterApi || !window.iterApi.pwqCommand)
+    throw new Error('This PWQ tab needs an IterBrow restart before threshold signing is available');
+  const r = await window.iterApi.pwqCommand({
+    action,
+    proposal_id: item.id,
+    payload: payload || {},
+    expected_version: item.proposal_version,
+    command_id: commandId || undefined,
+  });
+  if (!r || r.ok === false) throw new Error((r && r.error) || 'PWQ command refused');
+  data = JSON.parse(r.content);
+}
+
 let usingSeed = false;
 
-async function load() {
-  // Preferred: app bridge (when running inside the IterBrow shell)
-  if (window.iterApi && window.iterApi.fsRead) {
-    try {
-      const r = await window.iterApi.fsRead(PWQ_PATH);
-      data = JSON.parse(r.content);
-      canPersist = true;
-      render();
-      return;
-    } catch (e) { /* no curated queue yet (fresh install) -- try the generic seed */ }
-    try {
-      const r = await window.iterApi.fsRead('pwq_seed.json');
-      data = JSON.parse(r.content);
-      usingSeed = true;
-      render();
-      return;
-    } catch (e) { /* fall through to standalone fetch path */ }
-    // WRITE-THROUGH FIX 2026-09-20: even if the canonical read failed, we can
-    // still persist future edits if the write bridge is available.
-    if (window.iterApi && window.iterApi.fsWrite) canPersist = true;
-  }
-  // Fallback: direct file fetch (standalone tab)
-  try {
-    const resp = await fetch('.runtime/pwq.json');
-    if (!resp.ok) throw new Error('HTTP ' + resp.status);
-    data = JSON.parse(await resp.text());
-    render();
-    return;
-  } catch (e) { /* fall through */ }
-  // No runtime queue and no app bridge -- try the generic seed via direct fetch
-  try {
-    const resp = await fetch('pwq_seed.json');
-    if (!resp.ok) throw new Error('HTTP ' + resp.status);
-    data = JSON.parse(await resp.text());
-    usingSeed = true;
-    render();
-    return;
-  } catch (e) { /* fall through */ }
-  data = { version: 1, items: [] };
-  render();
+function canonicalSequence(board) {
+  const sequence = Number(board && board.sequence);
+  return Number.isInteger(sequence) ? sequence : null;
 }
 
-async function save() {
-  // WRITE-THROUGH FIX 2026-09-20: persist whenever the bridge write API exists.
-  // Previously gated on canPersist, which stays false if the canonical read ever
-  // failed (fresh install, transient error) -> clicks silently fell back to
-  // localStorage-only and were lost. fsWrite is independent of how we loaded.
-  if (window.iterApi && window.iterApi.fsWrite) {
-    const r = await window.iterApi.fsWrite(PWQ_PATH, JSON.stringify(data, null, 2));
-    if (r && r.ok === false) toast('⚠️ NOT saved to disk: ' + (r.error || 'write refused') + ' — tell Iter');
-  } else {
-    toast('⚠️ No write bridge — mirror only, tell Iter to sync');
-  }
-  // Standalone mode: writes are not possible from file:// fetch; queue for iter.
-  // iter reads pwq.json + pwq_outbox.json each cycle, so we also try a best-effort
-  // download-free signal: store to localStorage as a mirror iter can be asked to pull.
-  try {
-    localStorage.setItem('pwq_mirror', JSON.stringify(data));
-  } catch (e) { /* ignore */ }
+function captureViewState() {
+  const active = document.activeElement;
+  const state = {
+    drafts: {},
+    focusedFieldId: null,
+    selectionStart: null,
+    selectionEnd: null,
+    filter,
+    scrollX: window.scrollX,
+    scrollY: window.scrollY,
+  };
+  document.querySelectorAll('textarea[data-pwq-id]').forEach(field => {
+    const item = data && data.items.find(candidate => candidate.id === field.dataset.pwqId);
+    const canonicalValue = String((item && item.user_input) || '');
+    if (field.value !== canonicalValue) state.drafts[field.dataset.pwqId] = field.value;
+    if (field === active) {
+      state.focusedFieldId = field.id;
+      state.selectionStart = field.selectionStart;
+      state.selectionEnd = field.selectionEnd;
+    }
+  });
+  return state;
 }
 
+function restoreViewState(state) {
+  filter = state.filter;
+  Object.entries(state.drafts).forEach(([proposalId, value]) => {
+    const field = document.getElementById('ta-' + proposalId);
+    if (field) field.value = value;
+  });
+  const focused = state.focusedFieldId && document.getElementById(state.focusedFieldId);
+  if (focused && !focused.disabled) {
+    focused.focus({ preventScroll: true });
+    if (state.selectionStart !== null && state.selectionEnd !== null)
+      focused.setSelectionRange(state.selectionStart, state.selectionEnd);
+  }
+  window.scrollTo(state.scrollX, state.scrollY);
+  requestAnimationFrame(() => window.scrollTo(state.scrollX, state.scrollY));
+}
 
-function pushOrder(o) {
-  // Append-only, unlosable order log. Survives reloads, card edits, filter views.
+async function load(reason = 'manual') {
+  if (refreshInFlight) return refreshInFlight;
+  refreshInFlight = (async () => {
+    let nextData = null;
+    let nextUsingSeed = false;
+    try {
+      // Preferred: app bridge (when running inside the IterBrow shell).
+      if (window.iterApi && window.iterApi.pwqRead) {
+      const r = await window.iterApi.pwqRead();
+      if (!r || r.ok === false) throw new Error((r && r.error) || 'PWQ read refused');
+        nextData = JSON.parse(r.content);
+      } else {
+        // Standalone fallback: canonical projection first, then example seed.
+        try {
+          const resp = await fetch('.runtime/pwq.json');
+          if (!resp.ok) throw new Error('HTTP ' + resp.status);
+          nextData = JSON.parse(await resp.text());
+        } catch (runtimeError) {
+          const resp = await fetch('pwq_seed.json');
+          if (!resp.ok) throw runtimeError;
+          nextData = JSON.parse(await resp.text());
+          nextUsingSeed = true;
+        }
+      }
+    } catch (e) {
+      if (!data) {
+        data = { version: 3, protocol: 'pwq_v2', items: [] };
+        usingSeed = false;
+        render();
+      }
+      toast(String(e.message || e));
+      return false;
+    }
+
+    const nextSequence = canonicalSequence(nextData);
+    if (nextSequence !== null && lastRenderedSequence !== null &&
+        nextSequence === lastRenderedSequence) return false;
+
+    const viewState = data ? captureViewState() : null;
+    const wasRendered = lastRenderedSequence !== null;
+    data = nextData;
+    usingSeed = nextUsingSeed;
+    render();
+    if (viewState) restoreViewState(viewState);
+    if (wasRendered && reason !== 'initial' && reason !== 'manual')
+      toast('PWQ updated from canonical state');
+    return true;
+  })();
   try {
-    const log = JSON.parse(localStorage.getItem('pwq_order_log') || '[]');
-    log.push(o);
-    localStorage.setItem('pwq_order_log', JSON.stringify(log));
-    showBell(log.filter(x => !x.consumed).length);
-  } catch (e) {}
-  try { localStorage.setItem('pwq_mirror', JSON.stringify(data)); } catch (e) {}
+    return await refreshInFlight;
+  } finally {
+    refreshInFlight = null;
+  }
 }
 function showBell(n) {
   if (!n) { document.title = 'PWQ — Pending Work Queue'; const b = document.getElementById('orderBell'); if (b) b.style.display = 'none'; return; }
-  document.title = '(' + n + ') 🔔 PWQ — order waiting';
+  document.title = '(' + n + ') 🔔 PWQ — attention needed';
   const b = document.getElementById('orderBell');
-  if (b) { b.textContent = '🔔 ' + n + ' order' + (n > 1 ? 's' : '') + ' pending — Iter will pick up'; b.style.display = 'block'; }
+  if (b) { b.textContent = '🔔 ' + n + ' item' + (n > 1 ? 's' : '') + ' need your attention — updates arrive live'; b.style.display = 'block'; }
 }
-function restoreBell() {
-  try { showBell(JSON.parse(localStorage.getItem('pwq_order_log') || '[]').filter(x => !x.consumed).length); }
-  catch (e) {}
-}
-function markConsumed() {
-  try {
-    const log = JSON.parse(localStorage.getItem('pwq_order_log') || '[]');
-    log.forEach(x => x.consumed = true);
-    localStorage.setItem('pwq_order_log', JSON.stringify(log));
-    showBell(0);
-  } catch (e) {}
-}
-
 function toast(msg) {
   const t = document.getElementById('toast');
-  t.textContent = msg + (canPersist ? '' : ' (saved to mirror — sync via Iter)'); t.classList.add('show');
+  t.textContent = msg; t.classList.add('show');
   setTimeout(() => t.classList.remove('show'), 2200);
 }
 
 function matchesFilter(i) {
-  // FIX 2026-09-20 20:47: a card with a pending user order (user_orders set,
-  // status still 'negotiating') IS waiting -- it was the 'waiting' filter wrongly
-  // hiding cards the user just ordered on (fix #6 class). Only 'orders_given'
-  // (click-consumed) plus not-negotiating counts as ordered.
-  if (filter === 'waiting') return i.status !== 'done' && (!i.orders_given || i.status === 'negotiating');
-  if (filter === 'orders')  return i.orders_given && i.status !== 'done';
-  if (filter === 'done')    return i.status === 'done';
+  if (filter === 'waiting') return ['proposed', 'modified', 'paused'].includes(i.status);
+  if (filter === 'orders')  return ['approved', 'in_progress'].includes(i.status);
+  if (filter === 'done')    return i.status === 'completed';
+  if (filter === 'archived') return i.status === 'archived';
+  if (filter === 'all')     return i.status !== 'archived';
   return true;
 }
 function fbtn(f, n, label, extra) {
@@ -278,16 +324,18 @@ function render() {
   const q = document.getElementById('queue');
   const stats = document.getElementById('stats');
   const items = data.items;
-  const waiting = items.filter(i => i.status !== 'done').length;
-  const orders = items.filter(i => i.orders_given && i.status !== 'done').length;
-  const done = items.filter(i => i.status === 'done').length;
-  const oldest = items.filter(i => i.status !== 'done')
+  const waiting = items.filter(i => ['proposed', 'modified', 'paused'].includes(i.status)).length;
+  const orders = items.filter(i => ['approved', 'in_progress'].includes(i.status)).length;
+  const done = items.filter(i => i.status === 'completed').length;
+  const archived = items.filter(i => i.status === 'archived').length;
+  const oldest = items.filter(i => !isTerminal(i))
     .map(i => i.created).sort()[0];
   stats.innerHTML =
     fbtn('waiting', waiting, 'waiting on you') +
     fbtn('orders', orders, 'orders given') +
     fbtn('done', done, 'completed') +
-    fbtn('all', items.length, 'total', oldest ? 'oldest ' + fmtAge(oldest) + ' waiting' : '');
+    fbtn('archived', archived, 'archived') +
+    fbtn('all', items.filter(i => i.status !== 'archived').length, 'all active', oldest ? 'oldest ' + fmtAge(oldest) + ' waiting' : '');
   Array.from(stats.querySelectorAll('.fbtn')).forEach(b => {
     b.addEventListener('click', () => {
       filter = b.dataset.f;
@@ -295,8 +343,8 @@ function render() {
     });
   });
   const shown = items.filter(matchesFilter);
-  let pendingIds = [];
-  try { pendingIds = JSON.parse(localStorage.getItem('pwq_order_log') || '[]').filter(x => !x.consumed).map(x => x.id); } catch (e) {}
+  const attentionIds = items.filter(i => ['proposed', 'modified', 'paused'].includes(i.status)).map(i => i.id);
+  showBell(attentionIds.length);
   document.getElementById('empty').style.display = shown.length ? 'none' : 'block';
   if (!shown.length && items.length)
     document.getElementById('empty').textContent = 'Nothing in this view — click another filter. 🌙';
@@ -304,11 +352,12 @@ function render() {
   shown.forEach((item) => {
     const idx = items.indexOf(item);
     const card = document.createElement('div');
-    card.className = 'card ' + (pendingIds.includes(item.id) ? 'order-waiting ' : '') + (item.status === 'done' ? 'done' : ageClass(item.created));
+    card.className = 'card ' + (attentionIds.includes(item.id) ? 'attention-waiting ' : '') + (isTerminal(item) ? 'done' : ageClass(item.created));
     card.innerHTML = renderCard(item, idx);
     q.appendChild(card);
   });
   wireCards();
+  lastRenderedSequence = canonicalSequence(data);
 }
 
 function renderCard(item, idx) {
@@ -316,34 +365,85 @@ function renderCard(item, idx) {
   h += '<div class="card-head"><h2>' + esc(item.title) + '</h2>' +
        '<span class="age ' + (ageClass(item.created) === 'hot' ? 'hot' : '') + '">' + fmtAge(item.created) + '</span></div>';
   h += '<div class="chips">' + statusChip(item.status) +
+       (item.work_class === 'build' ? '<span class="chip" style="color:var(--blue);border-color:#35546d">BUILD</span>' : '') +
+       (item.approval_status ? '<span class="chip" style="color:var(--amber);border-color:#6b5a2e">' +
+         esc(item.approval_status.collected + '/' + item.approval_status.threshold + ' SIGNED') + '</span>' : '') +
        (item.alarm ? '<span class="chip" style="color:var(--amber);border-color:#6b5a2e">⏰ ' + esc(item.alarm) + '</span>' : '') + '</div>';
   h += '<div class="field"><div class="field-label">The ask</div><div class="ask">' + esc(item.ask) + '</div></div>';
   h += '<div class="field"><div class="field-label">My proposed shape</div><div class="shape">' + esc(item.proposed_shape) + '</div></div>';
-  if (item.options && item.options.length) {
-    h += '<div class="field"><div class="field-label">Options — click to choose</div><div class="options">';
-    item.options.forEach((o, oi) => {
-      const sel = (item.selected_option === oi) ? ' selected' : '';
-      h += '<div class="opt' + sel + '" data-id="' + esc(item.id) + '" data-oi="' + oi + '">' +
-           '<div class="radio"></div><div><b>' + esc(o.label) + '</b><span>' + esc(o.desc) + '</span></div></div>';
-    });
-    h += '</div></div>';
+  if (item.approval_status) {
+    const a = item.approval_status;
+    const signatures = (item.approval_signatures || []).map(s =>
+      esc(s.role) + ' · ' + esc(s.signer_id) + ' · ' + esc((s.proof || {}).type || 'legacy')
+    ).join('<br>') || 'No attestations yet';
+    const missing = (a.required_roles || []).filter(role => !(a.roles_collected || []).includes(role));
+    h += '<div class="tracker"><div class="tracker-head"><span>AUTHORIZATION · ' +
+         esc(a.collected + ' of ' + a.threshold) + '</span><span>' +
+         (a.ready ? 'READY' : 'WAITING') + '</span></div>' +
+         '<div class="tracker-row"><b>Bound digest</b>' + esc((item.proposal_digest || '').slice(0, 16)) + '…</div>' +
+         '<div class="tracker-row"><b>Attestations</b>' + signatures + '</div>' +
+         (missing.length ? '<div class="tracker-row"><b>Missing roles</b>' + esc(missing.join(', ')) + '</div>' : '') +
+         '</div>';
   }
-  h += '<div class="input-row">' +
-       '<textarea id="ta-' + item.id + '" placeholder="Your marching orders — fresh input, tweaks, or a whole new shape...">' + esc(item.user_input || '') + '</textarea>' +
-       '<div class="orders-box' + (item.orders_given ? ' given' : '') + '" data-id="' + esc(item.id) + '">' +
-       '<input type="checkbox" id="cb-' + item.id + '"' + (item.orders_given ? ' checked' : '') + '>' +
-       '<label for="cb-' + item.id + '">✅ ORDERS<br>GIVEN</label></div></div>';
-  h += '<div class="card-actions">' +
-       '<button class="abtn" data-act="negotiate" data-id="' + esc(item.id) + '">💬 Counter-propose (log a tweak)</button>' +
-       '<button class="abtn' + (item.alarm ? ' alarm-on' : '') + '" data-act="alarm" data-id="' + esc(item.id) + '">⏰ ' + (item.alarm ? 'Alarm set' : 'Escalate to alarm') + '</button>' +
-       (item.status !== 'done' ? '<button class="abtn" data-act="done" data-id="' + esc(item.id) + '">✔ Mark done</button>' : '') +
-       '</div>';
+  if (item.tracking) {
+    const t = item.tracking;
+    const stage = (t.atlas_slice ? t.atlas_slice + ' — ' : '') + t.bounded_claim +
+      (t.invariants && t.invariants.length ? ' [' + t.invariants.join(', ') + ']' : '');
+    h += '<div class="tracker"><div class="tracker-head"><span>TRACKING · #' + esc(t.sequence || 1) + '</span>' +
+         '<span>' + esc(t.actor || '') + '</span></div>' +
+         '<div class="tracker-row"><b>Target</b>' + esc(t.target) + '</div>' +
+         '<div class="tracker-row"><b>Stage</b>' + esc(stage) + '</div>' +
+         '<div class="tracker-row"><b>Evidence / open gaps</b>' + esc(t.evidence_open_gaps) + '</div>' +
+         '<div class="tracker-row"><b>Boundaries</b>' + esc(t.boundaries) + '</div>' +
+         '<div class="tracker-row"><b>Next / trigger</b>' + esc(t.next_trigger) + '</div></div>';
+  } else if (item.work_class === 'build' && ['approved', 'in_progress', 'paused'].includes(item.status)) {
+    h += '<div class="tracker"><div class="tracker-head"><span>TRACKING</span><span>awaiting first execution event</span></div>' +
+         '<div class="tracker-row">Approved build scope has no progress evidence yet.</div></div>';
+  }
+  if (!isTerminal(item) && item.status !== 'archived') {
+    if (item.options && item.options.length) {
+      h += '<div class="field"><div class="field-label">Preference — choosing is not a signature</div><div class="options">';
+      item.options.forEach((o, oi) => {
+        const sel = (item.selected_option === oi) ? ' selected' : '';
+        h += '<div class="opt' + sel + '" data-id="' + esc(item.id) + '" data-oi="' + oi + '">' +
+             '<div class="radio"></div><div><b>' + esc(o.label) + '</b><span>' + esc(o.desc) + '</span></div></div>';
+      });
+      h += '</div></div>';
+    }
+    h += '<div class="input-row">' +
+         '<textarea id="ta-' + item.id + '" data-pwq-id="' + esc(item.id) + '" ' + (item.status === 'in_progress' ? 'disabled ' : '') +
+         'placeholder="' + (item.status === 'in_progress' ? 'Pause work before changing scope' : 'Optional scope change — this edits the card and requires fresh signatures; do not type approval here') + '">' + esc(item.user_input || '') + '</textarea>' +
+         '<div class="orders-box' + (hasHumanSignature(item) ? ' given' : '') + '" data-id="' + esc(item.id) + '">' +
+         '<input type="checkbox" id="cb-' + item.id + '"' + (hasHumanSignature(item) ? ' checked' : '') + '>' +
+         '<label for="cb-' + item.id + '">' + (hasHumanSignature(item) ? '✅ OWNER<br>SIGNED' : '✍️ CLICK HERE<br>TO APPROVE') + '</label></div></div>';
+    h += '<div class="card-actions">' +
+         (item.status !== 'in_progress' ? '<button class="abtn" data-act="negotiate" data-id="' + esc(item.id) + '">💬 Counter-propose (log a tweak)</button>' : '') +
+         (item.status !== 'in_progress' ? '<button class="abtn' + (item.alarm ? ' alarm-on' : '') + '" data-act="alarm" data-id="' + esc(item.id) + '">⏰ ' + (item.alarm ? 'Alarm set' : 'Escalate to alarm') + '</button>' : '') +
+         '<button class="abtn" data-act="up" data-id="' + esc(item.id) + '">↑ Earlier</button>' +
+         '<button class="abtn" data-act="down" data-id="' + esc(item.id) + '">↓ Later</button>' +
+         (item.status !== 'in_progress' ? '<button class="abtn" data-act="reject" data-id="' + esc(item.id) + '">✕ Reject</button>' : '') +
+         (['approved', 'in_progress'].includes(item.status) ? '<button class="abtn" data-act="pause" data-id="' + esc(item.id) + '">Ⅱ Pause</button>' : '') +
+         (item.status === 'paused' ? '<button class="abtn" data-act="resume" data-id="' + esc(item.id) + '">▶ Resume</button>' : '') +
+         (['approved', 'in_progress', 'paused'].includes(item.status) ? '<button class="abtn" data-act="done" data-id="' + esc(item.id) + '">✔ Mark done</button>' : '') +
+         (['proposed', 'modified', 'paused'].includes(item.status) ? '<button class="abtn" data-act="archive" data-id="' + esc(item.id) + '">Archive from waiting</button>' : '') +
+         '</div>';
+  } else if (item.status === 'archived') {
+    h += '<div class="field"><div class="field-label">Archived, not completed</div><div class="shape">Previous status: ' + esc(item.archived_from || 'waiting') + '</div></div>' +
+         '<div class="actions"><button class="abtn" data-act="restore" data-id="' + esc(item.id) + '">↩ Restore to Waiting on You</button></div>';
+  } else if (item.status === 'superseded') {
+    h += '<div class="field"><div class="field-label">Retired safely</div><div class="shape">Replacement: ' +
+         esc(item.superseded_by || 'recorded in the hot-load ledger') + '</div></div>';
+  }
   if (item.negotiation_log && item.negotiation_log.length) {
     h += '<div class="neglog"><div class="field-label">Negotiation history</div>';
     item.negotiation_log.slice().reverse().forEach(e => {
+      if (typeof e === 'string') {
+        h += '<div class="neglog-entry">' + esc(e) + '</div>';
+        return;
+      }
       h += '<div class="neglog-entry' + (e.who === 'user' ? ' user' : '') + '">' +
            '<span class="who">' + (e.who === 'user' ? 'YOU' : 'ITER') + '</span> ' +
-           '<span class="t">' + esc(e.time) + '</span><br>' + esc(e.text) + '</div>';
+           '<span class="t">' + esc(e.time || '') + '</span><br>' + esc(e.text || '') + '</div>';
     });
     h += '</div>';
   }
@@ -357,70 +457,137 @@ function wireCards() {
       const item = data.items.find(i => i.id === el.dataset.id);
       if (!item) return;
       try {
-      item.selected_option = oi;
-      item.status = 'negotiating';
-      item.negotiation_log = item.negotiation_log || [];
-      item.negotiation_log.push({ time: nowStr(), who: 'user',
-        text: 'Leaning toward: ' + item.options[oi].label });
-      pushOrder({id: item.id, kind: 'option', text: item.options[oi].label, ts: nowStr()});
-      await save(); render(); toast('Choice noted — iter will see it');
+        const negotiation = (item.negotiation_log || []).concat([{
+          time: nowStr(), who: 'user', text: 'Leaning toward: ' + item.options[oi].label,
+        }]);
+        await protocolCommand('modify', item, {
+          selected_option: oi,
+          negotiation_log: negotiation,
+        }, 'human-option:' + item.id + ':v' + item.proposal_version + ':' + Date.now());
+        render();
+        toast('Choice noted — signatures reset for the revised card');
       } catch (err) { console.error('option click failed:', err); toast('Option failed to save — please type your choice instead'); }
     };
   });
   document.querySelectorAll('.orders-box').forEach(el => {
-    el.onclick = async (ev) => {
+    el.onclick = async () => {
       const item = data.items.find(i => i.id === el.dataset.id);
       if (!item) return;
-      const cb = document.getElementById('cb-' + item.id);
-      if (ev.target !== cb) cb.checked = !cb.checked;
-      item.orders_given = cb.checked;
-      item.negotiation_log = item.negotiation_log || [];
-      if (cb.checked) {
-        item.user_input = document.getElementById('ta-' + item.id).value;
-        item.status = 'orders given';
-        item.negotiation_log.push({ time: nowStr(), who: 'user',
-          text: 'ORDERS GIVEN: ' + (item.user_input || '(option chosen, no extra text)') });
-        pushOrder({id: item.id, kind: 'orders', text: item.user_input || '', ts: nowStr()});
-        toast('Marching orders delivered ✅');
-      } else {
-        item.status = 'negotiating';
+      try {
+        const text = document.getElementById('ta-' + item.id).value;
+        if (text !== (item.user_input || '')) {
+          const negotiation = (item.negotiation_log || []).concat([{
+            time: nowStr(), who: 'user', text: 'Scope changed before signing: ' + text,
+          }]);
+          await protocolCommand('modify', item, {
+            user_input: text,
+            negotiation_log: negotiation,
+          }, 'human-modify:' + item.id + ':v' + item.proposal_version + ':' + Date.now());
+          render();
+          toast('Card changed — prior attestations revoked; guardian must re-check it');
+          return;
+        }
+        if (hasHumanSignature(item)) {
+          render();
+          toast('This version is already signed; modify the card to revoke and re-sign');
+          return;
+        }
+        await protocolCommand('sign', item, {
+          signer_id: 'human:owner',
+          role: 'human_owner',
+          proof: { type: 'trusted_local_session_v1', value: crypto.randomUUID() },
+        }, 'human-sign:' + item.id + ':v' + item.proposal_version);
+        render();
+        const signed = data.items.find(i => i.id === item.id);
+        toast(signed && signed.status === 'approved'
+          ? 'Approval threshold satisfied ✅'
+          : 'Owner signature recorded; waiting for remaining role');
+      } catch (err) {
+        console.error('approval signing failed:', err);
+        render();
+        toast(String(err.message || err));
       }
-      await save(); render();
     };
   });
   document.querySelectorAll('.abtn').forEach(el => {
     el.onclick = async () => {
       const act = el.dataset.act;
       const item = data.items.find(i => i.id === el.dataset.id);
-      if (act === 'negotiate') {
-        const txt = prompt('What should change about the shape of this work?');
-        if (txt) {
-          item.status = 'negotiating';
-          item.negotiation_log = item.negotiation_log || [];
-          item.negotiation_log.push({ time: nowStr(), who: 'user', text: txt });
-          pushOrder({id: item.id, kind: 'note', text: txt, ts: nowStr()});
-          await save(); render(); toast('Tweak logged — iter will counter-propose');
+      if (!item) return;
+      try {
+        if (act === 'negotiate') {
+          if (item.status === 'in_progress') {
+            toast('Pause active work before changing its scope');
+            return;
+          }
+          const txt = prompt('What should change about the shape of this work?');
+          if (txt) {
+            const negotiation = (item.negotiation_log || []).concat([{
+              time: nowStr(), who: 'user', text: txt,
+            }]);
+            await protocolCommand('modify', item, {
+              negotiation_log: negotiation,
+            }, 'human-counter:' + item.id + ':v' + item.proposal_version + ':' + Date.now());
+            render(); toast('Tweak logged — signatures reset for the revised card');
+          }
+        } else if (act === 'alarm') {
+          let alarm = null;
+          if (!item.alarm) {
+            alarm = prompt('When should this ping you? (e.g. "tomorrow 9am" or "2026-09-18 09:00")', 'tomorrow 9am');
+            if (!alarm) return;
+          }
+          await protocolCommand('modify', item, { alarm },
+            'human-alarm:' + item.id + ':v' + item.proposal_version + ':' + Date.now());
+          render(); toast(alarm ? 'Alarm set: ' + alarm : 'Alarm cleared');
+        } else if (act === 'reject') {
+          await protocolCommand('reject', item, { reason: 'Rejected from the PWQ board' },
+            'human-reject:' + item.id + ':v' + item.proposal_version + ':' + Date.now());
+          render(); toast('Proposal rejected');
+        } else if (act === 'up' || act === 'down') {
+          const index = data.items.indexOf(item);
+          const target = act === 'up' ? index - 1 : index + 1;
+          if (target >= 0 && target < data.items.length) {
+            await protocolCommand('reorder', item, { position: target },
+              'human-reorder:' + item.id + ':v' + item.proposal_version + ':' + Date.now());
+            render(); toast('Queue reordered');
+          }
+        } else if (act === 'pause') {
+          await protocolCommand('pause', item, { reason: 'Paused from the PWQ board' },
+            'human-pause:' + item.id + ':v' + item.proposal_version + ':' + Date.now());
+          render(); toast('Work paused');
+        } else if (act === 'resume') {
+          await protocolCommand('resume', item, {
+            dispatch_authorization: item.dispatch_authorization,
+          }, 'human-resume:' + item.id + ':v' + item.proposal_version + ':' + Date.now());
+          render(); toast('Work resumed under the existing authorization');
+        } else if (act === 'archive') {
+          await protocolCommand('archive', item, {},
+            'human-archive:' + item.id + ':v' + item.proposal_version + ':' + Date.now());
+          render(); toast('Archived; history kept. Restore it from Archived.');
+        } else if (act === 'restore') {
+          await protocolCommand('restore', item, {},
+            'human-restore:' + item.id + ':v' + item.proposal_version + ':' + Date.now());
+          render(); toast('Restored to its previous waiting status');
+        } else if (act === 'done') {
+          await protocolCommand('complete', item, { note: 'Marked complete from the PWQ board' },
+            'human-complete:' + item.id + ':v' + item.proposal_version + ':' + Date.now());
+          render(); toast('Marked done');
         }
-      } else if (act === 'alarm') {
-        if (item.alarm) { item.alarm = null; toast('Alarm cleared'); }
-        else {
-          const t = prompt('When should this ping you? (e.g. "tomorrow 9am" or "2026-09-18 09:00")', 'tomorrow 9am');
-          if (t) { item.alarm = t; toast('Alarm set: ' + t); pushOrder({id: item.id, kind: 'alarm', text: t, ts: nowStr()}); }
-        }
-        await save(); render();
-      } else if (act === 'done') {
-        item.status = 'done';
-        item.negotiation_log = item.negotiation_log || [];
-        item.negotiation_log.push({ time: nowStr(), who: 'user', text: 'Marked done.' });
-        pushOrder({id: item.id, kind: 'done', text: '', ts: nowStr()});
-        await save(); render(); toast('Marked done');
+      } catch (err) {
+        console.error('PWQ command failed:', err);
+        render();
+        toast(String(err.message || err));
       }
     };
   });
 }
 
-restoreBell();
-load();
+load('initial');
+setInterval(() => load('interval'), LIVE_REFRESH_MS);
+window.addEventListener('focus', () => load('focus'));
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') load('visibility');
+});
 </script>
 </body>
 </html>

@@ -5,11 +5,13 @@ if TOOLS_DIR not in sys.path:
 import _petta_db as petta_db
 
 DESCRIPTION = (
-    "Delete a memory from the PeTTa chroma_db. Item_id must be a UUID from "
+    "Commit deletion of a semantic memory, then remove its chroma_db projection. "
+    "Item_id must be a UUID from "
     "chroma_query results. Typed-memory retention rule (Headlong-inspired): "
     "items typed fact/belief/value/preference are durable and refuse to "
     "delete unless force=True is passed explicitly; items typed todo (or "
-    "untyped legacy memories) delete freely. Every deletion is journaled."
+    "untyped legacy memories) delete freely. Every deletion is journaled in "
+    "the authoritative AtomSpace."
 )
 
 DURABLE_TYPES = {"fact", "belief", "value", "preference"}

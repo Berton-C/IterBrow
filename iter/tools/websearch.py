@@ -7,18 +7,22 @@ logic is unchanged; only the transport call is swapped.
 """
 import json
 import re
+import time
+import threading
 import urllib.request
 import urllib.parse
 
 DESCRIPTION = "Search the web. Returns JSON array of results with title, url, snippet."
 
 _UA = "Mozilla/5.0 (IterBrowserElectron)"
+SEARCH_SECONDS = 9.0
+BACKEND_SECONDS = 2.5
 
 
-def _get(url, timeout=10):
+def _get(url, timeout=2.5):
     req = urllib.request.Request(url, headers={"User-Agent": _UA})
     with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return resp.status, resp.read().decode("utf-8", errors="replace")
+        return resp.status, resp.read(2_000_000).decode("utf-8", errors="replace")
 
 
 def _flatten_ddg_topics(related_topics, max_count=20):
@@ -215,11 +219,13 @@ def _try_openlibrary(query, qe, max_results):
     return results
 
 
-def run(query, max_results=10):
+def run(query, max_results=10, source="auto"):
     query = str(query).strip()
     if not query:
         raise ValueError("query must not be empty")
     max_results = max(1, min(20, int(max_results)))
+    if source not in ("auto", "github"):
+        raise ValueError("source must be auto or github")
     qe = urllib.parse.quote(query)
 
     seen_urls = set()
@@ -233,29 +239,33 @@ def run(query, max_results=10):
                 out.append(item)
         return out
 
-    ddg_results = _try_ddg_ia(query, qe, max_results)
-    wiki_results = _try_wikipedia(query, qe, max_results)
-    all_results = dedup(ddg_results + wiki_results)
-
-    if len(all_results) < max_results:
-        os_results = _try_opensearch(query, qe, max_results)
-        all_results = dedup(all_results + os_results)
-
-    if len(all_results) < max_results:
-        hn_results = _try_hn(query, qe, max_results)
-        all_results = dedup(all_results + hn_results)
-
-    if len(all_results) < max_results:
-        gh_results = _try_github(query, qe, max_results)
-        all_results = dedup(all_results + gh_results)
-
-    if len(all_results) < max_results:
-        cr_results = _try_crossref(query, qe, max_results)
-        all_results = dedup(all_results + cr_results)
-
-    if len(all_results) < max_results:
-        ol_results = _try_openlibrary(query, qe, max_results)
-        all_results = dedup(all_results + ol_results)
+    backends = [_try_ddg_ia, _try_wikipedia, _try_opensearch,
+                _try_hn, _try_github, _try_crossref, _try_openlibrary]
+    if source == "github":
+        backends = [_try_github]
+    elif re.search(r'github|\brepos?\b|repositor|open.source|code examples?', query, re.I):
+        backends.remove(_try_github)
+        backends.insert(0, _try_github)
+    deadline = time.monotonic() + SEARCH_SECONDS
+    all_results = []
+    for backend in backends:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0 or len(all_results) >= max_results:
+            break
+        # Socket timeouts alone do not bound DNS or slow streaming responses.
+        # A daemon read may finish later; it cannot delay this invocation or
+        # mutate the accepted results. No executor shutdown waits for it.
+        box = []
+        def fetch(fn=backend, result_box=box):
+            try:
+                result_box.extend(fn(query, qe, max_results))
+            except Exception:
+                pass
+        worker = threading.Thread(target=fetch, daemon=True)
+        worker.start()
+        worker.join(min(BACKEND_SECONDS, remaining))
+        if not worker.is_alive():
+            all_results.extend(dedup(box))
 
     if all_results:
         return json.dumps(all_results[:max_results])

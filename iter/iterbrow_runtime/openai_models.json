@@ -1,0 +1,9 @@
+{
+  "verifiedOn": "2026-09-24",
+  "pricingUrl": "https://developers.openai.com/api/docs/pricing",
+  "models": [
+    {"id": "gpt-6-luna", "label": "GPT-6 Luna — Economy", "input": 0.10, "cachedInput": 0.01, "cacheWrite": 0.125, "output": 0.50},
+    {"id": "gpt-6-sol", "label": "GPT-6 Sol — Balanced (recommended)", "input": 2.00, "cachedInput": 0.20, "cacheWrite": 2.50, "output": 10.00},
+    {"id": "gpt-6-astra", "label": "GPT-6 Astra — Highest capability", "input": 10.00, "cachedInput": 1.00, "cacheWrite": 12.50, "output": 50.00}
+  ]
+}

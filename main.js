@@ -1,13 +1,24 @@
-const { app, BaseWindow, WebContentsView, ipcMain, dialog, Menu, systemPreferences, shell, session } = require('electron');
+const { app, BaseWindow, WebContentsView, ipcMain, dialog, Menu, powerMonitor, systemPreferences, shell, session } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const crypto = require('crypto');
+const { pathToFileURL } = require('url');
 const { spawn, execFile } = require('child_process');
 const net = require('net');
 
+// Exactly one Electron main process may own Iter's lifecycle and revision
+// supervisor for this checkout.  A second `npm start` previously created a
+// supervisor with no Iter child; it interpreted the live candidate as an
+// exited process and rolled it back underneath the real owner.
+const hasSingleInstanceLock = app.requestSingleInstanceLock({ iterRoot: __dirname });
+if (!hasSingleInstanceLock) app.quit();
+
 const { TabManager } = require('./bridge/tab_manager');
-const { startBridgeServer } = require('./bridge/browser_bridge_server');
+const { inspectSocketPath, startBridgeServer } = require('./bridge/browser_bridge_server');
 const { makeChatBridge } = require('./bridge/chat_bridge');
+const { retirePreviousIter } = require('./bridge/iter_process_owner');
+const OPENAI_CATALOG = require('./iter/iterbrow_runtime/openai_models.json');
 
 const DEFAULT_SIDEBAR_WIDTH = 420;
 const MIN_SIDEBAR_WIDTH = 260;
@@ -34,15 +45,46 @@ const TOOLBAR_HEIGHT = 72;
 const DEFAULT_TABSTRIP_HEIGHT = 42;
 const MIN_TABSTRIP_HEIGHT = 30;
 const MAX_TABSTRIP_HEIGHT = 200; // sane ceiling so a runaway report can't eat the whole window
-const ITER_DIR = path.join(__dirname, 'iter');
+// Development runs directly from the checkout. A packaged app instead ships a
+// clean, read-only Iter template and copies it once into a per-user writable
+// workspace. This prevents build artifacts from capturing the developer's
+// credentials/live cognition and prevents runtime writes from mutating the app
+// bundle (which would also invalidate future code signatures).
+const BUNDLED_ITER_DIR = path.join(__dirname, 'iter');
+const ITER_DIR = app.isPackaged
+  ? path.resolve(process.env.ITERBROW_WORKSPACE_DIR || path.join(app.getPath('userData'), 'iter'))
+  : BUNDLED_ITER_DIR;
+
+function bootstrapPackagedIterWorkspace() {
+  if (!app.isPackaged) return;
+  const manifest = path.join(ITER_DIR, 'state_manifest.json');
+  if (fs.existsSync(ITER_DIR)) {
+    if (!fs.existsSync(manifest)) {
+      throw new Error(`Packaged Iter workspace is incomplete: ${ITER_DIR}`);
+    }
+    return;
+  }
+  fs.mkdirSync(path.dirname(ITER_DIR), { recursive: true });
+  const temporary = `${ITER_DIR}.bootstrap-${process.pid}-${Date.now()}`;
+  try {
+    fs.cpSync(BUNDLED_ITER_DIR, temporary, {
+      recursive: true,
+      force: false,
+      errorOnExist: true,
+    });
+    fs.renameSync(temporary, ITER_DIR);
+  } finally {
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
+}
+
+bootstrapPackagedIterWorkspace();
 const SETTINGS_PATH = path.join(ITER_DIR, '.runtime', 'settings.json');
+const STATE_MANIFEST_PATH = path.join(ITER_DIR, 'state_manifest.json');
 // Tab session — which tabs were open, their URLs, and their lock state.
-// Kept alongside settings.json (same .runtime/ folder). This is
-// local-machine UI state rather than accumulated agent memory, so it stays
-// out of STATE_PATHS / resetState (resetting the agent's memory should
-// never wipe your open tabs) -- but it IS carried along by export/import
-// via PERSONAL_STATE_PATHS below (which now captures the whole .runtime/
-// folder), so tabs travel with you between machines.
+// The state manifest classifies this as portable application state but not
+// resettable cognitive state. Export/import therefore carries it between
+// machines without a cognitive reset wiping the user's open tabs.
 // Added 2026-09-14 because before this, restarting Iter Browser for ANY code
 // change silently threw away every open tab with no way to recover them --
 // discovered while adding the tab-lock feature, which itself needs a
@@ -52,30 +94,77 @@ const TABS_SESSION_PATH = path.join(ITER_DIR, '.runtime', 'tabs_session.json');
 // only ever holds what's CURRENTLY open). Backs the History menu's "Recently
 // Closed" submenu and "Reopen Last Closed Tab" -- added 2026-09-14 alongside
 // the menu system, same local-UI-state reasoning as TABS_SESSION_PATH (kept
-// out of STATE_PATHS/resetState, included in export/import via
-// PERSONAL_STATE_PATHS). Capped at CLOSED_TABS_LIMIT, newest first.
+// out of cognitive reset, but included by manifest-driven export/import).
+// Capped at CLOSED_TABS_LIMIT, newest first.
 const CLOSED_TABS_PATH = path.join(ITER_DIR, '.runtime', 'closed_tabs.json');
 const CLOSED_TABS_LIMIT = 20;
 // Named, saved sets of tabs the user can open/switch-to/close as a unit --
 // e.g. "Research" vs "Work" vs "Recipes" -- added 2026-09-14 per user
 // request. Same local-UI-state reasoning as TABS_SESSION_PATH/CLOSED_TABS_PATH
-// (kept out of STATE_PATHS/resetState, included in export/import via
-// PERSONAL_STATE_PATHS).
+// (kept out of cognitive reset, included by manifest-driven export/import).
 const TAB_GROUPS_PATH = path.join(ITER_DIR, '.runtime', 'tab_groups.json');
 const VENV_PYTHON = path.join(ITER_DIR, '.venv', 'bin', 'python3');
 const SIDEBAR_BG = '#0d0f12'; // matches renderer/style.css --bg
 // Persistent MeTTa atomspace server (metta_server.py) -- see startMettaServer()
 // below. Unix socket, same protocol shape as ITER_BRIDGE_SOCKET above.
-const ITER_METTA_SOCKET = process.env.ITER_METTA_SOCKET || '/tmp/iter-metta-bridge.sock';
+const ITER_INSTANCE_ID = crypto.createHash('sha256').update(__dirname).digest('hex').slice(0, 16);
+const ITER_BRIDGE_SOCKET = process.env.ITER_BRIDGE_SOCKET || `/tmp/iter-browser-${ITER_INSTANCE_ID}.sock`;
+const ITER_METTA_SOCKET = process.env.ITER_METTA_SOCKET || `/tmp/iter-metta-${ITER_INSTANCE_ID}.sock`;
+const LEGACY_ITER_METTA_SOCKET = '/tmp/iter-metta-bridge.sock';
+const CRM_SOURCE_URL = pathToFileURL(path.join(ITER_DIR, 'crm', 'index.html')).toString();
+let activeAppRevisions = {
+  crm: { revisionId: null, bundleHash: null, url: CRM_SOURCE_URL, status: 'source-fallback' },
+};
+
+function crmUrl() {
+  return activeAppRevisions.crm.url;
+}
+
+function isCrmApplicationUrl(url) {
+  const value = String(url || '');
+  return value === CRM_SOURCE_URL
+    || value.includes('/.runtime/app_revisions/apps/crm/bundles/');
+}
+
+function appTabOptions(appId = 'crm') {
+  return {
+    preload: path.join(__dirname, 'bridge', 'app_preload.js'),
+    restrictNavigation: true,
+    appId,
+    consumerId: `${appId}-ui`,
+  };
+}
+
+function registeredAppForUrl(url) {
+  if (isCrmApplicationUrl(url)) return 'crm';
+  return Object.keys(activeAppRevisions).find((appId) => (
+    String(url || '').startsWith(pathToFileURL(path.join(ITER_DIR, '.runtime', 'app_revisions', 'apps', appId, 'bundles') + path.sep).toString())
+  )) || null;
+}
 
 let win = null;
 let sidebarView = null;
+let sidebarResumeTimer = null;
 let toolbarView = null;
 let tabstripView = null;
 let tabs = null;
 let chatBridge = null;
+let browserBridgeServer = null;
+let browserBridgeReadyPromise = null;
 let iterProcess = null;
+let iterStartedAt = null;
 let mettaProcess = null;
+let mettaStartPromise = null;
+let atomspaceLifecycleBusy = false;
+let iterStartPromise = null;
+let iterDesiredRunning = false;
+let appQuitting = false;
+let quitReady = false;
+let quitPromise = null;
+let iterStopPromise = null;
+let iterIntentVersion = 0;
+let revisionSupervisorBusy = false;
+let appRevisionSupervisorBusy = false;
 let iterLog = [];
 let sidebarWidth = DEFAULT_SIDEBAR_WIDTH;
 let tabstripHeight = DEFAULT_TABSTRIP_HEIGHT;
@@ -85,19 +174,35 @@ function loadSettings() {
   const defaults = {
     provider: 'openrouter',
     openrouter: { endpoint: 'https://openrouter.ai/api/v1', model: 'z-ai/glm-5.3', apiKey: '' },
+    openai: { model: 'gpt-6-sol', apiKey: '', reasoning: 'low' },
     lmstudio: { endpoint: 'http://127.0.0.1:1234/v1', model: 'qwen/qwen3.8-27b' },
     sidebarWidth: DEFAULT_SIDEBAR_WIDTH,
+    iterAutoStart: false,
   };
   try {
-    return { ...defaults, ...JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf8')) };
+    const saved = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf8'));
+    return { ...defaults, ...saved,
+      openrouter: { ...defaults.openrouter, ...saved.openrouter },
+      openai: { ...defaults.openai, ...saved.openai },
+      lmstudio: { ...defaults.lmstudio, ...saved.lmstudio },
+    };
   } catch (_) {
     return defaults;
   }
 }
 
 function saveSettings(settings) {
+  // Display-only catalog/usage never become saved preferences or credentials.
+  const { openaiCatalog, lastModelUsage, ...stored } = settings;
   fs.mkdirSync(path.dirname(SETTINGS_PATH), { recursive: true });
-  fs.writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2));
+  fs.writeFileSync(SETTINGS_PATH, JSON.stringify(stored, null, 2), { mode: 0o600 });
+  fs.chmodSync(SETTINGS_PATH, 0o600);
+}
+
+function persistIterDesiredRunning(desired) {
+  const settings = loadSettings();
+  if (settings.iterAutoStart === desired) return;
+  saveSettings({ ...settings, iterAutoStart: desired });
 }
 
 function pythonBin() {
@@ -107,17 +212,258 @@ function pythonBin() {
 function pushLog(line) {
   iterLog.push(line);
   if (iterLog.length > 500) iterLog = iterLog.slice(-500);
-  if (sidebarView) sidebarView.webContents.send('iter:log', line);
+  if (sidebarView && !sidebarView.webContents.isDestroyed()) sidebarView.webContents.send('iter:log', line);
 }
 
-function startIter() {
+function reconcileSidebarAfterSystemResume(reason) {
+  clearTimeout(sidebarResumeTimer);
+  const reconcile = (pass = 0) => {
+    const view = sidebarView;
+    if (!win || !view || !view.webContents || view.webContents.isDestroyed()) return;
+    // Locking macOS can suspend a WebContentsView without a useful renderer
+    // focus/visibility transition. The renderer can remain live while its
+    // native child surface is blank, so reconcile both authorities: replay
+    // renderer state and re-attach the existing view to the native hierarchy.
+    // Never hide the view here: if macOS drops a follow-up compositor task,
+    // a hidden/visible toggle can leave the sidebar permanently blank.
+    view.webContents.send('ui:resume', { reason, at: Date.now() });
+    win.contentView.addChildView(view);
+    view.setVisible(true);
+    view.setBounds(sidebarBounds());
+    view.webContents.invalidate();
+    if (tabs && tabs.activeId) tabs.switchTab(tabs.activeId);
+    if (pass === 0) {
+      // A second bounded pass covers the interval in which macOS has emitted
+      // focus/unlock but has not yet re-established the WindowServer surface.
+      sidebarResumeTimer = setTimeout(() => reconcile(1), 300);
+    } else {
+      sidebarResumeTimer = null;
+      pushLog(`[ui] sidebar reconciled after ${reason}`);
+    }
+  };
+  sidebarResumeTimer = setTimeout(() => reconcile(0), 50);
+}
+
+function runHotloadControl(action, options = {}, timeoutMs = 10000) {
+  return new Promise((resolve, reject) => {
+    const args = ['hotload_control.py', action];
+    if (Object.prototype.hasOwnProperty.call(options, 'iterRunning')) {
+      args.push('--iter-running', options.iterRunning ? 'true' : 'false');
+    }
+    if (Number.isInteger(options.iterPid)) args.push('--iter-pid', String(options.iterPid));
+    if (Number.isFinite(options.iterStartedAt)) args.push('--iter-started-at', String(options.iterStartedAt));
+    if (options.reason) args.push('--reason', String(options.reason));
+    execFile(
+      pythonBin(), args,
+      { cwd: ITER_DIR, env: { ...process.env, PYTHONUNBUFFERED: '1' }, timeout: timeoutMs, maxBuffer: 1024 * 1024 },
+      (error, stdout, stderr) => {
+        if (error) return reject(new Error(`hot-load control failed: ${error.message}${stderr ? `; ${stderr}` : ''}`));
+        try { resolve(JSON.parse(stdout.trim())); }
+        catch (parseError) { reject(new Error(`hot-load control returned invalid JSON: ${parseError.message}`)); }
+      },
+    );
+  });
+}
+
+function runAppRevisionControl(action, options = {}, timeoutMs = 20000) {
+  return new Promise((resolve, reject) => {
+    const args = [
+      'tools/app_revision_control.py', action,
+      '--external-supervisor', 'electron-main',
+      '--app-id', options.appId || 'crm',
+    ];
+    if (options.candidateId) args.push('--candidate-id', String(options.candidateId));
+    if (options.proposalId) args.push('--proposal-id', String(options.proposalId));
+    if (options.revisionId) args.push('--revision-id', String(options.revisionId));
+    if (options.observationId) args.push('--observation-id', String(options.observationId));
+    if (Object.prototype.hasOwnProperty.call(options, 'rendererPresent')) {
+      args.push('--renderer-present', options.rendererPresent ? 'true' : 'false');
+    }
+    if (Object.prototype.hasOwnProperty.call(options, 'loadOk')) {
+      args.push('--load-ok', options.loadOk ? 'true' : 'false');
+    }
+    if (Object.prototype.hasOwnProperty.call(options, 'visibleHandshake')) {
+      args.push('--visible-handshake', options.visibleHandshake ? 'true' : 'false');
+    }
+    if (Object.prototype.hasOwnProperty.call(options, 'contextOk')) {
+      args.push('--context-ok', options.contextOk ? 'true' : 'false');
+    }
+    if (Number.isInteger(options.contextCommit)) {
+      args.push('--context-commit', String(options.contextCommit));
+    }
+    if (options.detail) args.push('--detail', String(options.detail));
+    if (options.reason) args.push('--reason', String(options.reason));
+    execFile(
+      pythonBin(), args,
+      { cwd: ITER_DIR, env: { ...process.env, ITER_DIR, PYTHONUNBUFFERED: '1' }, timeout: timeoutMs, maxBuffer: 1024 * 1024 },
+      (error, stdout, stderr) => {
+        if (error) return reject(new Error(`app revision control failed: ${error.message}${stderr ? `; ${stderr}` : ''}`));
+        try { resolve(JSON.parse(stdout.trim())); }
+        catch (parseError) { reject(new Error(`app revision control returned invalid JSON: ${parseError.message}`)); }
+      },
+    );
+  });
+}
+
+function rememberResolvedAppRevision(status) {
+  if (!status || !status.entrypoint_path || !status.revision_id) {
+    throw new Error('app revision control did not return a resolved entrypoint');
+  }
+  const appId = status.active && status.active.app_id;
+  if (!/^[a-z][a-z0-9-]{0,62}$/.test(appId || '')) throw new Error('Application revision has no valid identity');
+  activeAppRevisions[appId] = {
+    revisionId: status.revision_id,
+    bundleHash: status.bundle_hash,
+    url: pathToFileURL(status.entrypoint_path).toString(),
+    status: (status.active && status.active.status) || 'stable',
+  };
+  return activeAppRevisions[appId];
+}
+
+async function recoverAppRevisionsBeforeTabs() {
+  const registry = await runAppRevisionControl('list-apps');
+  const results = [];
+  for (const appId of registry.apps) {
+    const recovered = await runAppRevisionControl('recover-startup', { appId });
+    rememberResolvedAppRevision(recovered);
+    results.push(recovered);
+    if (recovered.action !== 'none') pushLog(`[app-recovery] ${appId}: ${recovered.action} ${recovered.revision_id}`);
+  }
+  return results;
+}
+
+async function loadCurrentAppRevision(appId = 'crm') {
+  const status = await runAppRevisionControl('status', { appId });
+  const resolved = rememberResolvedAppRevision(status);
+  if (!tabs) return { rendererPresent: false, observations: [] };
+  return tabs.loadAppRevision(appId, resolved.url, resolved.revisionId);
+}
+
+async function openRegisteredApp(appId) {
+  if (!/^[a-z][a-z0-9-]{0,62}$/.test(appId || '')) throw new Error('Invalid application id');
+  if (atomspaceLifecycleBusy) throw new Error('State maintenance is in progress');
+  const status = await runAppRevisionControl('status', { appId });
+  const resolved = rememberResolvedAppRevision(status);
+  const started = await startMettaServer();
+  if (started && started.error) throw new Error(started.error);
+  await runPythonJson('iterbrow_runtime/app_contract.py', {
+    action: appId === 'crm' ? 'bootstrap' : 'context', app_id: appId, consumer_id: `${appId}-ui`,
+  });
+  const tabId = tabs.createTab(resolved.url, appTabOptions(appId));
+  return { appId, tabId, revisionId: resolved.revisionId };
+}
+
+async function inspectRegisteredApp(params) {
+  const { validateProbe, probeScript, probeProofs } = require('./bridge/foundry_apps');
+  const spec = validateProbe(params);
+  const status = await runAppRevisionControl('status', { appId: spec.appId });
+  const resolved = rememberResolvedAppRevision(status);
+  if (resolved.revisionId !== spec.revisionId) throw new Error('Probe revision is stale');
+  const tab = [...tabs.tabs.values()].find((item) => item.appScope && item.appScope.appId === spec.appId);
+  if (!tab || tab.view.webContents.getURL() !== resolved.url) throw new Error('Exact app revision is not open');
+  if (tabs.isLocked(tab.id)) throw new Error('App tab is locked by the user');
+  let timer;
+  let facts;
+  try {
+    facts = await Promise.race([
+      tab.view.webContents.executeJavaScript(probeScript(spec), true),
+      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Browser probe timed out')), spec.timeoutMs + 1000); }),
+    ]);
+  } finally { clearTimeout(timer); }
+  const after = await runAppRevisionControl('status', { appId: spec.appId });
+  if (after.revision_id !== spec.revisionId || tab.view.webContents.getURL() !== resolved.url) throw new Error('App revision changed during observation');
+  return { ...facts, proofs: probeProofs(facts, spec), appId: spec.appId, revisionId: spec.revisionId, bundleHash: after.bundle_hash,
+    tabId: tab.id, observer: 'electron-main', observedAt: Date.now() };
+}
+
+async function superviseAppRevision() {
+  if (appQuitting || appRevisionSupervisorBusy || atomspaceLifecycleBusy || !tabs) return;
+  appRevisionSupervisorBusy = true;
+  try {
+    const registry = await runAppRevisionControl('list-apps');
+    for (const appId of registry.apps) {
+    const rendererPresent = [...tabs.tabs.values()].some(
+      (tab) => tab.appScope && tab.appScope.appId === appId,
+    );
+    const checked = await runAppRevisionControl(
+      'supervisor-check', { appId, rendererPresent },
+    );
+    if (checked.action === 'rolled_back') {
+      pushLog(`[app-recovery] ${appId} revision rolled back: ${checked.reason}`);
+      await loadCurrentAppRevision(appId);
+      continue;
+    }
+    const status = await runAppRevisionControl('status', { appId });
+    rememberResolvedAppRevision(status);
+    if (!status.active || status.active.status !== 'probation') continue;
+    if (!rendererPresent) continue;
+    const health = await tabs.loadAppRevision(
+      appId, activeAppRevisions[appId].url, activeAppRevisions[appId].revisionId,
+    );
+    for (const observation of health.observations) {
+      const result = await runAppRevisionControl('supervisor-report', {
+        appId,
+        revisionId: observation.revisionId,
+        observationId: observation.observationId,
+        loadOk: observation.loadOk,
+        visibleHandshake: observation.visibleHandshake,
+        contextOk: observation.contextOk,
+        contextCommit: observation.contextCommit,
+        detail: observation.detail,
+      });
+      if (result.action === 'promoted') {
+        pushLog(`[app-revision] ${appId} revision ${observation.revisionId} promoted from external load/context proof`);
+        rememberResolvedAppRevision(await runAppRevisionControl('status', { appId }));
+        break;
+      }
+      if (result.action === 'rolled_back') {
+        pushLog(`[app-recovery] ${appId} candidate rolled back: ${result.reason}`);
+        await loadCurrentAppRevision(appId);
+        break;
+      }
+    }
+    }
+  } catch (error) {
+    pushLog('[app-recovery] revision supervisor check failed: ' + error.message);
+  } finally {
+    appRevisionSupervisorBusy = false;
+  }
+}
+
+async function recoverRevisionBeforeStart() {
+  const result = await runHotloadControl('recover-startup');
+  if (result.action === 'rolled_back') {
+    pushLog(`[recovery] abandoned candidate rolled back before start: ${result.reason}`);
+  }
+  return result;
+}
+
+function modelConfig(settings) {
+  const directOpenAI = settings.provider === 'openai';
+  const cfg = directOpenAI
+    ? { ...settings.openai, endpoint: 'https://api.openai.com/v1' }
+    : settings.provider === 'lmstudio' ? settings.lmstudio : settings.openrouter;
+  if (directOpenAI) {
+    if (typeof cfg.apiKey !== 'string' || !cfg.apiKey.trim()) throw new Error('Add your OpenAI API key in Settings before starting Iter.');
+    if (!OPENAI_CATALOG.models.some((model) => model.id === cfg.model)
+      || !['low', 'medium', 'high'].includes(cfg.reasoning)) {
+      throw new Error('Choose an available OpenAI model and reasoning effort in Settings.');
+    }
+  }
+  return cfg;
+}
+
+function startIterProcess() {
   if (iterProcess) return { already: true };
   const settings = loadSettings();
-  const cfg = settings.provider === 'lmstudio' ? settings.lmstudio : settings.openrouter;
+  const cfg = modelConfig(settings);
+  const directOpenAI = settings.provider === 'openai';
   const env = {
     ...process.env,
     BASE_URL: cfg.endpoint,
     LLM_MODEL: cfg.model,
+    LLM_PROVIDER: settings.provider,
+    LLM_REASONING_EFFORT: directOpenAI ? cfg.reasoning : '',
     AI_API_KEY: settings.provider === 'lmstudio' ? 'lm-studio' : cfg.apiKey || 'dummy',
     // Long-term-memory embeddings (tools/_petta_db.py, used by chroma_query) always need a real
     // OpenRouter key regardless of chat provider -- local LM Studio models don't do embeddings.
@@ -126,26 +472,178 @@ function startIter() {
     // under the OPENROUTER_API_KEY name _petta_db.py actually reads -- so embeddings stayed blocked
     // even after the user filled in Settings. Forward the same value under both names.
     OPENROUTER_API_KEY: (settings.openrouter && settings.openrouter.apiKey) || process.env.OPENROUTER_API_KEY || '',
-    ITER_BRIDGE_SOCKET: process.env.ITER_BRIDGE_SOCKET || '/tmp/iter-browser-bridge.sock',
+    // Immutable hot-load generations relocate executable component files, but
+    // every queue, ledger, projection, and durable store still belongs to this
+    // canonical Iter root.  Passing it explicitly keeps runtime data ownership
+    // independent of both __file__ and whichever directory launched Electron.
+    ITER_DIR,
+    ITER_BRIDGE_SOCKET,
+    ITER_METTA_SOCKET,
+    ITER_REQUIRE_ATOMSPACE: '1',
+    METTA_GATE_MODE: process.env.METTA_GATE_MODE || 'enforce',
     PYTHONUNBUFFERED: '1',
   };
   iterProcess = spawn(pythonBin(), ['iter.py'], { cwd: ITER_DIR, env });
+  iterStartedAt = Date.now() / 1000;
   pushLog(`[iter] started (pid ${iterProcess.pid}) provider=${settings.provider} model=${cfg.model} base_url=${cfg.endpoint}`);
   iterProcess.stdout.on('data', (d) => pushLog(d.toString()));
   iterProcess.stderr.on('data', (d) => pushLog('[stderr] ' + d.toString()));
   iterProcess.on('exit', (code) => {
     pushLog(`[iter] exited with code ${code}`);
     iterProcess = null;
-    if (sidebarView) sidebarView.webContents.send('iter:status', { running: false });
+    iterStartedAt = null;
+    if (sidebarView && !sidebarView.webContents.isDestroyed()) sidebarView.webContents.send('iter:status', { running: false, stopping: !!iterStopPromise || appQuitting });
   });
   if (sidebarView) sidebarView.webContents.send('iter:status', { running: true });
   return { started: true, pid: iterProcess.pid };
 }
 
+async function startIter() {
+  if (appQuitting || iterStopPromise) return { error: 'Iter is stopping' };
+  // Missing credentials must not turn a stopped app into a recovery restart loop.
+  if (!iterProcess) modelConfig(loadSettings());
+  iterDesiredRunning = true;
+  persistIterDesiredRunning(true);
+  if (iterProcess) return { already: true };
+  if (iterStartPromise) return iterStartPromise;
+  iterStartPromise = (async () => {
+    if (!browserBridgeReadyPromise) {
+      throw new Error('Browser bridge ownership has not been initialized');
+    }
+    const bridge = await browserBridgeReadyPromise;
+    if (!bridge || bridge.status !== 'listening') {
+      throw new Error(`Browser bridge is not owned by this checkout (${(bridge && bridge.status) || 'unknown'})`);
+    }
+    await retirePreviousIter(ITER_DIR, pushLog);
+    if (appQuitting || !iterDesiredRunning) return { cancelled: true };
+    await recoverRevisionBeforeStart();
+    if (appQuitting || !iterDesiredRunning) return { cancelled: true };
+    return startIterProcess();
+  })();
+  try { return await iterStartPromise; }
+  finally { iterStartPromise = null; }
+}
+
 function stopIter() {
-  if (!iterProcess) return { already: true };
-  iterProcess.kill('SIGTERM');
-  return { stopping: true };
+  iterIntentVersion += 1;
+  iterDesiredRunning = false;
+  persistIterDesiredRunning(false);
+  if (iterStopPromise) return iterStopPromise;
+  iterStopPromise = (async () => {
+    if (iterStartPromise) await iterStartPromise.catch(() => {});
+    await stopIterAndWait(5000, { preserveDesired: true });
+    await retirePreviousIter(ITER_DIR, pushLog);
+    return { stopped: true };
+  })().finally(() => { iterStopPromise = null; });
+  return iterStopPromise;
+}
+
+function stopIterAndWait(timeoutMs = 5000, { preserveDesired = false } = {}) {
+  return new Promise((resolve, reject) => {
+    if (!preserveDesired) {
+      iterDesiredRunning = false;
+      persistIterDesiredRunning(false);
+    }
+    if (!iterProcess) return resolve({ already: true });
+    const processToStop = iterProcess;
+    let forceTimer = null;
+    let failureTimer = null;
+    const onExit = () => {
+      clearTimeout(forceTimer);
+      clearTimeout(failureTimer);
+      resolve({ stopped: true });
+    };
+    processToStop.once('exit', onExit);
+    processToStop.kill('SIGTERM');
+    forceTimer = setTimeout(() => {
+      try { processToStop.kill('SIGKILL'); } catch (_) {}
+      failureTimer = setTimeout(() => {
+        processToStop.removeListener('exit', onExit);
+        reject(new Error('Iter process did not stop before cognitive state operation'));
+      }, 1000);
+    }, timeoutMs);
+  });
+}
+
+async function startIterWithAtomspace() {
+  if (appQuitting || iterStopPromise) return { error: 'Iter is stopping' };
+  if (atomspaceLifecycleBusy) return { error: 'Cognitive state maintenance is in progress' };
+  const intent = ++iterIntentVersion;
+  const started = await startMettaServer();
+  if (started.error) return { error: started.error };
+  await waitForAtomspaceReady();
+  if (intent !== iterIntentVersion || appQuitting || iterStopPromise) return { cancelled: true };
+  return await startIter();
+}
+
+async function superviseIterRevision() {
+  if (appQuitting || iterStopPromise || revisionSupervisorBusy || atomspaceLifecycleBusy) return;
+  revisionSupervisorBusy = true;
+  try {
+    const result = await runHotloadControl(
+      'supervisor-check', {
+        iterRunning: !!iterProcess,
+        iterPid: iterProcess ? iterProcess.pid : undefined,
+        iterStartedAt,
+      }, 10000,
+    );
+    if (result.action === 'promoted') {
+      pushLog(`[hot-load] candidate ${result.candidate.candidate_id} promoted after external probation`);
+    } else if (result.action === 'rolled_back') {
+      pushLog(`[recovery] candidate rolled back: ${result.reason}`);
+      if (iterProcess) await stopIterAndWait(5000, { preserveDesired: true });
+      if (iterDesiredRunning) await startIterWithAtomspace();
+    } else if (result.action === 'restart_required') {
+      pushLog(`[recovery] Iter heartbeat requires restart: ${result.reason}`);
+      if (iterProcess) await stopIterAndWait(5000, { preserveDesired: true });
+      if (iterDesiredRunning) await startIterWithAtomspace();
+    } else if (
+      iterDesiredRunning && !iterProcess
+      && result.active && result.active.status === 'stable'
+    ) {
+      pushLog('[recovery] Iter exited unexpectedly; restarting last-known-good generation');
+      await startIterWithAtomspace();
+    }
+  } catch (error) {
+    pushLog('[recovery] revision supervisor check failed: ' + error.message);
+  } finally {
+    revisionSupervisorBusy = false;
+  }
+}
+
+function callAtomspaceAt(socketPath, method, params = {}, timeoutMs = 5000) {
+  return new Promise((resolve, reject) => {
+    if (!fs.existsSync(socketPath)) return reject(new Error('AtomSpace socket is not present'));
+    const sock = net.createConnection(socketPath);
+    let buffer = '';
+    let done = false;
+    const finish = (error, value) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      try { sock.destroy(); } catch (_) {}
+      if (error) reject(error); else resolve(value);
+    };
+    const timer = setTimeout(() => finish(new Error(`AtomSpace ${method} timed out`)), timeoutMs);
+    sock.on('connect', () => sock.write(JSON.stringify({ method, params }) + '\n'));
+    sock.on('data', (chunk) => {
+      buffer += chunk.toString();
+      const newline = buffer.indexOf('\n');
+      if (newline < 0) return;
+      try {
+        const response = JSON.parse(buffer.slice(0, newline));
+        if (!response.ok) finish(new Error(response.error || `AtomSpace ${method} failed`));
+        else finish(null, response.result);
+      } catch (error) {
+        finish(error);
+      }
+    });
+    sock.on('error', (error) => finish(error));
+  });
+}
+
+function callAtomspace(method, params = {}, timeoutMs = 5000) {
+  return callAtomspaceAt(ITER_METTA_SOCKET, method, params, timeoutMs);
 }
 
 // Checks whether metta_server.py is already alive and answering, by making
@@ -154,28 +652,89 @@ function stopIter() {
 // like "running"). Mirrors the same trust boundary as the browser bridge:
 // local-machine only, short timeout, fails closed.
 function pingMettaServer(timeoutMs = 1500) {
-  return new Promise((resolve) => {
-    if (!fs.existsSync(ITER_METTA_SOCKET)) return resolve(false);
-    const sock = net.createConnection(ITER_METTA_SOCKET);
-    let done = false;
-    const finish = (ok) => {
-      if (done) return;
-      done = true;
-      try { sock.destroy(); } catch (_) {}
-      resolve(ok);
-    };
-    const timer = setTimeout(() => finish(false), timeoutMs);
-    sock.on('connect', () => sock.write(JSON.stringify({ method: 'status', params: {} }) + '\n'));
-    sock.on('data', (chunk) => {
-      clearTimeout(timer);
-      try {
-        finish(!!JSON.parse(chunk.toString().split('\n')[0]).ok);
-      } catch (_) {
-        finish(false);
-      }
-    });
-    sock.on('error', () => { clearTimeout(timer); finish(false); });
-  });
+  return callAtomspace('status', {}, timeoutMs).then(() => true, () => false);
+}
+
+function pingMettaServerAt(socketPath, timeoutMs = 1500) {
+  return callAtomspaceAt(socketPath, 'status', {}, timeoutMs).then(() => true, () => false);
+}
+
+async function waitForAtomspaceReady(timeoutMs = 15000) {
+  const deadline = Date.now() + timeoutMs;
+  let lastError = null;
+  while (Date.now() < deadline) {
+    try {
+      const status = await callAtomspace('status', {}, 1500);
+      if (status && status.ready && status.epoch && Number.isInteger(status.commit)) return status;
+      lastError = new Error('service answered but authoritative state is not ready');
+    } catch (error) {
+      lastError = error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw lastError || new Error('AtomSpace did not become ready');
+}
+
+async function stopMettaServer() {
+  let status = null;
+  try { status = await callAtomspace('status', {}, 2000); } catch (_) {}
+  if (!status) return { already: true };
+  try {
+    await callAtomspace('shutdown', {}, 10000);
+  } catch (error) {
+    // Migration path for a pre-journal server that has no shutdown RPC.
+    if (status.pid && Number.isInteger(status.pid)) {
+      try { process.kill(status.pid, 'SIGTERM'); } catch (_) {}
+    } else {
+      throw error;
+    }
+  }
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
+    if (!(await pingMettaServer(300))) return { stopped: true };
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error('AtomSpace service did not stop cleanly');
+}
+
+async function retireOwnedLegacyMettaServer() {
+  if (ITER_METTA_SOCKET === LEGACY_ITER_METTA_SOCKET
+      || !fs.existsSync(LEGACY_ITER_METTA_SOCKET)) return { already: true };
+  let status = null;
+  try {
+    status = await callAtomspaceAt(LEGACY_ITER_METTA_SOCKET, 'status', {}, 1500);
+  } catch (_) {
+    // A dead legacy socket is harmless and cannot own the state lock.
+    return { stale: true };
+  }
+  const expectedStateDir = path.resolve(ITER_DIR, '.runtime', 'atomspace');
+  const ownsThisCheckout = Boolean(
+    (status.state_dir && path.resolve(status.state_dir) === expectedStateDir)
+    || (status.iter_dir && path.resolve(status.iter_dir) === path.resolve(ITER_DIR))
+  );
+  if (!ownsThisCheckout) {
+    pushLog('[atomspace] legacy socket belongs to another checkout; leaving it untouched');
+    return { foreign: true };
+  }
+  pushLog('[atomspace] retiring this checkout\'s legacy-socket service before endpoint migration');
+  try {
+    await callAtomspaceAt(LEGACY_ITER_METTA_SOCKET, 'shutdown', {}, 10000);
+  } catch (error) {
+    if (status.pid && Number.isInteger(status.pid)) {
+      try { process.kill(status.pid, 'SIGTERM'); } catch (_) {}
+    } else {
+      throw error;
+    }
+  }
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
+    if (!(await pingMettaServerAt(LEGACY_ITER_METTA_SOCKET, 300))) {
+      try { fs.unlinkSync(LEGACY_ITER_METTA_SOCKET); } catch (_) {}
+      return { retired: true };
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error('Legacy AtomSpace service did not stop for endpoint migration');
 }
 
 // Starts (or confirms) the persistent MeTTa atomspace server -- see
@@ -184,36 +743,141 @@ function pingMettaServer(timeoutMs = 1500) {
 // checks it's already running and starts it if not -- one command to
 // remember" requirement (2026-09-19).
 //
-// Launched detached + unref()'d so it deliberately OUTLIVES this Electron
-// process: the whole point is persistence across app restarts (real atoms
-// accumulating in memory across many npm-start/quit cycles), not just
-// within one session, so window-all-closed / app quit does NOT kill it --
-// see that handler below, which only kills iterProcess/termProcess.
-async function startMettaServer() {
-  const alreadyRunning = await pingMettaServer();
-  if (alreadyRunning) {
-    pushLog('[metta] persistent MeTTa server already running, reusing it');
-    return { already: true };
+// Launched detached + unref()'d so it may outlive the Electron window, but
+// durable authority is the journal/snapshot rather than process RAM. State
+// operations explicitly quiesce or stop it and reconstruct it before Iter
+// resumes.
+function inspectAtomspaceLockOwner() {
+  const lockPath = path.join(ITER_DIR, '.runtime', 'atomspace', 'service.lock');
+  let pid = null;
+  try {
+    pid = Number.parseInt(fs.readFileSync(lockPath, 'utf8').trim(), 10);
+  } catch (_) {
+    return Promise.resolve({ status: 'missing', lockPath });
   }
-  // Stale socket file with nothing listening on it -- clear it so the new
-  // process can bind cleanly.
-  try { fs.unlinkSync(ITER_METTA_SOCKET); } catch (_) {}
+  if (!Number.isInteger(pid) || pid <= 1) {
+    return Promise.resolve({ status: 'stale', lockPath });
+  }
+  try {
+    process.kill(pid, 0);
+  } catch (_) {
+    return Promise.resolve({ status: 'stale', lockPath, pid });
+  }
+  return new Promise((resolve) => {
+    execFile(
+      'ps', ['-p', String(pid), '-o', 'command='],
+      { timeout: 2000, maxBuffer: 64 * 1024 },
+      (error, stdout) => {
+        if (error) return resolve({ status: 'error', lockPath, pid, error: error.message });
+        const command = stdout.trim();
+        const ownsService = /(^|\s|\/)metta_server\.py(\s|$)/.test(command);
+        resolve({ status: ownsService ? 'owned-live' : 'foreign-live', lockPath, pid });
+      },
+    );
+  });
+}
+
+async function waitForProcessExit(pid, timeoutMs = 5000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      process.kill(pid, 0);
+    } catch (_) {
+      return true;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  return false;
+}
+
+async function startMettaServerOwned() {
+  await retireOwnedLegacyMettaServer();
+  let currentStatus = null;
+  try { currentStatus = await callAtomspace('status', {}, 1500); } catch (_) {}
+  const expectedStateDir = path.resolve(ITER_DIR, '.runtime', 'atomspace');
+  if (currentStatus && currentStatus.state_dir
+      && path.resolve(currentStatus.state_dir) !== expectedStateDir) {
+    return { error: `AtomSpace socket belongs to another checkout: ${currentStatus.state_dir}` };
+  }
+  if (currentStatus && currentStatus.ready && currentStatus.epoch && Number.isInteger(currentStatus.commit)) {
+    return { already: true, status: currentStatus };
+  }
+  if (currentStatus) {
+    pushLog('[atomspace] replacing pre-journal or unready service');
+    await stopMettaServer();
+  }
+
+  // A failed status RPC is not evidence that the endpoint is stale. A live
+  // listener may be busy, and unlinking its pathname would strand the
+  // detached authoritative process while it still owns the state lock. Probe
+  // transport ownership independently before any cleanup.
+  const endpoint = await inspectSocketPath(ITER_METTA_SOCKET, 750);
+  if (endpoint.status === 'live') {
+    try {
+      const status = await waitForAtomspaceReady(5000);
+      pushLog(`[atomspace] authoritative service recovered at commit ${status.commit}`);
+      return { already: true, status };
+    } catch (error) {
+      return { error: `AtomSpace endpoint is live but not ready; refusing to unlink it: ${error.message}` };
+    }
+  }
+  if (endpoint.status === 'error') {
+    return { error: `AtomSpace endpoint inspection failed closed: ${endpoint.error.message}` };
+  }
+
+  // If a previous supervisor already unlinked a live service socket, the
+  // state-owned lock still names its process. Verify that PID is really a
+  // metta_server.py owner before terminating it; durable journal replay then
+  // reconstructs the exact authority behind a fresh endpoint.
+  const owner = await inspectAtomspaceLockOwner();
+  if (owner.status === 'foreign-live' || owner.status === 'error') {
+    return { error: `AtomSpace state lock owner cannot be verified (${owner.status}); refusing recovery` };
+  }
+  if (owner.status === 'owned-live') {
+    pushLog(`[atomspace] recovering missing/stale endpoint by retiring verified lock owner pid ${owner.pid}`);
+    try { process.kill(owner.pid, 'SIGTERM'); } catch (_) {}
+    if (!(await waitForProcessExit(owner.pid))) {
+      return { error: `AtomSpace lock owner ${owner.pid} did not stop for endpoint recovery` };
+    }
+  }
+
+  // Only an explicitly refused connection is a stale filesystem entry.
+  if (endpoint.status === 'stale') {
+    try { fs.unlinkSync(ITER_METTA_SOCKET); } catch (error) {
+      if (!error || error.code !== 'ENOENT') throw error;
+    }
+  }
   const logPath = path.join(ITER_DIR, '.runtime', 'metta_server.log');
   fs.mkdirSync(path.dirname(logPath), { recursive: true });
   const logFd = fs.openSync(logPath, 'a');
   try {
     mettaProcess = spawn(pythonBin(), ['metta_server.py'], {
       cwd: ITER_DIR,
-      env: { ...process.env, ITER_METTA_SOCKET, ITER_DIR, PYTHONUNBUFFERED: '1' },
+      env: { ...process.env, ITER_METTA_SOCKET, ITER_BRIDGE_SOCKET, ITER_DIR, PYTHONUNBUFFERED: '1' },
       detached: true,
       stdio: ['ignore', logFd, logFd],
     });
     mettaProcess.unref();
-    pushLog('[metta] started persistent MeTTa server (pid ' + mettaProcess.pid + '); log: ' + logPath);
-    return { started: true, pid: mettaProcess.pid };
+    mettaProcess.once('exit', () => { mettaProcess = null; });
+    pushLog('[atomspace] started authoritative service (pid ' + mettaProcess.pid + '); log: ' + logPath);
+    const status = await waitForAtomspaceReady();
+    pushLog(`[atomspace] ready epoch=${status.epoch} commit=${status.commit} atoms=${status.runtime_atom_count}`);
+    return { started: true, pid: mettaProcess && mettaProcess.pid, status };
   } catch (e) {
-    pushLog('[metta] FAILED to start MeTTa server: ' + e.message);
+    pushLog('[atomspace] FAILED to start authoritative service: ' + e.message);
     return { error: e.message };
+  } finally {
+    try { fs.closeSync(logFd); } catch (_) {}
+  }
+}
+
+async function startMettaServer() {
+  if (mettaStartPromise) return mettaStartPromise;
+  mettaStartPromise = startMettaServerOwned();
+  try {
+    return await mettaStartPromise;
+  } finally {
+    mettaStartPromise = null;
   }
 }
 
@@ -225,8 +889,9 @@ async function startMettaServer() {
 // single opaque virtual-filesystem blob, so "export" zipped the whole
 // thing and "reset" wiped the whole thing. In this build the agent's
 // code (tools/, transformations/, channels/) are real, editable files on
-// disk — self_improve.py can still rewrite them at runtime, but you can
-// also hand-edit them yourself — so we now distinguish:
+// disk. Runtime self-extension is activated through immutable generations;
+// the source tree remains the development baseline and can still be edited
+// manually while Iter is stopped. We therefore distinguish:
 //   STATE  = everything the agent accumulates by living (memory/,
 //            chroma_db/, backups/, uploads/, experience.json,
 //            *.metta knowledge files, chat.txt, transcript.txt,
@@ -239,41 +904,32 @@ async function startMettaServer() {
 // single-blob model, since wiping hand-edited or self-improved code by
 // accident would be far more destructive here than in the browser build.
 // ---------------------------------------------------------------------
-const STATE_PATHS = [
-  'memory', 'chroma_db', 'backups', 'uploads', '_screenshots',
-  'transformations/.runtime',
-  'experience.json', 'history.metta', 'nace_beliefs.metta', 'nace_pending.metta',
-  'nace_substrate.metta', 'space.metta', 'chat.txt', 'transcript.txt',
-  '.improve_cooldown', '.stall_state.json', '.history_state', '.transcript_state',
-  // Added 2026-09-18: these were siblings of files already above (same
-  // accumulated-learning role) but had been left out since whenever they
-  // were introduced, so Reset State/Export/Import silently skipped them.
-  'capability_lifecycle.metta', 'self_map.metta', 'task_state.metta', 'atomspace_data.json',
-];
-// Everything that makes up your personal running environment on THIS
-// machine -- open tabs, tab groups, closed-tab history, UI settings, the
-// PWQ queue, CRM contacts/tasks/events, and your private notes -- as
-// opposed to STATE_PATHS above, which is the agent's accumulated
-// memory/learning. Kept separate so Reset State (which wipes STATE_PATHS to
-// clear the agent's memory/personality) never touches any of this. Export
-// and Import bundle STATE_PATHS + PERSONAL_STATE_PATHS together, so moving
-// to a new machine (or restoring a snapshot) brings your whole working
-// environment along, not just the agent's memory.
-//
-// '.runtime' is captured WHOLESALE (the whole folder, not individual
-// filenames) specifically so that anything new added under .runtime/ later
-// -- another JSON file, another dated backup -- is automatically included
-// in every future Export without needing a code change here. This directory
-// never holds login/cookie data (Electron keeps that in its own userData
-// path, entirely outside this repo), so capturing it wholesale cannot leak
-// credentials. Renamed from TAB_STATE_PATHS and broadened 2026-09-18: the
-// old exact-filename list silently dropped settings.json, pwq.json,
-// .runtime/pages/, .runtime/electron_ui/, and any dated backup/journal
-// file -- none of those ever showed up in an export and there was no
-// warning that they were missing.
-const PERSONAL_STATE_PATHS = [
-  '.runtime', 'private', 'crm/data',
-];
+function loadStateManifest() {
+  const manifest = JSON.parse(fs.readFileSync(STATE_MANIFEST_PATH, 'utf8'));
+  if (manifest.schema_version !== 1 || !Array.isArray(manifest.entries)) {
+    throw new Error('state_manifest.json has an unsupported shape');
+  }
+  const seen = new Set();
+  for (const entry of manifest.entries) {
+    if (!entry.path || path.isAbsolute(entry.path) || entry.path.split(/[\\/]/).includes('..')) {
+      throw new Error(`unsafe state manifest path: ${entry.path}`);
+    }
+    if (seen.has(entry.path)) throw new Error(`duplicate state manifest path: ${entry.path}`);
+    seen.add(entry.path);
+    if (entry.role === 'source_seed' && entry.reset) {
+      throw new Error(`source seed cannot be resettable: ${entry.path}`);
+    }
+    if (entry.role === 'secret' && entry.portable) {
+      throw new Error(`secret cannot be portable: ${entry.path}`);
+    }
+  }
+  return manifest;
+}
+
+const STATE_MANIFEST = loadStateManifest();
+const STATE_PATHS = STATE_MANIFEST.entries.filter((entry) => entry.reset).map((entry) => entry.path);
+const PORTABLE_STATE_PATHS = STATE_MANIFEST.entries.filter((entry) => entry.portable).map((entry) => entry.path);
+const PORTABLE_ARCHIVE_PATHS = ['state_manifest.json', ...PORTABLE_STATE_PATHS];
 
 // ---------------------------------------------------------------------
 // Automatic rolling backups -- independent of the user-triggered Export
@@ -293,10 +949,13 @@ const AUTO_BACKUP_KEEP = 4; // -> 24h rolling window at the interval above
 let autoBackupTimer = null;
 
 async function runAutoBackup() {
+  let pause = null;
   try {
+    pause = await pauseCognition({ shutdownAtomspace: false });
     fs.mkdirSync(AUTO_BACKUP_DIR, { recursive: true });
     saveTabSession();
-    const wanted = [...STATE_PATHS, ...PERSONAL_STATE_PATHS];
+    await callAtomspace('checkpoint', {}, 10000);
+    const wanted = PORTABLE_ARCHIVE_PATHS;
     const existing = wanted.filter((p) => fs.existsSync(path.join(ITER_DIR, p)));
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
     const zipPath = path.join(AUTO_BACKUP_DIR, `autobackup-${stamp}.zip`);
@@ -305,6 +964,8 @@ async function runAutoBackup() {
     pushLog(`[auto-backup] saved ${existing.length} item(s) -> ${path.basename(zipPath)}`);
   } catch (e) {
     pushLog(`[auto-backup] failed: ${e.message}`);
+  } finally {
+    if (pause) await resumeCognition(pause);
   }
 }
 
@@ -343,6 +1004,103 @@ function runCLI(cmd, args, cwd) {
   });
 }
 
+async function validateZipArchive(zipPath) {
+  const listing = await runCLI('unzip', ['-Z1', zipPath], ITER_DIR);
+  const entries = listing.split(/\r?\n/).filter(Boolean);
+  if (!entries.length) throw new Error('State archive is empty');
+  for (const raw of entries) {
+    const normalized = raw.replace(/\\/g, '/');
+    const parts = normalized.split('/').filter(Boolean);
+    if (normalized.startsWith('/') || /^[A-Za-z]:\//.test(normalized) || parts.includes('..')) {
+      throw new Error(`State archive contains an unsafe path: ${raw}`);
+    }
+  }
+}
+
+function assertNoArchiveSymlinks(root) {
+  const pending = [root];
+  while (pending.length) {
+    const current = pending.pop();
+    const stat = fs.lstatSync(current);
+    if (stat.isSymbolicLink()) throw new Error(`State archive contains a symbolic link: ${current}`);
+    if (stat.isDirectory()) {
+      for (const child of fs.readdirSync(current)) pending.push(path.join(current, child));
+    }
+  }
+}
+
+function runPythonJson(scriptName, payload, timeoutMs = 15000) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(pythonBin(), [scriptName], {
+      cwd: ITER_DIR,
+      env: { ...process.env, ITER_DIR, ITER_METTA_SOCKET, PYTHONUNBUFFERED: '1' },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+    const finish = (error, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (error) reject(error); else resolve(value);
+    };
+    const timer = setTimeout(() => {
+      try { child.kill('SIGKILL'); } catch (_) {}
+      finish(new Error(`${scriptName} timed out`));
+    }, timeoutMs);
+    child.stdout.on('data', (chunk) => { stdout += chunk.toString(); });
+    child.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
+    child.on('error', (error) => finish(error));
+    child.on('exit', () => {
+      try {
+        const response = JSON.parse(stdout.trim());
+        if (!response.ok) finish(new Error(response.error || `${scriptName} failed`));
+        else finish(null, response.result);
+      } catch (error) {
+        finish(new Error(`${scriptName} returned invalid JSON: ${error.message}${stderr ? `; ${stderr}` : ''}`));
+      }
+    });
+    child.stdin.end(JSON.stringify(payload));
+  });
+}
+
+async function pauseCognition({ shutdownAtomspace = false } = {}) {
+  if (atomspaceLifecycleBusy) throw new Error('Another cognitive state operation is already running');
+  atomspaceLifecycleBusy = true;
+  const state = { iterWasRunning: !!iterProcess, atomspaceWasRunning: false, shutdownAtomspace };
+  try {
+    if (state.iterWasRunning) await stopIterAndWait(5000, { preserveDesired: true });
+    if (!(await pingMettaServer())) {
+      const started = await startMettaServer();
+      if (started.error) throw new Error(started.error);
+    }
+    state.atomspaceWasRunning = true;
+    state.checkpoint = await callAtomspace('quiesce', {}, 10000);
+    if (shutdownAtomspace) await stopMettaServer();
+    return state;
+  } catch (error) {
+    if (state.iterWasRunning && !iterProcess) await startIter();
+    atomspaceLifecycleBusy = false;
+    throw error;
+  }
+}
+
+async function resumeCognition(state) {
+  if (!state) return;
+  try {
+    if (state.shutdownAtomspace) {
+      const started = await startMettaServer();
+      if (started.error) throw new Error(started.error);
+    } else if (state.atomspaceWasRunning) {
+      await callAtomspace('resume', {}, 5000);
+    }
+    if (state.iterWasRunning) await startIter();
+  } finally {
+    atomspaceLifecycleBusy = false;
+  }
+}
+
 async function exportState() {
   if (!win) return { error: 'no window' };
   const { canceled, filePath } = await dialog.showSaveDialog(win, {
@@ -352,21 +1110,20 @@ async function exportState() {
   });
   if (canceled || !filePath) return { canceled: true };
 
-  // Flush the latest tab session synchronously first -- saveTabSession is
-  // normally debounced 400ms after the last tab change, so without this an
-  // export taken right after opening/closing a tab could bundle stale data.
-  saveTabSession();
-  const wanted = [...STATE_PATHS, ...PERSONAL_STATE_PATHS];
-  const existing = wanted.filter((p) => fs.existsSync(path.join(ITER_DIR, p)));
-  // Report anything expected-but-missing instead of silently dropping it --
-  // this used to fail silent, which is exactly how the tab-export gap and
-  // several other missing paths went unnoticed for days. Not finding a path
-  // isn't necessarily wrong (e.g. you may have no private/ folder yet), but
-  // you should be able to see it happened.
-  const missing = wanted.filter((p) => !fs.existsSync(path.join(ITER_DIR, p)));
-  if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-  await runCLI('zip', ['-r', filePath, ...existing], ITER_DIR);
-  return { exported: filePath, itemCount: existing.length, missing };
+  const pause = await pauseCognition({ shutdownAtomspace: false });
+  try {
+    // Flush UI state and publish a snapshot at the quiesced cognitive commit.
+    saveTabSession();
+    const checkpoint = await callAtomspace('checkpoint', {}, 10000);
+    const wanted = PORTABLE_ARCHIVE_PATHS;
+    const existing = wanted.filter((p) => fs.existsSync(path.join(ITER_DIR, p)));
+    const missing = wanted.filter((p) => !fs.existsSync(path.join(ITER_DIR, p)));
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    await runCLI('zip', ['-r', filePath, ...existing], ITER_DIR);
+    return { exported: filePath, itemCount: existing.length, missing, checkpoint };
+  } finally {
+    await resumeCognition(pause);
+  }
 }
 
 async function importState() {
@@ -385,12 +1142,17 @@ async function importState() {
 // the rolling AUTO_BACKUP_KEEP snapshots in AUTO_BACKUP_DIR, no dialog
 // needed). Identical restore behavior either way.
 async function restoreFromZipPath(zipPath) {
-  const wasRunning = !!iterProcess;
-  if (wasRunning) stopIter();
-
+  // Validate names before extraction and reject links after extraction. Only
+  // manifest-approved paths are copied into ITER_DIR, but an archive must not
+  // be able to escape the temporary directory while being inspected.
+  await validateZipArchive(zipPath);
+  const pause = await pauseCognition({ shutdownAtomspace: true });
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'iter-import-'));
+  const rollbackDir = fs.mkdtempSync(path.join(os.tmpdir(), 'iter-rollback-'));
+  let importedSummary = { restored: [], notFoundInZip: [] };
   try {
     await runCLI('unzip', ['-o', zipPath, '-d', tmpDir], ITER_DIR);
+    assertNoArchiveSymlinks(tmpDir);
     // Tolerate a wrapper folder inside the zip (mirrors the old HTML app's
     // Import behavior), by descending until we find a recognizable state dir/file.
     let sourceRoot = tmpDir;
@@ -398,10 +1160,19 @@ async function restoreFromZipPath(zipPath) {
     if (entries.length === 1 && fs.statSync(path.join(sourceRoot, entries[0])).isDirectory()) {
       const inner = path.join(sourceRoot, entries[0]);
       const innerEntries = fs.readdirSync(inner);
-      if (innerEntries.some((e) => STATE_PATHS.includes(e))) sourceRoot = inner;
+      if (innerEntries.some((e) => PORTABLE_STATE_PATHS.some((rel) => rel.split('/')[0] === e))) sourceRoot = inner;
     }
-    const wanted = [...STATE_PATHS, ...PERSONAL_STATE_PATHS];
-    var restored = [];
+    const wanted = PORTABLE_STATE_PATHS;
+    const restored = [];
+    const backedUp = [];
+    for (const rel of wanted) {
+      const current = path.join(ITER_DIR, rel);
+      if (!fs.existsSync(current)) continue;
+      const backup = path.join(rollbackDir, rel);
+      fs.mkdirSync(path.dirname(backup), { recursive: true });
+      fs.cpSync(current, backup, { recursive: true });
+      backedUp.push(rel);
+    }
     for (const rel of wanted) {
       const src = path.join(sourceRoot, rel);
       if (!fs.existsSync(src)) continue;
@@ -414,14 +1185,34 @@ async function restoreFromZipPath(zipPath) {
     // Report what this zip actually had vs. what this build of Iter Browser
     // knows to look for. If the zip is missing something this build expects
     // (e.g. it was exported by an older or newer build with a different
-    // STATE_PATHS/PERSONAL_STATE_PATHS list), surface that now instead of
+    // state manifest), surface that now instead of
     // just silently ending up with a thinner restore than you expected --
     // this is exactly how a stale build on a different machine can look
     // like a broken Export when Export was actually fine.
-    var notFoundInZip = wanted.filter((rel) => !restored.includes(rel));
-    var importedSummary = { restored, notFoundInZip };
+    const notFoundInZip = wanted.filter((rel) => !restored.includes(rel));
+    importedSummary = { restored, notFoundInZip, backedUp };
+
+    // Starting the service is the restore validation: snapshot checksum,
+    // journal replay, seed load, and engine reconstruction must all succeed.
+    const started = await startMettaServer();
+    if (started.error) throw new Error(started.error);
+    await waitForAtomspaceReady();
+  } catch (error) {
+    await stopMettaServer().catch(() => {});
+    for (const rel of PORTABLE_STATE_PATHS) {
+      const dest = path.join(ITER_DIR, rel);
+      fs.rmSync(dest, { recursive: true, force: true });
+      const backup = path.join(rollbackDir, rel);
+      if (fs.existsSync(backup)) {
+        fs.mkdirSync(path.dirname(dest), { recursive: true });
+        fs.cpSync(backup, dest, { recursive: true });
+      }
+    }
+    await resumeCognition(pause);
+    throw error;
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
+    fs.rmSync(rollbackDir, { recursive: true, force: true });
   }
 
   // An imported tabs_session.json won't take effect until the tab manager
@@ -439,8 +1230,8 @@ async function restoreFromZipPath(zipPath) {
     }
   }
 
-  if (wasRunning) startIter();
-  return { imported: zipPath, restarted: wasRunning, itemCount: importedSummary.restored.length, notFoundInZip: importedSummary.notFoundInZip };
+  await resumeCognition(pause);
+  return { imported: zipPath, restarted: pause.iterWasRunning, itemCount: importedSummary.restored.length, notFoundInZip: importedSummary.notFoundInZip };
 }
 
 // Restore button: no file dialog -- the caller (renderer, after showing the
@@ -487,14 +1278,23 @@ async function restoreState() {
   return { ...result, restoredFrom: chosen.file };
 }
 
-function resetState() {
-  const wasRunning = !!iterProcess;
-  if (wasRunning) stopIter();
-  for (const rel of STATE_PATHS) {
-    const target = path.join(ITER_DIR, rel);
-    fs.rmSync(target, { recursive: true, force: true });
+async function resetState() {
+  const pause = await pauseCognition({ shutdownAtomspace: true });
+  try {
+    for (const rel of STATE_PATHS) {
+      const target = path.join(ITER_DIR, rel);
+      fs.rmSync(target, { recursive: true, force: true });
+    }
+    const started = await startMettaServer();
+    if (started.error) throw new Error(started.error);
+    const status = await waitForAtomspaceReady();
+    await resumeCognition(pause);
+    return { reset: true, restarted: pause.iterWasRunning, atomspace: status };
+  } catch (error) {
+    // Leave Iter stopped if reset could not reconstruct authoritative state.
+    atomspaceLifecycleBusy = false;
+    throw error;
   }
-  return { reset: true, restarted: false };
 }
 
 // ---------------------------------------------------------------------
@@ -1274,7 +2074,14 @@ const MAC_PRIVACY_PANES = {
   microphone: 'x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone',
 };
 
-function createWindow() {
+async function createWindow() {
+  // Finish orphan reconciliation before a window can claim "stopped" or Start.
+  await retirePreviousIter(ITER_DIR, pushLog);
+  if (appQuitting) return;
+  // App-bundle recovery must finish before saved URLs are interpreted. An
+  // abandoned probation or corrupted promoted bundle is returned to its exact
+  // parent before any bridged renderer is allowed to load.
+  await recoverAppRevisionsBeforeTabs();
   session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
     if (permission === 'media') return callback(isCapturePageOrigin(webContents));
     callback(false);
@@ -1286,6 +2093,7 @@ function createWindow() {
 
   const initialSettings = loadSettings();
   sidebarWidth = initialSettings.sidebarWidth || DEFAULT_SIDEBAR_WIDTH;
+  iterDesiredRunning = initialSettings.iterAutoStart === true || process.env.ITER_AUTOSTART === '1';
 
   win = new BaseWindow({ width: 1400, height: 900, title: 'Iter Browser' });
 
@@ -1294,12 +2102,21 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       sandbox: false,
+      backgroundThrottling: false,
     },
   });
   win.contentView.addChildView(sidebarView);
   sidebarView.setBackgroundColor(SIDEBAR_BG);
   sidebarView.setBounds(sidebarBounds());
+  // Establish the durable chat owner before renderer loading begins. Incoming
+  // messages are journaled even if the renderer has not registered its IPC
+  // listener yet; the renderer then replays them through chat:history.
+  chatBridge = makeChatBridge(ITER_DIR, (message) => {
+    if (sidebarView) sidebarView.webContents.send('chat:incoming', message);
+  }, { log: pushLog });
   sidebarView.webContents.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+  powerMonitor.on('unlock-screen', () => reconcileSidebarAfterSystemResume('unlock-screen'));
+  powerMonitor.on('resume', () => reconcileSidebarAfterSystemResume('resume'));
 
   // Full-width navigation toolbar (back/forward/reload/address bar), sitting
   // directly above the browsed-page view -- see TOOLBAR_HEIGHT above.
@@ -1331,7 +2148,7 @@ function createWindow() {
   tabstripView.setBounds(tabstripBounds());
   tabstripView.webContents.loadFile(path.join(__dirname, 'renderer', 'tabstrip.html'));
 
-  tabs = new TabManager(win, { getContentBounds: contentBounds });
+  tabs = new TabManager(win, { getContentBounds: contentBounds, pwqPath: path.join(ITER_DIR, 'pwq.html') });
   tabs.onTabsChanged = (list) => {
     tabstripView.webContents.send('tabs:update', list);
     toolbarView.webContents.send('tabs:update', list);
@@ -1346,7 +2163,13 @@ function createWindow() {
   if (savedSession) {
     let restoredActive = null;
     savedSession.tabs.forEach((t, i) => {
-      const id = tabs.createTab(t.url || 'https://www.google.com');
+      const savedUrl = t.url || 'https://www.google.com';
+      const appId = registeredAppForUrl(savedUrl);
+      const restoredUrl = appId ? activeAppRevisions[appId].url : savedUrl;
+      const id = tabs.createTab(
+        restoredUrl,
+        appId ? appTabOptions(appId) : {},
+      );
       if (t.locked) tabs.setLocked(id, true);
       if (t.pinned) tabs.setPinned(id, true);
       if (i === savedSession.activeIndex) restoredActive = id;
@@ -1360,8 +2183,15 @@ function createWindow() {
   Menu.setApplicationMenu(buildAppMenu());
 
   win.on('resize', () => layoutAll());
+  // Some unlock paths (including display-only wake and remote/local session
+  // handoff) do not emit powerMonitor's unlock-screen event. Window focus is
+  // the reliable user-visible boundary for repairing a lost child surface.
+  win.on('focus', () => reconcileSidebarAfterSystemResume('window-focus'));
+  win.on('show', () => reconcileSidebarAfterSystemResume('window-show'));
+  win.on('restore', () => reconcileSidebarAfterSystemResume('window-restore'));
 
   win.on('closed', () => {
+    clearTimeout(sidebarResumeTimer);
     clearTimeout(tabSessionSaveTimer);
     if (autoBackupTimer) { clearInterval(autoBackupTimer); autoBackupTimer = null; }
     saveTabSession(); // flush the last state synchronously, don't rely on the debounce timer surviving shutdown
@@ -1372,12 +2202,21 @@ function createWindow() {
     win = null;
   });
 
-  chatBridge = makeChatBridge(ITER_DIR, (content) => {
-    if (sidebarView) sidebarView.webContents.send('chat:incoming', content);
+  browserBridgeServer = startBridgeServer(tabs, pushLog, ITER_BRIDGE_SOCKET, {
+    open: openRegisteredApp, inspect: inspectRegisteredApp,
   });
-
-  startBridgeServer(tabs, pushLog);
-  startMettaServer();
+  browserBridgeReadyPromise = browserBridgeServer.bridgeReady;
+  startMettaServer().then((result) => {
+    if (result.already) pushLog(`[atomspace] connected to ready service at commit ${result.status.commit}`);
+    else if (result.error) pushLog('[atomspace] startup failed: ' + result.error);
+  }).catch((error) => pushLog('[atomspace] startup failed: ' + error.message));
+  if (iterDesiredRunning) {
+    startIterWithAtomspace()
+      .then((result) => {
+        if (result && result.error) pushLog('[iter] automatic restart failed: ' + result.error);
+      })
+      .catch((error) => pushLog('[iter] automatic restart failed: ' + error.message));
+  }
   // Watchdog: metta_server.py is a detached background process outside
   // Electron's own supervision -- if it crashes mid-session nothing else
   // in this app would ever notice or restart it, silently breaking every
@@ -1386,8 +2225,22 @@ function createWindow() {
   // 5s" failures). startMettaServer() already pings first and no-ops if
   // healthy, so calling it repeatedly here is safe.
   setInterval(() => {
-    startMettaServer().catch((e) => pushLog('[metta] watchdog restart failed: ' + e.message));
+    if (appQuitting || atomspaceLifecycleBusy) return;
+    startMettaServer()
+      .then((result) => { if (result && result.error) pushLog('[atomspace] watchdog restart failed: ' + result.error); })
+      .catch((e) => pushLog('[atomspace] watchdog restart failed: ' + e.message));
   }, 60000);
+  // Iter's self-modifiable components cannot judge their own promotion.
+  // This Electron-side supervisor observes the immutable generation pointer
+  // and Iter's cycle heartbeat.  It promotes only completed probation, and
+  // rolls back before restart when the candidate exits, stalls, or reports a
+  // hard health-floor failure. Manual Stop clears iterDesiredRunning, so an
+  // intentional human stop is never undone by this watchdog.
+  setInterval(() => { superviseIterRevision(); }, 5000);
+  // Renderer bundles have their own external health boundary. Only this main
+  // process may convert load + visible handshake + APP-1 context evidence into
+  // probation observations or promotion; app code cannot self-report it.
+  setInterval(() => { superviseAppRevision(); }, 5000);
   startAutoBackupTimer();
 }
 
@@ -1440,14 +2293,26 @@ ipcMain.handle('tabs:reload', (_e, id) => {
   if (tab) tab.view.webContents.reload();
 });
 
-ipcMain.handle('chat:send', (_e, content) => chatBridge.sendToIter(content));
-ipcMain.handle('iter:start', () => startIter());
+ipcMain.handle('chat:send', (_e, content) => {
+  if (!chatBridge) throw new Error('Chat bridge is not ready');
+  return chatBridge.sendToIter(content);
+});
+ipcMain.handle('chat:history', () => (chatBridge ? chatBridge.history() : []));
+ipcMain.handle('iter:start', () => startIterWithAtomspace());
 ipcMain.handle('iter:stop', () => stopIter());
 ipcMain.handle('metta:status', async () => ({ running: await pingMettaServer() }));
-ipcMain.handle('metta:start', () => startMettaServer());
-ipcMain.handle('iter:status', () => ({ running: !!iterProcess }));
+ipcMain.handle('metta:start', () => (
+  atomspaceLifecycleBusy
+    ? { error: 'Cognitive state maintenance is in progress' }
+    : startMettaServer()
+));
+ipcMain.handle('iter:status', () => ({ running: !!iterProcess, stopping: !!iterStopPromise || appQuitting }));
 ipcMain.handle('iter:recentLog', () => iterLog.slice(-200));
-ipcMain.handle('settings:load', () => loadSettings());
+ipcMain.handle('settings:load', () => {
+  let lastModelUsage = null;
+  try { lastModelUsage = JSON.parse(fs.readFileSync(path.join(ITER_DIR, '.runtime', 'last_model_usage.json'), 'utf8')); } catch (_) {}
+  return { ...loadSettings(), openaiCatalog: OPENAI_CATALOG, lastModelUsage };
+});
 ipcMain.handle('settings:save', (_e, settings) => {
   saveSettings(settings);
   return { saved: true };
@@ -1497,65 +2362,153 @@ ipcMain.on('tabstrip:height', (_e, height) => {
 
 ipcMain.handle('fs:list', (_e, relPath) => fsList(relPath));
 ipcMain.handle('fs:read', (_e, relPath) => fsRead(relPath));
-ipcMain.handle('fs:write', (_e, { path: relPath, content }) => fsWrite(relPath, content));
-
-// ===== PWQ board bridge (write-through fix 2026-09-20) — disk is the API =====
-// Whitelisted to the single canonical board file so order-clicks persist
-// (previously clicks landed only in localStorage and were lost).
-const PWQ_PATH = path.join(ITER_DIR, '.runtime', 'pwq.json');
-// Read access is whitelisted to the board file + its seed; anything else is refused.
-const PWQ_READ_PATHS = { 'pwq.json': PWQ_PATH, 'pwq_seed.json': path.join(ITER_DIR, 'pwq_seed.json') };
-ipcMain.handle('pwq:read', (_e, rel) => {
-  const target = PWQ_READ_PATHS[rel] || PWQ_PATH;
-  try { return { ok: true, content: fs.readFileSync(target, 'utf8') }; }
-  catch (err) { return { ok: false, error: String(err) }; }
+ipcMain.handle('fs:write', (_e, { path: relPath, content }) => {
+  if (atomspaceLifecycleBusy) throw new Error('State maintenance is in progress');
+  return fsWrite(relPath, content);
 });
-ipcMain.handle('pwq:write', (_e, rel, content) => {
+
+// ===== PWQ human-agency protocol =====
+// The board is a materialized projection. Every read/write crosses the one
+// canonical Python protocol writer, which owns the hash-chained event ledger,
+// state transitions, proposal versions, and dispatch authorization.
+let pwqReadCache = null;
+function pwqLedgerVersion() {
   try {
-    if (rel !== 'pwq.json' && rel !== '.runtime/pwq.json') throw new Error('refused: not the board file');
-    JSON.parse(content); // reject non-JSON garbage before touching disk
-    fs.writeFileSync(PWQ_PATH, content, 'utf8');
-    return { ok: true };
+    const s = fs.statSync(path.join(ITER_DIR, '.runtime', 'pwq', 'events.jsonl'), { bigint: true });
+    return `${s.ino}:${s.size}:${s.mtimeNs}`;
+  } catch (e) { if (e.code === 'ENOENT') return 'missing'; throw e; }
+}
+ipcMain.handle('pwq:read', async (event) => {
+  try {
+    if (!tabs || !tabs.isPWQSender(event)) throw new Error('Refused: sender is not the local PWQ page');
+    if (atomspaceLifecycleBusy) throw new Error('State maintenance is in progress');
+    const version = pwqLedgerVersion();
+    if (pwqReadCache && pwqReadCache.version === version) return pwqReadCache.response;
+    const board = await runPythonJson('pwq_service.py', { action: 'read' });
+    const response = { ok: true, content: JSON.stringify(board, null, 2) };
+    if (pwqLedgerVersion() === version) pwqReadCache = { version, response };
+    return response;
+  } catch (err) { return { ok: false, error: String(err) }; }
+});
+ipcMain.handle('pwq:command', async (event, request) => {
+  try {
+    if (!tabs || !tabs.isPWQSender(event)) throw new Error('Refused: sender is not the local PWQ page');
+    if (atomspaceLifecycleBusy) throw new Error('State maintenance is in progress');
+    const command = request && typeof request === 'object' ? request : {};
+    const allowed = new Set(['sign', 'approve', 'reject', 'reorder', 'modify', 'pause', 'resume', 'complete', 'archive', 'restore']);
+    if (!allowed.has(command.action)) throw new Error('refused: unsupported human PWQ command');
+    const board = await runPythonJson('pwq_service.py', {
+      action: command.action,
+      actor: 'human',
+      proposal_id: command.proposal_id,
+      payload: command.payload || {},
+      expected_version: command.expected_version,
+      command_id: command.command_id,
+    });
+    return { ok: true, content: JSON.stringify(board, null, 2) };
   } catch (err) { return { ok: false, error: String(err) }; }
 });
 
-// ===== CRM bridge (COS Command Center) — disk is the API =====
-const CRM_DIR = path.join(ITER_DIR, 'crm', 'data');
-const CRM_FILES = ['contacts.json','tasks.json','events.json','captures.json'];
-ipcMain.handle('crm:read', (_e, fname) => {
-  if (!CRM_FILES.includes(fname)) return { ok: false, error: 'bad file' };
-  try { return { ok: true, data: JSON.parse(fs.readFileSync(path.join(CRM_DIR, fname), 'utf8')) }; }
-  catch (err) { return { ok: false, error: String(err) }; }
-});
-ipcMain.handle('crm:write', (_e, fname, data) => {
-  if (!CRM_FILES.includes(fname)) return { ok: false, error: 'bad file' };
-  try { fs.writeFileSync(path.join(CRM_DIR, fname), JSON.stringify(data, null, 2), 'utf8'); return { ok: true }; }
-  catch (err) { return { ok: false, error: String(err) }; }
-});
+// ===== Journaled AtomSpace-backed tab/application collaboration contract =====
+const appChangePolls = new WeakMap();
+const APP_POLL_INTERVAL_MS = 5000;
+
+function pollScopedAppChanges(event, afterCommit) {
+  const scope = tabs && tabs.appScopeForWebContentsId(event.sender.id);
+  if (!scope) throw new Error('Refused: sender has no application scope');
+  const cursor = Number(afterCommit || 0);
+  if (!Number.isSafeInteger(cursor) || cursor < 0) throw new Error('Invalid application commit cursor');
+  const active = tabs.tabs.get(tabs.activeId);
+  if (appQuitting || !win || !win.isVisible() || win.isMinimized()
+      || !active || active.view.webContents !== event.sender) {
+    // Do not advance the cursor: the next visible poll catches every change.
+    return { app_id: scope.appId, after_commit: cursor, commit: cursor, events: [], background: true };
+  }
+  const cached = appChangePolls.get(event.sender);
+  if (cached && cached.cursor === cursor
+      && (cached.pending || Date.now() - cached.at < APP_POLL_INTERVAL_MS)) return cached.promise;
+  const entry = { cursor, at: Date.now(), pending: true };
+  entry.promise = runScopedAppRequest(event, 'changes', { after_commit: cursor })
+    .then((result) => { entry.at = Date.now(); entry.pending = false; return result; })
+    .catch((error) => { appChangePolls.delete(event.sender); throw error; });
+  appChangePolls.set(event.sender, entry);
+  return entry.promise;
+}
+
+// The page never supplies either identity. Its actual WebContents is bound to
+// scope by TabManager when the navigation-locked tab is created.
+async function runScopedAppRequest(event, action, payload = {}) {
+  if (atomspaceLifecycleBusy) throw new Error('State maintenance is in progress');
+  const scope = tabs && tabs.appScopeForWebContentsId(event.sender.id);
+  if (!scope) throw new Error('Refused: sender has no application scope');
+  const started = await startMettaServer();
+  if (started && started.error) throw new Error(started.error);
+  return runPythonJson('iterbrow_runtime/app_contract.py', {
+    action,
+    ...payload,
+    app_id: scope.appId,
+    consumer_id: scope.consumerId,
+  });
+}
+
+ipcMain.handle('app:context', (event) => runScopedAppRequest(event, 'context'));
+ipcMain.handle('app:command', (event, command) => (
+  runScopedAppRequest(event, 'command', { command })
+));
+ipcMain.handle('app:changes', pollScopedAppChanges);
 
 ipcMain.handle('terminal:start', () => startTerminal());
 ipcMain.handle('terminal:run', (_e, cmd) => runTerminalCommand(cmd));
 ipcMain.handle('terminal:interrupt', () => interruptTerminal());
 ipcMain.handle('terminal:stop', () => stopTerminal());
-ipcMain.handle('dashboards:open', () => tabs.createTab('file://' + path.join(ITER_DIR, 'dashboard_gallery.html')));
+ipcMain.handle('dashboards:open', () => {
+  const generated = path.join(ITER_DIR, 'dashboard_gallery.html');
+  const target = fs.existsSync(generated)
+    ? generated
+    : path.join(__dirname, 'renderer', 'dashboard_empty.html');
+  return tabs.createTab('file://' + target);
+});
 ipcMain.handle('pwq:open', () => tabs.createTab('file://' + path.join(ITER_DIR, 'pwq.html'), {
   preload: path.join(__dirname, 'bridge', 'pwq_preload.js'),
   restrictNavigation: true,
 }));
-// CRM opens through a scoped, navigation-locked tab (see bridge/tab_manager.js
-// createTab's opts.preload/opts.restrictNavigation) so window.iterApi.crmRead/
-// crmWrite actually exist there -- a plain tabs.createTab(url) call, like the
-// two lines above, never gets a preload and would leave the CRM page's saves
-// permanently failing (this was the case until this fix; see crm/HANDOFF.md).
-ipcMain.handle('crm:open', () => tabs.createTab('file://' + path.join(ITER_DIR, 'crm', 'index.html'), {
-  preload: path.join(__dirname, 'bridge', 'crm_preload.js'),
-  restrictNavigation: true,
-}));
+ipcMain.handle('crm:open', async () => (await openRegisteredApp('crm')).tabId);
+ipcMain.handle('apps:open', (_event, appId) => openRegisteredApp(appId));
+ipcMain.handle('apps:list', () => runAppRevisionControl('list-apps'));
 
-app.whenReady().then(createWindow);
-app.on('window-all-closed', () => {
-  if (iterProcess) iterProcess.kill('SIGTERM');
-  if (termProcess) termProcess.kill('SIGTERM');
-  if (chatBridge) chatBridge.stop();
-  app.quit();
-});
+if (hasSingleInstanceLock) {
+  app.on('before-quit', (event) => {
+    if (quitReady) return;
+    event.preventDefault();
+    if (quitPromise) return;
+    appQuitting = true;
+    quitPromise = (async () => {
+      if (win) saveTabSession();
+      if (iterStartPromise) await iterStartPromise.catch(() => {});
+      if (iterStopPromise) await iterStopPromise;
+      await stopIterAndWait(5000, { preserveDesired: true });
+      if (termProcess) termProcess.kill('SIGTERM');
+      if (chatBridge) chatBridge.stop();
+      quitReady = true;
+      app.quit();
+    })().catch((error) => {
+      appQuitting = false;
+      quitPromise = null;
+      pushLog('[shutdown] Iter did not stop; application remains open: ' + error.message);
+    });
+  });
+  app.on('second-instance', (_event, _argv, _workingDirectory, additionalData) => {
+    if (additionalData && additionalData.iterRoot !== __dirname) return;
+    if (win) {
+      if (typeof win.show === 'function') win.show();
+      if (typeof win.focus === 'function') win.focus();
+    }
+  });
+  app.whenReady().then(createWindow).catch((error) => {
+    pushLog('[startup] application revision recovery failed closed: ' + error.message);
+    app.quit();
+  });
+  app.on('window-all-closed', () => {
+    app.quit();
+  });
+}

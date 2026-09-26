@@ -74,7 +74,7 @@ def _is_stalled(window):
         return False
     last_tool = window[-1]
     recent = window[-REPEAT_THRESHOLD:]
-    return all(t == last_tool for t in recent) and last_tool != "send"
+    return all(t == last_tool for t in recent) and last_tool not in ("send", "nop")
 
 
 def transform(messages, tools):

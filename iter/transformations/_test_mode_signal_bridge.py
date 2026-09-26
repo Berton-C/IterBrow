@@ -125,6 +125,9 @@ def test_courier_surfaces_opening_after_enough_evidence():
             os.path.join(TRANSFORMS_DIR, "nace_courier.py"),
             tmpdir,
         )
+        # Historical threshold fixture is deliberately offline. Native revision
+        # and commit/projection ordering are covered by the runtime suite.
+        courier.__dict__.pop('_call_atomspace', None)
 
         # Feed repeated independent "confirmed" mode_loosen cycles the way
         # the bridge would across separate closed-then-broken stretches of a

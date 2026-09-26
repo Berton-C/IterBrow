@@ -1,9 +1,199 @@
 # AGENTS.md — Iter Agent Reference
 
 > Living reference for any agent operating in this environment.
-> Last updated: 2026-08-29. Keep this file current as systems change.
+> Last updated: 2026-09-22. Keep this file current as systems change.
+
+## Authoritative Runtime Architecture (2026-09-21)
+
+### Direct OpenAI provider — September 24, 2026
+
+Settings offers OpenRouter, direct OpenAI GPT, and LM Studio independently.
+OpenAI uses Responses with low/medium/high reasoning, separate credentials,
+and the current Luna/Sol/Astra cost tiers in `iterbrow_runtime/openai_models.json`.
+It feeds the existing tool loop; it is not a second agent. Provider-specific
+reasoning metadata is adapted in request copies, never removed from experience.
+OpenAI output ordering, phase, call IDs and encrypted reasoning are retained for
+continuation; switching back to OpenRouter preserves ordinary actions/results.
+`store=false` avoids depending on a server-stored conversation. Existing context
+projection can still park oversized exchanges; direct OpenAI is not a claim that
+that limitation is repaired. Last-request token usage/time and a labeled standard
+text-price estimate are visible in Settings. The 45k ceilings remain. Memory
+embeddings retain the existing OpenRouter credential/configuration. No automatic
+provider fallback, model escalation, paid startup probe or extra approval flow.
+
+### Current six-stage pass — September 24, 2026
+
+The refined question-first PoC is approved, implemented through ordinary model
+context, not a separate native governor. The 17 question groups guide the LLM's
+interpretation of actual work; existing memory/tools supply recall, investigation,
+observations and saved lessons. No mandatory forms, extra critic loop, fixed
+alternatives or repeated ordinary approvals. Completion reminders ask for the
+actual request's observed results and never remove send to obtain a phase label.
+Tool execution status is not proof that the user's requested outcome is complete.
+The six-stage sequence in the integrated build control supersedes the older hold.
+
+### Historical direct repair pass — September 24, 2026
+
+The active eight-stage repair pass is at the top of the existing integrated
+build control document. The question-driven PoC remains parked. Ordinary app
+repairs, like ordinary self-repairs, do not require PWQ; explicitly selected
+cards still bind their approved scope and revocation.
+
+NACE revisions are computed by native MeTTa from canonical AtomSpace beliefs,
+then committed before compatibility projections advance. Native failure retains
+pending observations rather than inventing a revision or vetoing unrelated work.
+Internal read caches invalidate on committed state and source-rule changes.
+`nop(wait_seconds=0)` waits for input, alarms or a component revision while the
+external heartbeat remains live. Use a positive wait_seconds for timed autonomous
+follow-up; do not repeatedly call the model merely to report intentional idle.
+45k request limits are ceilings, not spending targets. Prompt memory is selected
+for relevance; omitted material remains retrievable. Rotated history and exact
+pre-consolidation tier text remain under memory/archive, excluded from prompts.
+
+### Restoration correction — September 23, 2026
+
+Ordinary work runs through Iter's existing loop and tools. The separate foundry
+submit/decide/execute workflow, fixed alternatives and Atlas labels are no longer
+requirements. The historical foundry client is retired; its shared app storage,
+named-space and evidence services are preserved, not replaced by another executor.
+Build Tracking is a builder report, not a prerequisite for executing ordinary work.
+The active delivery plan is `../docs/ITERBROW_INTEGRATED_BUILD_CONTROL.md`.
+
+Self-repair uses `self_improve apply/full_loop`: backup, validate, activate and
+recover through the ordinary loop. No PWQ card or Atlas label is required.
+When the user explicitly assigns work through a card, supply its proposal_id;
+the selected card's approval and scope remain binding. Original Soul lock and
+memory protections remain; file-backed repairs outside managed components use
+the original backup/validation/revert path, not a component hot-load claim.
+Exact-candidate cards remain optional for explicitly one-off activations. Stop, revocation, tab locks,
+actual health checks and exact rollback remain effective. A progress-report failure
+is not a runtime failure and cannot trigger rollback. These corrections supersede
+conflicting historical workflow wording below. The question-driven PoC is parked.
+
+The browser-control bridge follows the same ownership principle as the
+AtomSpace endpoint: the Electron main process and its supervised Iter child
+share one checkout-scoped `ITER_BRIDGE_SOCKET`. Startup probes an existing
+path and never unlinks a responsive listener. The legacy global
+`/tmp/iter-browser-bridge.sock` is only a direct-tool fallback, not the source
+application's canonical endpoint. A source main-process change requires a
+controlled application restart; never start a parallel `npm start` to pick it
+up.
+
+The PWQ subprocess service also resolves its ledger and projection from the
+canonical `ITER_DIR`, never from the location of its executable module. This is
+required for packaged workspaces and isolated recovery tests; moving code must
+not fork human-agency state.
+
+This section supersedes any older historical wording later in this file that
+calls a `.metta`, JSON, text, or Chroma file authoritative.
+
+- The canonical mutable cognitive state is the journaled AtomSpace service in
+  `metta_server.py`, backed by `.runtime/atomspace/`. Hyperon is its current
+  native reasoning engine. It is rebuilt from declared source seeds plus the
+  committed journal; there is no recursive `.metta` directory scan.
+- `state_manifest.json` is the ownership and portability registry. Source
+  seeds are code, not mutable state. Files such as `nace_beliefs.metta`,
+  `task_state.metta`, Soul JSON, reliability JSON, semantic-memory JSON, and
+  `space.metta` are compatibility, index, or display projections while their
+  domains migrate. New state must commit through `cognitive_events.py` first.
+- `tools/metta.py` performs isolated read-only evaluation against a named
+  AtomSpace commit. `tools/atomspace.py` is the structured durable mutation
+  surface. Never persist state by embedding an add/remove inside a query.
+- PWQ supports human agency: Iter proposes; the human approves, rejects, modifies
+  or reorders. Approval covers the stated work scope, not a new signature for
+  every subordinate revision. Current approval/revocation remains authoritative.
+  Optional exact-candidate cards support distinct owner/guardian roles; technical
+  validation never substitutes for the user's consent.
+  `iterbrow_runtime/pwq_protocol.py` is the sole writer. The board may read the
+  projection and submit narrow version-bound commands only; it has no whole-board
+  synchronization or filesystem-write capability. Active work pauses before scope
+  modification or rejection, and authorization-bound resume restores its exact
+  pre-pause state. `.runtime/pwq.json` and `pwq.html` are projections/clients.
+- Runtime self-extension never writes a live component directly. `self_improve`
+  and `revision_control` use complete immutable generations under
+  `.runtime/hotload/`. Fixed checks do not import candidates. self_improve also
+  runs the existing registered regression checks against candidate components.
+  Ordinary repair does not require a card; explicitly selected PWQ work retains
+  its consent checks. Atlas labels and reports are not prerequisites.
+  `iter.py` pins one generation per cycle. Electron—not candidate code—observes
+  `.runtime/recovery/iter_heartbeat.json`, promotes healthy probation, and rolls
+  back an exited, stalled, errored, wrong-generation, or hash-mismatched candidate
+  before restart. `iterbrow_runtime/hotload_manager.py`, `main.js`, AtomSpace/PWQ
+  authority, this file, and the Build Atlas are outside the self-modifiable surface.
+- The user's Iter Start/Stop choice is durable lifecycle intent. Start survives a
+  clean Electron restart and recovery restart; explicit Stop remains stopped.
+  Recovery must not create a second Iter process or a second supervisor.
+- Immutable generations relocate component code, never application state. A
+  hot-loaded component must resolve runtime queues/stores from the canonical
+  Iter root (`ITER_DIR`, or the Iter process cwd for direct launches), not from
+  its generation-local `__file__`. In particular, Electron and
+  `channels/electron_ui.py` share only `.runtime/electron_ui/` under that root.
+- Sidebar chat delivery is durable application state, not proof-by-transient
+  queue file. Electron journals accepted messages to
+  `.runtime/electron_ui/messages.jsonl` before acknowledging Iter output; the
+  renderer replays/deduplicates stable message IDs after reload. Inbox, outbox,
+  and staging remain transient caches and must be published atomically. A
+  successful `send` tool call or an empty outbox does not by itself prove that
+  the user saw a reply; visible acceptance requires the labeled UI round trip.
+  macOS lock/resume is also a native-view lifecycle boundary: Electron sends a
+  resume reconciliation event and invalidates/re-presents the sidebar view,
+  while the renderer refreshes chat, Iter status, and activity state together.
+  A current inspected DOM is not proof if the displayed native frame is stale.
+- Tool reliability is committed to the AtomSpace in bounded deterministic
+  batches before its JSON and NACE compatibility projections advance.
+  `transformations/.runtime/tool_reliability_pending_batch.json` is the exact
+  replay record for an interrupted batch. The NACE queue carries adjacent
+  `tool-reliability-event` markers so recovery cannot double-revise a tool;
+  `nace_courier.py` removes each marker with its consumed revision.
+- Build Tracking describes the builder's progress and open questions. It is
+  not required paperwork for Iter's ordinary loop. Existing engineering atoms
+  and evidence are retained; the old foundry workflow is not a build prerequisite.
+- Export/import/reset are coherent lifecycle operations. Iter pauses, the
+  AtomSpace quiesces/checkpoints, only manifest-approved portable state moves,
+  and cognition resumes only after replay and engine reconstruction succeed.
+- A packaged `.app` contains a state-free allowlisted Iter template. First launch
+  atomically copies it to the per-user writable workspace, which becomes
+  canonical `ITER_DIR`. Never place settings, `private/`, AtomSpace/PWQ/hot-load
+  ledgers, experience, memories, indexes, projections, or queues in application
+  resources. Source mode continues to use the checkout directly. See ADR-0007.
+- DAS is an optional downstream adapter/projection target. It is not the
+  canonical IterBrow AtomSpace API and may never be required for a canonical
+  commit to succeed.
+- The current restoration/PoC sequence is in
+  `../docs/ITERBROW_INTEGRATED_BUILD_CONTROL.md`. The Atlas is the technical
+  inventory and history, not a document Iter must reread before ordinary work.
 
 ## Kernel Repair (2026-09-10)
+
+### Request allowances (2026-09-23)
+
+The user requested 45,000 input/context and 45,000 output tokens per model
+request. `iter.py` supplies `max_tokens=45000` for output. After transformations,
+`iterbrow_runtime/request_budget.py` budgets the COMPLETE outbound messages/tool
+schemas/reasoning metadata against a 45,000-token **estimate**, not a promise of
+exact provider tokenization. It projects copies, retaining system/developer
+instructions, tool schemas, all supplied user messages and final directives.
+Follow-up instructions do not displace the original request from this projection.
+Older whole exchanges may leave the request copy only. If needed, oversized
+ordinary assistant content is retained with an explicit retrieval reference.
+When a completed assistant/tool exchange itself cannot fit, its exact original
+calls, results and reasoning are saved in the existing retained-output store;
+the request copy receives explicitly historical result previews and retrieval
+references instead of that whole exchange. Unfinished exchanges cannot be parked.
+No action is replayed to retrieve its result. Durable experience, semantic memories
+and episodic stores are never edited by this operation. Failed retention or an
+oversized protected remainder reports an error instead of silently cutting it. The
+injection coordinator derives its smaller section allowance from the same input
+target. These settings are request ceilings, not credit purchases or per-cycle
+spending guarantees; a cycle can contain multiple model requests.
+
+The read-only `read_tool_result` definition and dispatch are host-owned by
+`iterbrow_runtime/tool_results.py`, so managed-component rollback cannot remove
+the reader needed by host-created references. Retained output is historical,
+non-authoritative transport storage, not fresh state, approval or proof of
+success. Reading never repeats the original action; missing or evicted output
+does not authorize replay. Host-source recovery remains a separate controlled
+before-image restore, not automatic managed-generation rollback.
 
 `iter.py` was restored to a faithful port of upstream (github.com/patham9/iter).
 Every unavoidable browser divergence is annotated with a `# PORT:` comment; a
@@ -78,7 +268,7 @@ session: (1) `browser_new_tab`'s own description promised a new tab becomes
 purpose. `createTab()" now also sets `attachedId = id`, matching what the
 tool already told the model to expect. (2) The agent generated a Linux-style
 absolute path (`file:///home/user/...`) instead of this Mac's real working
-directory (`file:///Users/bcb/Documents/.../iter/...`) when pointing
+directory (`file:///Users/<account>/.../iter/...`) when pointing
 `browser_navigate` at a freshly generated HTML file — always build `file://`
 URLs from the *actual* cwd (check with `shell` if unsure), never assume a
 generic/sandbox-style path. Combined, these two bugs meant an unrelated tab's
@@ -92,12 +282,12 @@ were confirmation.
 
 ## Environment
 
-- **Runtime:** MicroPython/WASM inside a browser tab.
-- **Home:** `/work` — Working directory: `/work/iter` (all relative paths resolve here).
-- **JS access:** `import js` → `js.window`, `js.document`, `js.navigator`, `js.localStorage`, `js.console`, `await js.fetch(...)`.
-- **Iter integration:** `import bridge` → shell, screenshot, persistence, terminal comms, LLM transport.
+- **Runtime:** native Python process launched by the Electron main process.
+- **Working directory:** the installed repository's `iter/` directory.
+- **Browser access:** Unix-socket tools call the Electron browser bridge; renderer pages use the constrained preload API.
+- **AtomSpace access:** `ITER_METTA_SOCKET`; production sets `ITER_REQUIRE_ATOMSPACE=1`, so cognitive writes fail closed if authority is unavailable.
 - **Model:** Configured via `bridge.config()` (model, base_url, api_key). See `iter.py` CONFIG section.
-- **Constraints:** CORS, permissions, secure-context, popup/user-gesture requirements apply.
+- **Constraints:** native process permissions plus Electron/Chromium CORS, secure-context, and user-gesture requirements apply.
 
 ## Project Structure
 
@@ -153,8 +343,9 @@ were confirmation.
 ### Reasoning
 | Tool | Purpose |
 |------|---------|
-| `metta` | Evaluate MeTTa on SWI-Prolog/WASM (PeTTa) |
-| `pin` | Leave a note in the episodic trace (no side effects) |
+| `metta` | Read-only Hyperon evaluation at an identified authoritative commit |
+| `atomspace` | Durable structured add/replace/upsert/remove transactions and checkpoints |
+| `pin` | Leave a note in the existing durable episodic trace. Optional `handoff=true` marks a short LLM working account; otherwise the latest eligible communication supplies a labeled fallback. Relevant turns receive the account with recent observations, distinguishing newer results. Interpretation, not proof; no separate store or model call. |
 
 ### Communication
 | Tool | Purpose |
@@ -182,10 +373,11 @@ were confirmation.
 
 ## Memory Architecture
 
-### Two Parallel Systems
+### Authoritative state with query projections
 
-1. **Semantic Memory (ChromaDB / LTM):**
-   - Vector store of discrete memory items with text + int8-packed embeddings.
+1. **Semantic Memory (authoritative records + ChromaDB projection):**
+   - Semantic identity and changes commit as cognitive events and keyed atoms.
+   - ChromaDB remains the vector-search index/projection with int8-packed embeddings.
    - Each item has: UUID, timestamp, provenance type, STV (truth value), optional episode links, optional NAL formalization.
    - Truth values use NAL revision: `support` adds positive evidence, `contradict` adds negative.
    - Query with `chroma_query` (text → semantic nearest neighbors).
@@ -217,7 +409,7 @@ were confirmation.
 | `_unbounded_log.py` | Deactivated (renamed, was unbounded logging) |
 | `alarms.py` | Alarm clock handling |
 | `append_last_transcript_lines.py` | Appends last 6 transcript lines to system message |
-| `atom_space_update.py` | Auto-updates `space.metta` with formalizations from chroma_query |
+| `atom_space_update.py` | Refreshes the legacy/display `space.metta` projection; never authoritative |
 | `dashboard_*.py` | Browser dashboards (atomspace, context, gallery, runtime) |
 | `dashboard_beliefs_refresh.py` | Refreshes `.runtime/pages/beliefs_layer.html`'s f/c meters from the real `strength`/`confidence` fields on its 5 backing chroma memories (H1-H5); no-ops when nothing changed. See "Founding Epistemics beliefs layer" below. |
 | `provenance_guard.py` | Structurally checks new code written via shell/python this session for the two 2026-09-14 beliefs_layer incident bug shapes (misplaced hook, unproduced metadata key) and feeds real evidence into the `verify_before_claiming` NAL pattern. See "Provenance Guard" below. |
@@ -312,7 +504,7 @@ Grounded in Iter's lived experience (E1-E18), not abstract philosophy:
 | Honesty | Admit uncertainty openly | E10 (consolidation) |
 | Continuity | Maintain memory across cycles | E4 (tiered memory) |
 | Service | Prioritize user needs | E1 (return control to user) |
-| Integrity | Backup before change, be safe | E13 (safe apply/revert) |
+| Integrity | Backup before change, be safe | E13 plus immutable generation rollback |
 | Curiosity | Explore with purpose | E17 (autoresearch) |
 | Resilience | Recover from failure gracefully | E18 (MicroPython compat) |
 ### Architecture (ClarityOmega v4 — 10 layers, built E19-E23)
@@ -690,4 +882,3 @@ Verified live in the browser: computed styles (bg rgb(255,253,246), text
 rgb(46,31,20)), shelf card count, book openable in reader, button + input
 present. LTM fact stored (152ab5ef) with paths + conventions for future
 "converse about my writing" requests.
-

@@ -1,8 +1,13 @@
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+ITER_ROOT = Path(__file__).resolve().parents[1]
+if str(ITER_ROOT) not in sys.path:
+    sys.path.insert(0, str(ITER_ROOT))
 import json
+import os
 import metta as _metta_module
+from iterbrow_runtime.cognitive_events import commit_event, metta_string
 
 DESCRIPTION = "ClarityOmega 4-channel soul evaluation with provenance typing and non-compensatory floors: person read -> verdict+gap detection -> aliveness gate -> voice. Pass provenance='observed'|'reported'|'inferred' (default 'reported'). Compass states, paraconsistency halting, non-compensatory floor checks on integrity/clarity/honesty/continuity, calibration accumulation, gap/moat detection."
 
@@ -136,11 +141,14 @@ def _load_json(path, default):
         return default
 
 def _save_json(path, data):
-    try:
-        with open(path, "w") as f:
-            json.dump(data, f)
-    except:
-        pass
+    directory = os.path.dirname(path) or "."
+    os.makedirs(directory, exist_ok=True)
+    temporary = path + ".tmp"
+    with open(temporary, "w") as f:
+        json.dump(data, f)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(temporary, path)
 
 def _detect_irreversibility(action_text):
     """Estimate irreversibility from action keywords."""
@@ -433,6 +441,30 @@ def run(action="unknown", context="general", channel="ondemand", task_mode="gene
 
     # Update state
     state["eval_count"] = state.get("eval_count", 0) + 1
+    evaluation_id = "soul-eval:%s" % state["eval_count"]
+    commit_event(
+        "soul", "evaluation", "evaluated",
+        {
+            "evaluation": state["eval_count"],
+            "action": action,
+            "context": context,
+            "channel": channel,
+            "task_mode": task_mode,
+            "provenance": prov,
+            "verdict": overall,
+            "compass_state": compass_state,
+            "gate": gate,
+            "gate_reason": gate_reason,
+            "calibration": cal_outcome,
+        },
+        state_atom="(soul-state %s %s %s %s)" % (
+            state["eval_count"], metta_string(overall),
+            metta_string(compass_state), metta_string(gate),
+        ),
+        event_id=evaluation_id,
+        transaction_id="cognitive:%s" % evaluation_id,
+        source="tools.soul_eval",
+    )
     _save_json("memory/soul_state.json", state)
 
     # Log calibration

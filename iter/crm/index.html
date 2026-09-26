@@ -20,6 +20,7 @@ h2{font-size:15px;letter-spacing:.6px;text-transform:uppercase;color:var(--gold)
 .p1{background:var(--hot)}.p2{background:var(--gold)}.p3{background:#c9c1b0}
 button.act{border:1px solid var(--line);background:#fff;padding:5px 12px;border-radius:9px;cursor:pointer;font-size:12.5px}
 button.act:hover{border-color:var(--gold)}
+button.act:disabled{cursor:not-allowed;opacity:.45;border-color:var(--line)}
 .done{opacity:.45;text-decoration:line-through}
 form{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:16px;margin:14px 0}
 input,select,textarea{font:inherit;padding:7px 10px;border:1px solid var(--line);border-radius:9px;background:#fff;width:100%}
@@ -31,6 +32,11 @@ label{font-size:11px;color:var(--muted);display:block;margin-bottom:3px;letter-s
 .back{color:var(--muted);font-size:13px;cursor:pointer;margin-bottom:10px;display:inline-block}
 .back:hover{color:var(--gold)}
 .hist{font-size:12px;color:var(--muted);margin-top:4px;border-left:2px solid var(--line);padding-left:10px}
+#pauseControl{margin-left:auto;border:1px solid var(--gold);background:#fff9eb;color:var(--ink);font:600 13px inherit;padding:8px 13px;border-radius:9px;cursor:pointer;white-space:nowrap}
+#pauseControl[aria-pressed="true"]{background:#693d32;color:#fff;border-color:#693d32}
+#pauseState{font-size:12px;color:var(--muted);white-space:nowrap}
+body.crm-paused main button.act:disabled{opacity:.5}
+@media(max-width:760px){header{flex-wrap:wrap}#pauseControl{margin-left:auto}#clock{display:none}}
 </style></head><body>
 <header><div class="logo">&#10022; COS Command Center</div>
 <nav>
@@ -39,15 +45,83 @@ label{font-size:11px;color:var(--muted);display:block;margin-bottom:3px;letter-s
 <button data-v="tasks">Tasks</button>
 <button data-v="events">Events</button>
 </nav>
-<div style="margin-left:auto" id="clock"></div></header>
+<button class="act" id="undo" type="button" disabled>Undo last change</button>
+<span id="pauseState" role="status" aria-live="polite"></span><button id="pauseControl" type="button" aria-pressed="false">Pause CRM</button><div id="clock"></div></header>
 <main id="main"></main><div id="saveBar">saved</div>
 <script>
 const $=q=>document.querySelector(q);
 let D={contacts:[],tasks:[],events:[],captures:[]},view='briefing',openId=null;
-const api=window.iterApi||{};
-async function load(f){const r=await api.crmRead(f);return r&&r.ok?r.data:[]}
-async function loadAll(){D.contacts=await load('contacts.json');D.tasks=await load('tasks.json');D.events=await load('events.json');D.captures=await load('captures.json')}
-async function save(f,d){const b=$('#saveBar');try{await api.crmWrite(f,d);b.textContent='saved';}catch(e){b.textContent='SAVE FAILED: '+(e&&e.message?e.message:e)+' — restart app if this is a new bridge';b.classList.add('show');setTimeout(()=>b.classList.remove('show'),5000);return false}b.classList.add('show');setTimeout(()=>b.classList.remove('show'),900);return true}
+let appRevision=0,appCommit=0,polling=false,lastCommandId=null;
+const pauseKey='cos-command-center:paused:v1';
+let paused=false,epoch=0,pendingWrites=0,refreshing=false;
+try{paused=localStorage.getItem(pauseKey)==='true'}catch(_ignored){/* storage unavailable: session-only pause */}
+function pausedNotice(){notice('CRM is paused: read-only. Resume to make changes.',true)}
+function syncPause(){
+ const b=$('#pauseControl');b.textContent=paused?'Resume CRM':'Pause CRM';b.setAttribute('aria-pressed',String(paused));
+ $('#pauseState').textContent=paused?(pendingWrites?'Paused · a change already in flight may finish; refresh on Resume':'Paused · read-only'):(refreshing?'Catching up…':pendingWrites?'Finishing change…':'Live');
+ document.body.classList.toggle('crm-paused',paused);
+ document.querySelectorAll('#main input,#main select,#main textarea,#main button.act').forEach(x=>x.disabled=paused||refreshing||pendingWrites>0);
+ syncUndo();
+}
+async function catchUp(){
+ if(paused||refreshing||pendingWrites)return;
+ refreshing=true;const start=epoch;syncPause();
+ try{if(await loadAll()&&!paused&&start===epoch){render();notice('CRM caught up')}}catch(e){if(!paused)notice('REFRESH FAILED: '+(e&&e.message?e.message:e),true)}
+ finally{refreshing=false;syncPause();if(!paused&&start!==epoch)catchUp()}
+}
+function setPaused(value){
+ if(paused===value)return;
+ paused=value;epoch++;
+ try{localStorage.setItem(pauseKey,String(paused))}catch(_ignored){notice('Pause state cannot be saved in this browser',true)}
+ syncPause();
+ if(paused){notice(pendingWrites?'Paused; an already-sent change may still finish. Resume to check it.':'CRM paused: read-only',pendingWrites>0)}
+ else catchUp();
+}
+
+const app={consumerId: 'crm-ui'};
+const api=window.iterApp||{};
+function notice(message,failed=false){const b=$('#saveBar');b.textContent=message;b.style.color=failed?'var(--hot)':'';b.classList.add('show');setTimeout(()=>b.classList.remove('show'),failed?5000:900)}
+function acceptContext(context){const records=context.records||{};D={contacts:records.contacts||[],tasks:records.tasks||[],events:records.events||[],captures:records.captures||[]};appRevision=Number(context.revision||0);appCommit=Number(context.commit||0)}
+async function loadAll(allowPaused=false){if(!api.appContext)throw new Error('application contract is unavailable');const start=epoch;const context=await api.appContext();if(start!==epoch||(paused&&!allowPaused))return false;acceptContext(context);return true}
+function syncUndo(){const b=$('#undo');b.disabled=paused||refreshing||pendingWrites>0||!lastCommandId;b.title=lastCommandId?'Undo the last change made in this tab':'No local change is available to undo'}
+async function commitRecord(type,collection,record){
+ if(paused||refreshing||pendingWrites){paused?pausedNotice():notice('CRM is catching up; retry shortly',true);return false}
+ pendingWrites++;syncPause();
+ const start=epoch;
+ try{
+  const commandId=uid('cmd');
+  const result=await api.appCommand({command_id:commandId,type,expected_revision:appRevision,provenance:{type:'reported',source:app.consumerId,actor:'human'},collection,record});
+  lastCommandId=result.command_id||commandId;
+  if(start===epoch&&!paused){if(await loadAll()&&!paused&&start===epoch)notice('saved')}
+  else notice('An already-sent change may have completed; Resume to refresh',true);
+  return true;
+ }catch(e){if(start===epoch&&!paused){try{await loadAll()}catch(_ignored){}}notice('SAVE REFUSED: '+(e&&e.message?e.message:e),true);return false}
+ finally{pendingWrites--;syncPause();if(!paused&&start!==epoch)catchUp()}
+}
+async function undoLast(){
+ if(paused){pausedNotice();return}
+ if(refreshing||pendingWrites||!lastCommandId)return;
+ const target=lastCommandId,start=epoch;
+ pendingWrites++;syncPause();
+ try{
+  await api.appCommand({command_id:uid('undo'),type:'undo',expected_revision:appRevision,provenance:{type:'reported',source:app.consumerId,actor:'human'},target_command_id:target});
+  lastCommandId=null;
+  if(start===epoch&&!paused){if(await loadAll()&&!paused&&start===epoch){render();notice('last change undone')}}
+  else notice('An already-sent undo may have completed; Resume to refresh',true);
+ }catch(e){if(start===epoch&&!paused){try{await loadAll()}catch(_ignored){}}lastCommandId=null;notice('UNDO REFUSED: '+(e&&e.message?e.message:e),true)}
+ finally{pendingWrites--;syncPause();if(!paused&&start!==epoch)catchUp()}
+}
+async function pollChanges(){
+ if(paused||refreshing||pendingWrites||polling||document.hidden||!api.subscribe)return;
+ polling=true;const start=epoch;
+ try{const changes=await api.subscribe(appCommit);
+  if(paused||start!==epoch)return;
+  if(Number(changes.commit||0)>appCommit){
+   if((changes.events||[]).length){lastCommandId=null;syncUndo();if(await loadAll())render()}
+   else appCommit=Number(changes.commit);
+  }
+ }catch(_ignored){}finally{polling=false}
+}
 const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const today=()=>new Date().toISOString().slice(0,10);
 const dd=t=>t?Math.round((new Date(t)-new Date(today()))/864e5):null;
@@ -56,6 +130,8 @@ const dueTxt=t=>{const d=dd(t);return d===null?'&mdash;':d<0?(-d)+'d overdue':d=
 const uid=p=>p+'_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{view=b.dataset.v;openId=null;document.querySelectorAll('nav button').forEach(x=>x.classList.toggle('on',x===b));render()});
 $('#clock').textContent=new Date().toLocaleTimeString([],{hour:'numeric',minute:'2-digit'});
+$('#undo').onclick=undoLast;
+syncUndo();
 function render(){const m=$('#main');
  if(view==='briefing')return renderBriefing(m);
  if(view==='people')return openId?renderPerson(m):renderPeople(m);
@@ -83,7 +159,7 @@ function renderPeople(m){const list=[...D.contacts].sort((a,b)=>(b.warmth||0)-(a
  '<input name="next_step" placeholder="Next step"><input type="date" name="nsd" title="Next-step due"></div>'+
  '<button class="act" type="submit">+ add person</button></form>'+
  (list.length?list.map(c=>'<div class="card" data-person="'+c.id+'"><div class="grow"><div class="name">'+esc(c.name)+'</div><div class="sub">'+esc(c.role||'')+(c.org?' @ '+esc(c.org):'')+' &middot; '+esc(c.tier||'')+'</div></div><span class="due'+(c.next_step_due&&dd(c.next_step_due)<0?' hot':'')+'">'+dueTxt(c.next_step_due)+'</span></div>').join(''):'<div class="empty">no people yet &mdash; add the first above</div>');
- $('#pf').onsubmit=e=>{e.preventDefault();const f=new FormData(e.target);D.contacts.push({id:uid('c'),name:f.get('name'),role:f.get('role'),org:f.get('org'),tier:f.get('tier'),warmth:50,next_step:f.get('next_step'),next_step_due:f.get('nsd'),history:[],tags:[]});save('contacts.json',D.contacts).then(render)};
+ $('#pf').onsubmit=e=>{e.preventDefault();const f=new FormData(e.target);const record={id:uid('c'),name:f.get('name'),role:f.get('role'),org:f.get('org'),tier:f.get('tier'),warmth:50,next_step:f.get('next_step'),next_step_due:f.get('nsd'),history:[],tags:[]};commitRecord('create','contacts',record).then(render)};
  wire();}
 function renderPerson(m){const c=D.contacts.find(x=>x.id===openId);if(!c){openId=null;return renderPeople(m)}
  const hist=(c.history||[]).slice().reverse();
@@ -94,8 +170,8 @@ function renderPerson(m){const c=D.contacts.find(x=>x.id===openId);if(!c){openId
  '<h2>History</h2><div id="hist">'+(hist.length?hist.map(h=>'<div class="hist">'+esc(h.ts)+' &middot; '+esc(h.note)+'</div>').join(''):'<div class="empty">no history yet</div>')+'</div>'+
  '<form id="hf"><div class="row"><input name="note" placeholder="Add a history note..." required><input type="date" name="ts" value="'+today()+'"></div><button class="act" type="submit">log it</button></form>'+
  '<form id="nf"><h2 style="margin-top:16px">Update next step</h2><div class="row"><input name="ns" placeholder="'+esc(c.next_step||'Next step')+'"><input type="date" name="nsd"></div><button class="act" type="submit">set</button></form>';
- $('#hf').onsubmit=e=>{e.preventDefault();const f=new FormData(e.target);(c.history=c.history||[]).push({ts:f.get('ts')||today(),note:f.get('note'),by:'her'});c.warmth=Math.min(100,(c.warmth||50)+3);save('contacts.json',D.contacts).then(()=>renderPerson($('#main')))};
- $('#nf').onsubmit=e=>{e.preventDefault();const f=new FormData(e.target);if(f.get('ns'))c.next_step=f.get('ns');if(f.get('nsd'))c.next_step_due=f.get('nsd');save('contacts.json',D.contacts).then(()=>renderPerson($('#main')))};
+ $('#hf').onsubmit=e=>{e.preventDefault();const f=new FormData(e.target);const record={...c,history:[...(c.history||[]),{ts:f.get('ts')||today(),note:f.get('note'),by:'her'}],warmth:Math.min(100,(c.warmth||50)+3)};commitRecord('replace','contacts',record).then(()=>renderPerson($('#main')))};
+ $('#nf').onsubmit=e=>{e.preventDefault();const f=new FormData(e.target);const record={...c};if(f.get('ns'))record.next_step=f.get('ns');if(f.get('nsd'))record.next_step_due=f.get('nsd');commitRecord('replace','contacts',record).then(()=>renderPerson($('#main')))};
  wire();}
 function renderTasks(m){const open=D.tasks.filter(t=>t.status!=='done'&&t.status!=='dropped').sort((a,b)=>(a.due||'9999').localeCompare(b.due||'9999'));
  const done=D.tasks.filter(t=>t.status==='done').slice(-5);
@@ -105,7 +181,7 @@ function renderTasks(m){const open=D.tasks.filter(t=>t.status!=='done'&&t.status
  '<button class="act" type="submit">+ add task</button></form>'+
  (open.length?open.map(t=>taskCard(t,true)).join(''):'<div class="empty">no open tasks</div>')+
  (done.length?'<h2>Recently done</h2>'+done.map(t=>taskCard(t,true)).join(''):'');
- $('#tf').onsubmit=e=>{e.preventDefault();const f=new FormData(e.target);D.tasks.push({id:uid('t'),title:f.get('title'),kind:f.get('kind'),due:f.get('due'),who:f.get('who'),next_step:f.get('ns'),priority:f.get('priority'),status:'open',created_by:'her'});save('tasks.json',D.tasks).then(render)};
+ $('#tf').onsubmit=e=>{e.preventDefault();const f=new FormData(e.target);const record={id:uid('t'),title:f.get('title'),kind:f.get('kind'),due:f.get('due'),who:f.get('who'),next_step:f.get('ns'),priority:f.get('priority'),status:'open',created_by:'her'};commitRecord('create','tasks',record).then(render)};
  wire();}
 function renderEvents(m){const ev=[...D.events].sort((a,b)=>(b.when||'').localeCompare(a.when||''));
  m.innerHTML='<h2>Events &middot; '+ev.length+'</h2>'+
@@ -113,13 +189,16 @@ function renderEvents(m){const ev=[...D.events].sort((a,b)=>(b.when||'').localeC
  '<div class="row"><select name="prep"><option value="topic">topic</option><option value="outline">outline</option><option value="slides">slides</option><option value="recorded">recorded</option><option value="published">published</option></select><input name="lc" placeholder="Linked contacts (names, comma-sep)"></div>'+
  '<button class="act" type="submit">+ add event</button></form>'+
  (ev.length?ev.map(e=>'<div class="card" style="cursor:default"><div class="grow"><div class="name">'+esc(e.title)+'</div><div class="sub">'+esc(e.type||'')+' &middot; '+esc(e.where||'')+' &middot; prep: '+esc(e.prep_status||'&mdash;')+'</div></div><span class="due">'+dueTxt(e.when)+'</span></div>').join(''):'<div class="empty">no events yet</div>');
- $('#ef').onsubmit=e=>{e.preventDefault();const f=new FormData(e.target);const lc=String(f.get('lc')||'').split(',').map(s=>s.trim()).filter(Boolean).map(n=>{const c=D.contacts.find(x=>x.name.toLowerCase()===n.toLowerCase());return c?c.id:n});D.events.push({id:uid('e'),title:f.get('title'),type:f.get('type'),when:f.get('when'),where:f.get('where'),prep_status:f.get('prep'),linked_contacts:lc,notes:''});save('events.json',D.events).then(render)};
+ $('#ef').onsubmit=e=>{e.preventDefault();const f=new FormData(e.target);const lc=String(f.get('lc')||'').split(',').map(s=>s.trim()).filter(Boolean).map(n=>{const c=D.contacts.find(x=>x.name.toLowerCase()===n.toLowerCase());return c?c.id:n});const record={id:uid('e'),title:f.get('title'),type:f.get('type'),when:f.get('when'),where:f.get('where'),prep_status:f.get('prep'),linked_contacts:lc,notes:''};commitRecord('create','events',record).then(render)};
  wire();}
 function wire(){
  document.querySelectorAll('[data-person]').forEach(el=>el.onclick=()=>{openId=el.dataset.person;view='people';render()});
  document.querySelectorAll('[data-back]').forEach(el=>el.onclick=()=>{openId=null;render()});
  document.querySelectorAll('[data-task]').forEach(el=>el.onclick=ev=>{if(ev.target.dataset.done)return;const t=D.tasks.find(x=>x.id===el.dataset.task);if(t){openId=t.who;view='people';render()}});
- document.querySelectorAll('[data-done]').forEach(b=>b.onclick=ev=>{ev.stopPropagation();const t=D.tasks.find(x=>x.id===b.dataset.done);if(t){t.status=t.status==='done'?'open':'done';save('tasks.json',D.tasks).then(render)}});
+ document.querySelectorAll('[data-done]').forEach(b=>b.onclick=ev=>{ev.stopPropagation();if(paused){pausedNotice();return}const t=D.tasks.find(x=>x.id===b.dataset.done);if(t){const record={...t,status:t.status==='done'?'open':'done'};commitRecord('replace','tasks',record).then(render)}});
+ syncPause();
 }
-loadAll().then(render);
+$('#pauseControl').onclick=()=>setPaused(!paused);
+syncPause();
+loadAll(true).then(ok=>{if(ok)render();document.body.dataset.iterReady='true';setInterval(pollChanges,1500)}).catch(e=>notice('LOAD FAILED: '+(e&&e.message?e.message:e),true));
 </script></body></html>

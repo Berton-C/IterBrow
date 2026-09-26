@@ -1,0 +1,6 @@
+# Optional compatibility/research adapter dependencies.
+# The shipped authoritative AtomSpace uses Hyperon and does not import these.
+# Install only when developing the PeTTa/SWI reasoning adapter described in
+# docs/ITERBROW_BUILD_ATLAS.md.
+janus_swi==1.5.3
+pymetta==0.8.0

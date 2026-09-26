@@ -12,6 +12,30 @@ const net = require('net');
 
 const SOCKET_PATH = process.env.ITER_BRIDGE_SOCKET || '/tmp/iter-browser-bridge.sock';
 
+function inspectSocketPath(socketPath, timeoutMs = 500) {
+  return new Promise((resolve) => {
+    if (!fs.existsSync(socketPath)) return resolve({ status: 'missing' });
+    const probe = net.createConnection(socketPath);
+    let settled = false;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      probe.removeAllListeners();
+      probe.destroy();
+      resolve(result);
+    };
+    probe.once('connect', () => finish({ status: 'live' }));
+    probe.once('error', (error) => {
+      if (error && error.code === 'ENOENT') return finish({ status: 'missing' });
+      if (error && error.code === 'ECONNREFUSED') return finish({ status: 'stale' });
+      finish({ status: 'error', error });
+    });
+    // A listener that accepts slowly is still live. Startup must fail closed
+    // instead of unlinking an endpoint merely because its owner is busy.
+    probe.setTimeout(timeoutMs, () => finish({ status: 'live' }));
+  });
+}
+
 // Tabs the user has locked (padlock icon in the tab strip) are off-limits to
 // Iter's own tools below — this is the ONLY enforcement point for locking.
 // It deliberately does not touch main.js's IPC handlers, so the human user
@@ -25,8 +49,16 @@ function assertUnlocked(tabs, id, action) {
   }
 }
 
-function buildMethods(tabs) {
+function buildMethods(tabs, apps = {}) {
   return {
+    async openApp(params) {
+      if (!apps.open) throw new Error('Application factory is unavailable');
+      return apps.open(params.appId);
+    },
+    async inspectApp(params) {
+      if (!apps.inspect) throw new Error('Application probe is unavailable');
+      return apps.inspect(params);
+    },
     async getTabs() {
       return tabs.list();
     },
@@ -48,6 +80,9 @@ function buildMethods(tabs) {
     async switchTab(params) {
       if (!params.tabId) throw new Error('switchTab requires tabId (see getTabs).');
       tabs.switchTab(Number(params.tabId));
+      // Agent selection must target what it displays. Human UI switching still
+      // calls switchTab directly and does not redirect an attached agent.
+      tabs.attach(Number(params.tabId));
       return { switched: Number(params.tabId) };
     },
     async navigate(params) {
@@ -92,14 +127,8 @@ function buildMethods(tabs) {
   };
 }
 
-function startBridgeServer(tabs, log = () => {}) {
-  const methods = buildMethods(tabs);
-  try {
-    fs.unlinkSync(SOCKET_PATH);
-  } catch (_) {
-    /* did not exist, fine */
-  }
-
+function startBridgeServer(tabs, log = () => {}, socketPath = SOCKET_PATH, apps = {}) {
+  const methods = buildMethods(tabs, apps);
   const server = net.createServer((connection) => {
     let buffer = '';
     connection.on('data', async (chunk) => {
@@ -124,11 +153,58 @@ function startBridgeServer(tabs, log = () => {}) {
     connection.on('error', (err) => log('bridge connection error:', err.message));
   });
 
-  server.listen(SOCKET_PATH, () => {
-    log('Iter browser bridge socket listening at', SOCKET_PATH);
+  server.bridgeSocketPath = socketPath;
+  server.bridgeReady = new Promise((resolve) => {
+    server._resolveBridgeReady = resolve;
+  });
+  server.on('error', (error) => {
+    log('Iter browser bridge server error:', error.message);
+    if (server._resolveBridgeReady) {
+      server._resolveBridgeReady({ status: 'error', error: error.message, socketPath });
+      server._resolveBridgeReady = null;
+    }
+  });
+
+  inspectSocketPath(socketPath).then((inspection) => {
+    if (inspection.status === 'live') {
+      log('Iter browser bridge endpoint is already live; refusing to replace it:', socketPath);
+      server._resolveBridgeReady({ status: 'conflict', socketPath });
+      server._resolveBridgeReady = null;
+      return;
+    }
+    if (inspection.status === 'error') {
+      log('Iter browser bridge endpoint inspection failed closed:', inspection.error.message);
+      server._resolveBridgeReady({ status: 'error', error: inspection.error.message, socketPath });
+      server._resolveBridgeReady = null;
+      return;
+    }
+    if (inspection.status === 'stale') {
+      try {
+        fs.unlinkSync(socketPath);
+      } catch (error) {
+        if (!error || error.code !== 'ENOENT') throw error;
+      }
+    }
+    server.listen(socketPath, () => {
+      let identity = null;
+      try {
+        const stat = fs.statSync(socketPath);
+        identity = { dev: stat.dev, ino: stat.ino };
+      } catch (_) {}
+      server.bridgeSocketIdentity = identity;
+      log('Iter browser bridge socket listening at', socketPath);
+      server._resolveBridgeReady({ status: 'listening', socketPath });
+      server._resolveBridgeReady = null;
+    });
+  }).catch((error) => {
+    log('Iter browser bridge startup failed closed:', error.message);
+    if (server._resolveBridgeReady) {
+      server._resolveBridgeReady({ status: 'error', error: error.message, socketPath });
+      server._resolveBridgeReady = null;
+    }
   });
 
   return server;
 }
 
-module.exports = { startBridgeServer, SOCKET_PATH };
+module.exports = { inspectSocketPath, startBridgeServer, SOCKET_PATH };

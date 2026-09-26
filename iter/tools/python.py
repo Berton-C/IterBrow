@@ -20,6 +20,7 @@ import importlib
 import traceback
 import io
 import contextlib
+from iterbrow_runtime.tool_results import ToolOutput
 
 TOOLS_DIR = os.path.dirname(os.path.abspath(__file__))
 if TOOLS_DIR not in sys.path:
@@ -117,10 +118,10 @@ def run(code: str) -> str:
                 output = str(exec_namespace['result'])
             else:
                 output = "[python: no output]"
-        return output
+        return ToolOutput(output, True)
     except Exception as e:
         tb = traceback.format_exc()
-        return f"[python ERROR]\n{tb}\n[captured stdout: {captured.getvalue()}]"
+        return ToolOutput(f"[python ERROR]\n{tb}\n[captured stdout: {captured.getvalue()}]", False, state="exception")
 
 if __name__ == "__main__":
     if len(sys.argv) > 1:

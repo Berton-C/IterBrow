@@ -26,6 +26,7 @@
       <label>Provider</label>
       <select id="provider">
         <option value="openrouter">OpenRouter (cloud)</option>
+        <option value="openai">OpenAI GPT (direct API)</option>
         <option value="lmstudio">LM Studio (local — works offline)</option>
       </select>
     </div>
@@ -33,6 +34,19 @@
       <div class="field"><label>Endpoint</label><input id="or-endpoint" value="https://openrouter.ai/api/v1"></div>
       <div class="field"><label>Model</label><input id="or-model" value="z-ai/glm-5.3"></div>
       <div class="field"><label>API key</label><input id="or-key" type="password"></div>
+    </div>
+    <div id="panel-openai" class="settings-body" style="padding:0;display:none">
+      <div class="field"><label for="oa-model">OpenAI model</label><select id="oa-model"></select></div>
+      <div id="oa-price" style="font-size:11px;color:var(--muted)"></div>
+      <div class="field"><label for="oa-reasoning">Reasoning effort</label><select id="oa-reasoning">
+        <option value="low">Low — quicker, lower token use (start here)</option>
+        <option value="medium">Medium — more deliberation</option>
+        <option value="high">High — difficult work, higher latency and cost</option>
+      </select></div>
+      <div class="field"><label for="oa-key">OpenAI API key</label><input id="oa-key" type="password" autocomplete="off" placeholder="Enter your OpenAI API key"></div>
+      <div style="font-size:11px;color:var(--muted)">Direct connection to api.openai.com. ChatGPT subscriptions do not supply API credit. Keys are saved locally with your existing provider settings. Changing chat providers preserves memory; embeddings still use your existing OpenRouter key.</div>
+      <div id="oa-usage" style="font-size:11px;color:var(--muted)">No direct OpenAI request recorded yet.</div>
+      <button id="btn-oa-usage">Refresh last request cost</button>
     </div>
     <div id="panel-lmstudio" class="settings-body" style="padding:0">
       <div class="field"><label>Endpoint (use 127.0.0.1, not a LAN IP, for offline use)</label><input id="lm-endpoint" value="http://127.0.0.1:1234/v1"></div>

@@ -28,7 +28,8 @@ contextBridge.exposeInMainWorld('iterApi', {
   reload: (id) => ipcRenderer.invoke('tabs:reload', id),
 
   sendChat: (content) => ipcRenderer.invoke('chat:send', content),
-  onChatIncoming: (cb) => ipcRenderer.on('chat:incoming', (_e, content) => cb(content)),
+  chatHistory: () => ipcRenderer.invoke('chat:history'),
+  onChatIncoming: (cb) => ipcRenderer.on('chat:incoming', (_e, message) => cb(message)),
 
   startIter: () => ipcRenderer.invoke('iter:start'),
   stopIter: () => ipcRenderer.invoke('iter:stop'),
@@ -36,6 +37,7 @@ contextBridge.exposeInMainWorld('iterApi', {
   recentLog: () => ipcRenderer.invoke('iter:recentLog'),
   onIterLog: (cb) => ipcRenderer.on('iter:log', (_e, line) => cb(line)),
   onIterStatus: (cb) => ipcRenderer.on('iter:status', (_e, status) => cb(status)),
+  onUiResume: (cb) => ipcRenderer.on('ui:resume', (_e, info) => cb(info)),
 
   loadSettings: () => ipcRenderer.invoke('settings:load'),
   saveSettings: (settings) => ipcRenderer.invoke('settings:save', settings),
@@ -67,6 +69,8 @@ contextBridge.exposeInMainWorld('iterApi', {
   openDashboards: () => ipcRenderer.invoke('dashboards:open'),
   openPWQ: () => ipcRenderer.invoke('pwq:open'),
   openCRM: () => ipcRenderer.invoke('crm:open'),
+  openApp: (appId) => ipcRenderer.invoke('apps:open', appId),
+  listApps: () => ipcRenderer.invoke('apps:list'),
   onTerminalData: (cb) => ipcRenderer.on('terminal:data', (_e, chunk) => cb(chunk)),
   onTerminalDone: (cb) => ipcRenderer.on('terminal:done', (_e, info) => cb(info)),
 });

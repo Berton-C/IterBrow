@@ -5,7 +5,9 @@ Runs on every cycle (zz prefix = last), performs:
   2. Screenshot sweep: delete oldest screenshots beyond a retention count
   3. Storage warning: warn via pin/send when total ~/iter size exceeds quota
 """
-import os, gc
+import os, gc, time, json
+from iterbrow_runtime.episodic_history import rotate_tail
+from iterbrow_runtime.atomspace_store import _atomic_text
 
 DESCRIPTION = "Quota guard: log rotation, screenshot sweep, storage warning."
 
@@ -25,27 +27,7 @@ def _fsize(path):
 
 def _truncate_tail(path, max_lines, max_bytes=0):
     """Keep only the tail of a text file (last max_lines, under max_bytes)."""
-    try:
-        with open(path, "r") as f:
-            lines = f.readlines()
-    except OSError:
-        return 0
-    if len(lines) <= max_lines and (max_bytes == 0 or _fsize(path) <= max_bytes):
-        return 0
-    # Keep the tail
-    kept = lines[-max_lines:]
-    # If still over byte budget, trim further
-    if max_bytes > 0:
-        total = sum(len(l) for l in kept)
-        while total > max_bytes and len(kept) > 1:
-            kept.pop(0)
-            total = sum(len(l) for l in kept)
-    saved = _fsize(path)
-    with open(path, "w") as f:
-        for l in kept:
-            f.write(l)
-    new_size = _fsize(path)
-    return saved - new_size
+    return rotate_tail(path, max_lines, max_bytes)
 
 def _screenshot_sweep():
     """Delete oldest screenshots beyond MAX_SCREENSHOTS."""
@@ -73,6 +55,8 @@ def _dir_size(path):
     total = 0
     try:
         for entry in os.listdir(path):
+            if entry in (".venv", ".git", ".runtime", "node_modules", "archive"):
+                continue
             full = os.path.join(path, entry)
             if os.path.isdir(full):
                 total += _dir_size(full)
@@ -101,7 +85,16 @@ def transform(messages, tools):
         _screenshot_sweep()
 
         # 3. Storage warning
-        total = _dir_size(HOME)
+        stamp = os.path.join(HOME, "transformations/.runtime/quota_scan.json")
+        try:
+            previous = json.load(open(stamp))
+        except (OSError, ValueError):
+            previous = {}
+        total = previous.get("bytes", 0)
+        if time.time() - previous.get("at", 0) >= 300:
+            total = _dir_size(HOME)
+            from iterbrow_runtime.atomspace_store import _atomic_json
+            _atomic_json(stamp, {"at": time.time(), "bytes": total})
         if total > STORAGE_QUOTA_BYTES:
             # Pin a note rather than send (avoid spamming user every cycle)
             try:

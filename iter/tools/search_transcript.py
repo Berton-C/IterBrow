@@ -2,6 +2,8 @@
 
 import os
 import json
+from datetime import datetime
+from iterbrow_runtime.episodic_history import history_lines
 
 
 
@@ -57,31 +59,30 @@ def _nearest_lines(path, target, k):
     after = []
     found = False
     timestamped = 0
+    nearest = float('inf')
 
-    with open(path, "r") as file:
-        for raw in file:
-            line = raw.rstrip("\n")
-            timestamp = _timestamp_from_line(line)
-            if timestamp:
-                timestamped += 1
+    for raw in history_lines(path):
+        line = raw.rstrip("\n")
+        timestamp = _timestamp_from_line(line)
+        if timestamp:
+            timestamped += 1
+            nearest = min(nearest, abs((datetime.fromisoformat(timestamp)-datetime.fromisoformat(target)).total_seconds()))
+        if not found and timestamp and timestamp >= target:
+            found = True
+            after.append(line)
+            continue
+        if found:
+            after.append(line)
+            if len(after) >= k + 1:
+                break
+        else:
+            before.append(line)
+            if len(before) > k:
+                before.pop(0)
 
-            if not found and timestamp and timestamp >= target:
-                found = True
-                after.append(line)
-                continue
-
-            if found:
-                after.append(line)
-                if len(after) >= k + 1:
-                    break
-            else:
-                before.append(line)
-                if len(before) > k:
-                    before.pop(0)
-
-    if timestamped == 0:
+    if timestamped == 0 or nearest > 3600:
         return None
-    return "\n".join(before + after)
+    return "Nearest retained record is %ss from requested time.\n" % int(nearest) + "\n".join(before + after)
 
 
 def run(time_string, k=10):
@@ -91,10 +92,8 @@ def run(time_string, k=10):
     k = max(0, int(k))
 
     for path in (TRANSCRIPT_PATH, CHAT_PATH):
-        if not _exists(path):
-            continue
         result = _nearest_lines(path, target, k)
         if result is not None:
             return result
 
-    return "No timestamped communication transcript found."
+    return "No retained communication transcript within one hour of the requested time; missing older history was not reconstructed."

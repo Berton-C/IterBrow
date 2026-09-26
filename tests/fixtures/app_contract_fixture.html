@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Application Contract Fixture</title></head>
+<body>
+  <h1>Application Contract Fixture</h1>
+  <button id="add" type="button">Add fixture record</button>
+  <pre id="state">loading</pre>
+  <script>
+    const app={consumerId: 'contract-fixture'};
+    const api=window.iterApp;
+    let revision=0,commit=0;
+    async function refresh(){
+      const context=await api.appContext();
+      revision=Number(context.revision||0);commit=Number(context.commit||0);
+      document.querySelector('#state').textContent=JSON.stringify(context,null,2);
+    }
+    document.querySelector('#add').onclick=async()=>{
+      const id=`fixture-${Date.now()}`;
+      await api.appCommand({
+        command_id:`create-${id}`,type:'create',expected_revision:revision,
+        provenance:{type:'observed',source:app.consumerId,actor:'test-human'},
+        collection:'notes',record:{id,text:'fixture record'},
+      });
+      await refresh();
+    };
+    setInterval(async()=>{
+      const changes=await api.subscribe(commit);
+      if((changes.events||[]).length)await refresh();else commit=Number(changes.commit||commit);
+    },1500);
+    refresh();
+  </script>
+</body>
+</html>

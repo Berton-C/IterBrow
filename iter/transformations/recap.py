@@ -16,6 +16,7 @@ How it works:
    episode data via the episodes tool and writing JSON files
 """
 import os, json
+from iterbrow_runtime.episodic_history import history_lines
 
 DESCRIPTION = "Episode recap: segments completed tasks into episode records and injects a recap of recent episodes."
 
@@ -43,8 +44,9 @@ def _read_file(path):
 
 def _count_lines(path):
     try:
-        with open(path, "r") as f:
-            return sum(1 for _ in f)
+        # A logical record position across archive + tail, not the rotating
+        # file's length. Existing integer cursors remain compatible.
+        return sum(1 for _ in history_lines(path))
     except Exception:
         return 0
 
@@ -85,7 +87,7 @@ def _check_recap_needed():
     if new_lines >= RECAP_THRESHOLD:
         lines_info = "New lines: {} (lines {}-{} of {} total)\n"
         lines_info = lines_info.format(new_lines, recapped_lines + 1, total_lines, total_lines)
-        lines_info += "Use episodes tool to read the new history, then create recap JSON files.\n"
+        lines_info += "Positions include archived history and never reset on rotation. Use episodes to retrieve the relevant time range, then create recap JSON files.\n"
         lines_info += "JSON format: {\"e\": episode_number, \"s\": short_summary, \"t\": optional_type}\n"
         lines_info += "  t is an optional typed-memory tag (fact/belief/value/todo/preference) - omit if not applicable.\n"
         lines_info += "Save each episode as ./memory/recap/episode_NNNN.json (new file only - existing episodes are immutable, overwrites are blocked).\n"

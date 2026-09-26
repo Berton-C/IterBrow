@@ -4,11 +4,10 @@ HARD_SEND_STREAK safety net already injects (iter.py:258-300, deliberately
 left untouched -- this is an ADDITIVE layer, not a replacement).
 
 Ported from ClarityOmega/soul/idle_cycle_detector.metta's concept (recognize
-a recurring cognitive-loop signature), implemented in Python against this
-app's real history.metta log rather than through the MeTTa engine, since
-pymetta is not installed on this machine (see tools/_metta_gate.py's
-docstring) -- matching nace_courier.py's established "Python computes,
-MeTTa validates" split.
+a recurring cognitive-loop signature), implemented in Python against the
+history.metta compatibility log for deterministic detection. Hyperon remains
+available for native reasoning cross-checks; this detector does not create a
+second cognitive authority.
 
 PROVEN AGAINST REAL DATA (2026-09-14): this exact nag fired 9 times between
 09:22 and 09:59 on this machine's live history.metta during one repair

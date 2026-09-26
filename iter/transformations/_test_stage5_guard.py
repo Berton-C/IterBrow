@@ -40,8 +40,8 @@ def main():
         {"role": "assistant", "content": "The founder toolkit tab already exists and is now live.", "tool_calls": [{"function": {"name": "nop"}}]},
     ]
     new_messages, new_tools = guard.transform(list(messages), base_tools())
-    check("Case 1: unverified completion claim strips send from tools",
-          not has_send(new_tools), str(new_tools))
+    check("Case 1: completion inquiry keeps communication available",
+          has_send(new_tools), str(new_tools))
     check("Case 1: advisory note still appended to system message",
           "Completion Claim Guard" in new_messages[0]["content"], new_messages[0]["content"])
 

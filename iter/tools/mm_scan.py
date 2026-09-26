@@ -16,7 +16,7 @@ DESCRIPTION = "Scan Mattermost (mattermost.cloud) for mentions/replies-to-her an
 
 import json, os, re, sys, urllib.request
 
-BASE = os.path.join(os.path.dirname(__file__), '..')
+BASE = os.path.realpath(os.environ.get('ITER_DIR') or os.getcwd())
 CFG = os.path.join(BASE, 'private', 'crm')
 CAP = os.path.join(BASE, 'crm', 'data', 'captures.json')
 

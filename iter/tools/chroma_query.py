@@ -5,7 +5,7 @@ if TOOLS_DIR not in sys.path:
     sys.path.insert(0, TOOLS_DIR)
 import _petta_db as petta_db
 
-DESCRIPTION = "Query the PeTTa chroma_db for similar memories by text. Returns matching entries with their content and metadata."
+DESCRIPTION = "Query the chroma_db vector projection for semantically similar authoritative memories. Returns matching entries with their content and metadata."
 
 def run(query, k=5):
     chroma_client = petta_db.PersistentClient()

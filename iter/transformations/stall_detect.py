@@ -47,6 +47,8 @@ def _detect_stalls(window):
     warnings = []
     if not window:
         return warnings
+    if window[-1] == "nop":
+        return warnings  # Deliberate waiting is not a failed attempt.
     if len(window) >= REPEAT_THRESHOLD:
         last_tool = window[-1]
         recent = window[-REPEAT_THRESHOLD:]
@@ -65,7 +67,7 @@ def _detect_stalls(window):
 def _count_silent_calls(window):
     count = 0
     for t in reversed(window):
-        if t == "send":
+        if t in ("send", "nop"):
             break
         count += 1
     return count

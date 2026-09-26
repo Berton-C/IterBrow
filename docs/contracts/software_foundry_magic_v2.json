@@ -1,0 +1,40 @@
+{
+  "schema_version": 2,
+  "contract_id": "software-foundry-magic-v2",
+  "supersedes": "software-foundry-magic-v1",
+  "authority": "User correction on 2026-09-22: retain the complete working structure, including cognitive fabric, general build loop, learning and Iter-authored proof.",
+  "status": "accepted_direction_implementation_in_progress",
+  "north_star": "A user-owned conversational software foundry in which Iter researches, builds, verifies, repairs, revises, recovers and preserves requested tab/apps using durable native cognition.",
+  "first_demo": {
+    "app_request_owner": "human_at_runtime",
+    "codex_feature_authorship_forbidden": true,
+    "required_clauses": ["BC-01", "BC-02", "BC-03", "BC-04", "BC-05", "BC-06", "BC-07", "BC-08", "BC-11", "BC-12", "BC-13"],
+    "conditional_clauses": {"BC-09": "requested application domain cognition"},
+    "generality_required_before_platform_completion": "BC-10"
+  },
+  "clauses": [
+    {"id": "BC-01", "name": "conversation_to_blueprint", "evidence": ["conversation_reference", "versioned_intention_and_examples", "blueprint_hash"]},
+    {"id": "BC-02", "name": "trustworthy_research", "evidence": ["sources_and_retrieval_times", "license_disposition", "actual_reuse_notes_or_explained_nonuse"]},
+    {"id": "BC-03", "name": "iter_authors_proof_app", "evidence": ["iter_tool_call_provenance", "feature_source_diff", "no_codex_feature_repairs"]},
+    {"id": "BC-04", "name": "user_owned_project", "evidence": ["source_blueprint_tests_data_history", "workspace_boundary", "export_reopen"]},
+    {"id": "BC-05", "name": "real_visible_function", "evidence": ["independent_interaction_assertions", "primary_user_workflow"]},
+    {"id": "BC-06", "name": "durable_data", "evidence": ["authoritative_readback", "reload_and_restart_identity"]},
+    {"id": "BC-07", "name": "conversational_revision", "evidence": ["material_user_requested_change", "iter_authorship", "data_preservation_or_migration", "visible_changed_behavior"]},
+    {"id": "BC-08", "name": "exact_recovery", "evidence": ["failed_candidate", "exact_healthy_parent", "post_recovery_behavior_and_data"]},
+    {"id": "BC-09", "name": "optional_application_domain_cognition", "evidence": ["declared_space_capabilities", "native_query_at_named_snapshot", "denied_control_mutation"]},
+    {"id": "BC-10", "name": "generality", "evidence": ["second_materially_different_app", "same_factory_interfaces", "repeated_build_revision_recovery"]},
+    {"id": "BC-11", "name": "mandatory_builder_cognitive_fabric", "evidence": ["named_control_personal_learning_project_scratch", "per_space_permissions_and_revisions", "composed_snapshot_set", "restart_reconstruction", "used_by_iter_build"]},
+    {"id": "BC-12", "name": "general_native_build_loop", "evidence": ["intention_gap_alternatives_prediction_obligations", "scope_and_snapshot_bound_native_decision", "actual_iter_build_actions", "independent_raw_observations", "native_accept_iterate_escalate_rollback", "recursive_feature_and_repair_tracking"]},
+    {"id": "BC-13", "name": "learning_through_actual_use", "evidence": ["unique_completed_action_evidence", "native_accumulated_revision", "no_duplicate_counting", "later_ranking_or_proof_obligation_changes", "restart_replay", "unchanged_authorization_and_constitutional_floors"]}
+  ],
+  "change_policy": {"human_approval_required_for_meaning_change": true, "candidate_may_not_edit_contract_or_verifier": true},
+  "delivery_policy": {
+    "isolated_platform_implementation_authorized": true,
+    "live_state_copy_forbidden": true,
+    "source_baseline_conflict_check_required": true,
+    "runtime_adoption_uses_existing_authorization_and_recovery": true,
+    "component_tests_cannot_complete_integrated_clauses": true
+  },
+  "retained_release_commitments": ["reuse_first_pattern_traceability", "audited_v08_7_2_subset", "protected_governor_revision_proofs", "crm_csv_import", "mattermost_useful_briefs", "one_command_mac_install", "later_calendar_gmail_adapters"],
+  "implementation_choices_open": ["physical_space_routing", "additional_reasoning_engines", "scaling_optimizations"]
+}

@@ -1,15 +1,11 @@
 ;; Capability Lifecycle & Priority Registry -- IterBrow
 ;; Added 2026-09-14 as part of the capability_registry wiring (Item 1).
 ;;
-;; Read directly by tools/_metta_gate.py as PLAIN TEXT via regex (see that
-;; file's docstring) -- NOT evaluated through the pymetta engine, because
-;; pymetta is not currently installed on this machine (tools/metta.py falls
-;; back to its stub, ENGINE_AVAILABLE=False). The equations below exist so
-;; the exact same pipeline is expressible in MeTTa once the engine dependency
-;; (SWI-Prolog 9.3+ and `pip install 'pymetta[engine]'`) is installed -- at
-;; that point they become a live cross-check against the Python path, the
-;; same "Python computes, MeTTa validates" split nace_courier.py already
-;; uses for Truth_Revision.
+;; This file is a declared source seed for the authoritative Hyperon
+;; AtomSpace. tools/_metta_gate.py also reads the registry facts as plain
+;; text for its fail-safe Python enforcement path. The equations below let
+;; the live MeTTa engine cross-check that implementation without creating a
+;; second source of truth.
 ;;
 ;; ─── TRUST LIFECYCLE (4 stages, added 2026-09-14 Stage 3 of the "theater to
 ;; governance" pass) ───────────────────────────────────────────────────────
@@ -100,6 +96,7 @@
 (cap-lifecycle cognitive_resilience_guard candidate)
 (cap-lifecycle task_state candidate)
 (cap-lifecycle completion_claim_guard candidate)
+(cap-lifecycle atomspace candidate)          ;; durable structured AtomSpace API
 
 (cap-priority websearch critical)
 (cap-priority send critical)
@@ -114,9 +111,9 @@
 (cap-priority screenshot critical)
 (cap-priority search_transcript critical)
 
-;; ─── MeTTa-side parity equations (dormant until pymetta is installed) ───
+;; ─── MeTTa-side parity equations ───
 ;; Same pipeline as tools/_metta_gate.py's Python implementation, expressed
-;; in MeTTa for when the live engine becomes available as a cross-check.
+;; in MeTTa for live-engine cross-checks.
 
 (= (current-lifecycle $cap)
    (match &self (cap-lifecycle $cap $l) $l))
@@ -129,10 +126,9 @@
 ;; NOTE: `trust-stage`/`gate-floor` below are the MeTTa-side parity sketch of
 ;; the 4-stage trust lifecycle. The confidence-driven derivation (candidate /
 ;; probe_eligible / authoritative / durable from nace_beliefs.metta's `c`) is
-;; the actual live logic and lives in tools/_metta_gate.py's
-;; `_determine_trust_stage`, since that's the path this repo actually runs
-;; today (pymetta not installed) -- this equation is the cross-check target
-;; for when the live engine is available, not a second live implementation.
+;; the enforcement logic lives in tools/_metta_gate.py's
+;; `_determine_trust_stage`; this equation is the native reasoning
+;; cross-check, not a second writer or policy authority.
 (= (trust-stage $cap $c)
    (if (== (current-lifecycle $cap) candidate) candidate
        (if (< $c 0.4) probe_eligible

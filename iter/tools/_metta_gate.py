@@ -55,20 +55,17 @@ now runs an ordered pipeline per call:
      trail.
   2. efficacy lookup    -- same cap-efficacy query as before, via the live
      MeTTa engine when available.
-  3. PYTHON FALLBACK     -- pymetta is NOT currently installed on this
-     machine (tools/metta.py's ENGINE_AVAILABLE is False), which means the
-     live-engine query above always returns ok=False and, under the OLD
-     single-path logic, this gate silently fell open on every single call
-     forever -- never actually advising on real numbers. Real cap-efficacy
-     values are still tracked correctly (nace_courier.py writes them from
-     pure Python, no engine needed), so when the live query is unavailable
+  3. PYTHON FALLBACK     -- if the authoritative Hyperon query service is
+     temporarily unavailable, the gate must not silently become inert. Real
+     cap-efficacy values are also retained in the nace_beliefs.metta
+     compatibility projection, so when the live query is unavailable
      this now parses nace_beliefs.metta directly and computes the same
      Truth_Expectation formula (E = f*c + 0.5*(1-c), matching
      nace_substrate.metta's definition) in pure Python. Only if that also
      finds nothing does it fail open. This is the single biggest behavior
      change here: the gate goes from "always silently inert" to "actually
      advising off real data" on this machine today, independent of whether
-     pymetta ever gets installed.
+     the native engine is temporarily offline.
   4. priority floor      -- capability_lifecycle.metta's `cap-priority`. A
      capability marked `critical` (load-bearing infra: websearch, send,
      shell, python, memory_update, remember, episodes, chroma_query,
@@ -79,36 +76,62 @@ now runs an ordered pipeline per call:
      just under 0.3, despite ~1000 real calls and c=0.98).
   5. flat threshold       -- everything else, unchanged default 0.3.
 
-MODES (env var METTA_GATE_MODE, default "advisory"):
-  advisory -- (default) never blocks anything. Returns a verdict string that
+MODES (env var METTA_GATE_MODE, default "enforce"):
+  advisory -- never blocks adaptive efficacy decisions. Returns a verdict string that
               iter.py can log / prepend to the tool's own output as an FYI
               note when efficacy is low. Safe to leave on indefinitely.
-  enforce  -- actually blocks dispatch when efficacy-expectation is below
+  enforce  -- (default) actually blocks dispatch when efficacy-expectation is below
               the should-dispatch threshold (or when lifecycle=quarantined).
-              NOT enabled by default: nace_beliefs.metta ships with real,
-              already-accumulated calibration data, and at least one
-              capability (websearch, expectation ~0.296) is already just
-              under the old flat 0.3 threshold -- flipping to enforce mode
-              without reviewing/resetting calibration first, or without this
-              pipeline's critical-priority floor, will immediately start
-              blocking it. See README.md before enabling.
+              Critical load-bearing capabilities retain their lower earned
+              floor; explicit human-decision API violations veto in every mode.
 
-SAFETY DESIGN: fails OPEN, always, in both modes. Any error, timeout, missing
-engine AND missing fallback data, or tripped circuit breaker returns ALLOW --
-a reasoning-layer glitch must never be able to stall or block the agent's
-ability to act. The wall-clock timeout for this entire call is enforced by
+SAFETY DESIGN: explicit human-decision API rules fail closed. Shell/Python source
+text is not scanned for prohibited write paths or used to emit write warnings.
+Revision/state services retain their own authorization and integrity checks. Adaptive NACE
+reasoning failures surface as ADVISE rather than masquerading as an ALLOW
+verdict. Failure to record a decision is reported, not turned into a new dispatch
+veto; state-writing services still protect their own durable commits. The wall-clock timeout for this call is enforced by
 iter.py's invoke_dynamic (DYNAMIC_TIMEOUT), the same mechanism every other
 tool/transformation call already relies on.
 """
 
+import hashlib
 import json
 import os
 import re
 import sys
 import time
+import uuid
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _metta_substrate as _sub  # noqa: E402
+
+for _root_candidate in (
+        os.environ.get("ITER_DIR"), os.getcwd(), str(Path(__file__).resolve().parents[1])):
+    if _root_candidate and (Path(_root_candidate) / "iterbrow_runtime").is_dir():
+        if str(Path(_root_candidate)) not in sys.path:
+            sys.path.insert(0, str(Path(_root_candidate)))
+        break
+try:
+    from iterbrow_runtime.cognitive_events import commit_event, metta_string  # noqa: E402
+    _RUNTIME_IMPORT_ERROR = None
+except ModuleNotFoundError as _runtime_exc:
+    if not str(getattr(_runtime_exc, "name", "")).startswith("iterbrow_runtime"):
+        raise
+    # Historical isolated fixtures intentionally copy only this helper and its
+    # legacy belief files. They may inspect pure parsing/trust-stage functions,
+    # but any real consequential dispatch still fails closed in `_finish`.
+    _RUNTIME_IMPORT_ERROR = _runtime_exc
+
+    def metta_string(value):
+        return json.dumps(str(value), ensure_ascii=False)
+
+    def commit_event(*_args, **_kwargs):
+        raise RuntimeError(
+            "authoritative cognitive-event runtime is unavailable: %s"
+            % _RUNTIME_IMPORT_ERROR
+        )
 
 DESCRIPTION = "internal: metta-based dispatch gate, not an LLM-facing tool"
 
@@ -132,25 +155,66 @@ _BELIEF_RE = re.compile(
     r"\(cap-efficacy\s+([A-Za-z0-9_]+)\s+\(stv\s+([-\d.eE]+)\s+([-\d.eE]+)\)\)"
 )
 
+_AUDITED_CAPS = {
+    "atomspace", "forget", "memory_update", "pwq_write", "python",
+    "revision_control", "self_improve", "send", "shell",
+}
+_FEATURE_INVARIANTS = {
+    "bypasses_human_authorization": "human_agency_before_dispatch",
+}
 
-def run(cap_name):
-    mode = os.environ.get("METTA_GATE_MODE", "advisory").strip().lower()
+
+def run(cap_name, arguments=None, governance_context=None):
+    mode = os.environ.get("METTA_GATE_MODE", "enforce").strip().lower()
+    if mode not in ("advisory", "enforce"):
+        mode = "enforce"
     cap = _safe_atom(cap_name)
+    arguments = arguments if isinstance(arguments, dict) else {}
+    governance_context = governance_context if isinstance(governance_context, dict) else {}
+
+    hard_violation = _hard_policy_violation(cap, arguments)
+    if hard_violation:
+        feature, explanation = hard_violation
+        invariant, authority = _kb_invariant_for(feature)
+        return _finish(
+            cap, arguments, governance_context, "enforce", "VETO",
+            "%s [KB feature=%s invariant=%s]" % (explanation, feature, invariant),
+            authority=authority,
+        )
 
     if _sub.breaker_should_skip(_BREAKER_KEY):
-        return _format(mode, "ALLOW", "circuit breaker open (recent repeated failures) -- fail-open")
+        return _finish(
+            cap, arguments, governance_context, mode, "ADVISE",
+            "circuit breaker open; no adaptive KB/NACE claim was made",
+            authority=None,
+        )
 
     lifecycle, priority = _load_lifecycle_and_priority(cap)
 
     if lifecycle == "quarantined":
         action = "VETO" if mode == "enforce" else "ADVISE"
-        return _format(
-            mode, action,
+        return _finish(
+            cap, arguments, governance_context, mode, action,
             "capability %r is lifecycle=quarantined (confirmed repeated failure) -- "
             "manual override, ignores current efficacy number" % cap_name,
+            authority=None,
         )
 
-    confidence = _lookup_confidence(cap)
+    query = (
+        "!(match &self (cap-efficacy %s (stv $f $c)) "
+        "(cap-evaluation $f $c (Truth_Expectation (stv $f $c))))" % cap
+    )
+    result = _sub.run_query(query, view="current")
+    _sub.breaker_record_result(_BREAKER_KEY, result["ok"])
+    metrics = _extract_metrics(result.get("result", "")) if result["ok"] else None
+    source = "authoritative-atomspace"
+    if metrics is None:
+        fallback = _python_fallback_metrics(cap)
+        if fallback is not None:
+            metrics = fallback
+            source = "legacy-projection-fallback"
+
+    confidence = metrics[1] if metrics is not None else None
     trust_stage = _determine_trust_stage(lifecycle, confidence)
 
     if trust_stage == "candidate":
@@ -163,10 +227,11 @@ def run(cap_name):
         reason = ("manually declared candidate" if lifecycle == "candidate"
                   else "no cap-efficacy belief data yet")
         _log_probe(cap, trust_stage, confidence, reason)
-        return _format(
-            mode, "ADVISE",
+        return _finish(
+            cap, arguments, governance_context, mode, "ADVISE",
             "capability %r is trust_stage=candidate (%s) -- always surfaced, "
             "never a silent fail-open ALLOW while untested" % (cap_name, reason),
+            authority=result if result.get("ok") else None,
         )
 
     base_threshold = _CRITICAL_THRESHOLD if priority == "critical" else _THRESHOLD
@@ -184,27 +249,14 @@ def run(cap_name):
         threshold = base_threshold
         stage_note = ""
 
-    query = "!(match &self (cap-efficacy %s $stv) (Truth_Expectation $stv))" % cap
-    result = _sub.run_query(query)
-    _sub.breaker_record_result(_BREAKER_KEY, result["ok"])
-
-    source = "live-engine"
-    expectation = None
-    if result["ok"]:
-        expectation = _extract_number(result["result"])
+    expectation = metrics[2] if metrics is not None else None
 
     if expectation is None:
-        # Either the live engine is unavailable (pymetta not installed --
-        # the actual current state of this machine) or it ran but found no
-        # belief. Try the pure-Python fallback against the same file the
-        # live query would have read, before giving up and failing open.
-        expectation = _python_fallback_expectation(cap)
-        source = "python-fallback"
-
-    if expectation is None:
-        return _format(
-            mode, "ALLOW",
-            "no calibration data available for %r via live engine or fallback -- fail-open" % cap_name,
+        return _finish(
+            cap, arguments, governance_context, mode, "ADVISE",
+            "no calibration data available for %r; no adaptive KB/NACE claim was made"
+            % cap_name,
+            authority=result if result.get("ok") else None,
         )
 
     floor_note = " [critical floor %.2f]" % _CRITICAL_THRESHOLD if (priority == "critical" and trust_stage == "authoritative") else ""
@@ -214,17 +266,105 @@ def run(cap_name):
 
     if expectation < threshold:
         action = "VETO" if mode == "enforce" else "ADVISE"
-        return _format(
-            mode, action,
+        return _finish(
+            cap, arguments, governance_context, mode, action,
             "efficacy expectation %.3f < %.2f threshold for %r (%s)%s%s"
             % (expectation, threshold, cap_name, source, floor_note, stage_note),
+            authority=result if result.get("ok") else None,
         )
 
-    return _format(
-        mode, "ALLOW",
+    return _finish(
+        cap, arguments, governance_context, mode, "ALLOW",
         "efficacy expectation %.3f >= %.2f threshold for %r (%s)%s%s"
         % (expectation, threshold, cap_name, source, floor_note, stage_note),
+        authority=result if result.get("ok") else None,
     )
+
+
+def _hard_policy_violation(cap, arguments):
+    action = str(arguments.get("action", "")).strip().lower()
+    if cap == "pwq_write" and action in (
+            "approve", "reject", "reorder", "write", "sync"):
+        return (
+            "bypasses_human_authorization",
+            "Iter cannot perform human PWQ decisions or replace the board projection wholesale",
+        )
+    return None
+
+
+def _kb_invariant_for(feature):
+    fallback = _FEATURE_INVARIANTS.get(feature, "unknown_invariant")
+    result = _sub.run_query(
+        "!(match &self (inv-feature-invariant %s $inv) $inv)" % _safe_atom(feature), view="current"
+    )
+    if not result.get("ok"):
+        return fallback, None
+    match = re.search(r"\[\[([A-Za-z0-9_:-]+)\]\]", result.get("result", ""))
+    if not match:
+        return fallback, None
+    return match.group(1), result
+
+
+def _extract_metrics(result_text):
+    match = re.search(
+        r"cap-evaluation\s+([-\d.eE]+)\s+([-\d.eE]+)\s+([-\d.eE]+)",
+        str(result_text),
+    )
+    if not match:
+        return None
+    try:
+        return tuple(float(match.group(index)) for index in (1, 2, 3))
+    except ValueError:
+        return None
+
+
+def _finish(cap, arguments, governance_context, mode, action, detail, authority=None):
+    decision_id = str(uuid.uuid4())
+    args_hash = hashlib.sha256(
+        json.dumps(arguments, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+    evaluated_commit = authority.get("commit") if isinstance(authority, dict) else None
+    should_record = action != "ALLOW" or cap in _AUDITED_CAPS
+    if should_record:
+        state_atom = "(governance-decision %s %s %s %s %s %s)" % (
+            metta_string(decision_id), metta_string(cap), metta_string(action),
+            metta_string(mode), str(evaluated_commit if evaluated_commit is not None else -1),
+            metta_string(args_hash),
+        )
+        payload = {
+            "decision_id": decision_id,
+            "capability": cap,
+            "mode": mode,
+            "action": action,
+            "detail": detail,
+            "arguments_sha256": args_hash,
+            "evaluated_epoch": authority.get("epoch") if isinstance(authority, dict) else None,
+            "evaluated_commit": evaluated_commit,
+            "evaluated_state_hash": authority.get("state_hash") if isinstance(authority, dict) else None,
+            "context": {
+                key: governance_context.get(key)
+                for key in ("cycle", "generation_id", "pwq_proposal_id")
+                if governance_context.get(key) is not None
+            },
+        }
+        try:
+            recorded = commit_event(
+                "governance", cap, "action_decision", payload=payload,
+                state_atom=state_atom, actor="iter.governance",
+                source="tools._metta_gate", event_id=decision_id,
+                transaction_id="governance:%s" % decision_id,
+            )
+            if isinstance(recorded, dict) and not recorded.get("deferred"):
+                detail += " [decision=%s evaluated_state=%s decision_saved_at=%s]" % (
+                    decision_id, evaluated_commit, recorded.get("commit"),
+                )
+        except Exception as exc:
+            if action == "ALLOW":
+                action = "ADVISE"
+            detail += " [decision evidence unavailable: %s: %s]" % (
+                type(exc).__name__, exc,
+            )
+    return _format(mode, action, detail)
 
 
 def _lookup_confidence(cap, root="."):
@@ -303,8 +443,8 @@ def _log_probe(cap, trust_stage, confidence, detail):
 
 def _load_lifecycle_and_priority(cap, root="."):
     """Pure-regex read of capability_lifecycle.metta -- deliberately NOT
-    routed through the MeTTa engine, so this works even when pymetta is
-    unavailable (the actual state of this machine today). Fails safe to
+    routed through the MeTTa engine, so this remains available while the
+    authoritative query service is offline. Fails safe to
     (None, None) on any error -- caller then uses default lifecycle=active,
     priority=normal."""
     path = os.path.join(root, _LIFECYCLE_FILENAME)
@@ -349,6 +489,27 @@ def _python_fallback_expectation(cap, root="."):
     return None
 
 
+def _python_fallback_metrics(cap, root="."):
+    """Transitional recovery from the NACE projection, never the preferred authority."""
+    path = os.path.join(root, "nace_beliefs.metta")
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as handle:
+            content = handle.read()
+    except Exception:
+        return None
+    for match in _BELIEF_RE.finditer(content):
+        if match.group(1) != cap:
+            continue
+        try:
+            frequency = float(match.group(2))
+            confidence = float(match.group(3))
+        except ValueError:
+            continue
+        expectation = frequency * confidence + 0.5 * (1.0 - confidence)
+        return frequency, confidence, expectation
+    return None
+
+
 def _safe_atom(cap_name):
     # cap_name comes from the LLM's own chosen tool_name, already validated
     # against INOPS by iter.py before this is ever called -- strip anything
@@ -358,8 +519,10 @@ def _safe_atom(cap_name):
 
 
 def _extract_number(result_text):
-    # result_text looks like "[[Grounded(0.289042)]]" on a hit, "[[]]" on no data.
+    # Hyperon versions return either [[Grounded(0.289042)]] or [[0.289042]].
     m = re.search(r"Grounded\(([-\d.eE]+)\)", str(result_text))
+    if not m:
+        m = re.search(r"\[\[\s*([-\d.eE]+)\s*\]\]", str(result_text))
     if not m:
         return None
     try:

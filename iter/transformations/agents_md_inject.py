@@ -2,8 +2,8 @@
 Auto-inject AGENTS.md content into the system message.
 
 Reads AGENTS.md and appends it to the first message (system message).
-If the file exceeds MAX_CHARS, it is truncated to the last MAX_CHARS characters
-(preserving the most recent / bottom content, which tends to be more relevant).
+If the file exceeds MAX_CHARS, retain its current authoritative opening section.
+Historical entries below it remain available by reading the referenced file.
 """
 import os
 
@@ -31,7 +31,7 @@ def transform(messages, tools):
             content = f.read().strip()
 
         if len(content) > MAX_CHARS:
-            content = "...(truncated, showing last {} chars)...\n".format(MAX_CHARS) + content[-MAX_CHARS:]
+            content = content[:MAX_CHARS] + "\n[Current runtime reference shown; read AGENTS.md for the remaining architecture and historical notes.]"
 
         header = "\n\n--- AGENTS.md (auto-included) ---\n"
         block = header + content

@@ -32,10 +32,10 @@ hand-written summaries, so it stays truthful as the code changes.
 8. [NACE — the self-improvement and governance loop](#nace--the-self-improvement-and-governance-loop)
 9. [Live dashboards](#live-dashboards)
 10. [Component museum — live UI generation with memory](#component-museum--live-ui-generation-with-memory)
-11. [Installing on a new Mac](#installing-on-a-new-mac)
+11. [Current developer bootstrap on a Mac](#current-developer-bootstrap-on-a-mac)
 12. [First run](#first-run)
 13. [Using it day to day](#using-it-day-to-day)
-14. [Extending Iter (hot-reload + the instrument-everything policy)](#extending-iter-hot-reload--the-instrument-everything-policy)
+14. [Extending Iter (recoverable hot-load + the instrument-everything policy)](#extending-iter-recoverable-hot-load--the-instrument-everything-policy)
 15. [Restoring a memory snapshot](#restoring-a-memory-snapshot)
 16. [Exporting / resetting your own state](#exporting--resetting-your-own-state)
 17. [Packaging a standalone .app](#packaging-a-standalone-app)
@@ -65,18 +65,22 @@ hand-written summaries, so it stays truthful as the code changes.
 - **It remembers things, two different ways.** A vector-searchable long-term memory store for
   discrete facts/beliefs/preferences, and a separate tiered "rollup" pyramid that compresses old
   conversation into progressively coarser summaries — see [Memory architecture](#memory-architecture).
-- **It reasons over a small symbolic knowledge base.** A MeTTa (Prolog-backed logic language)
-  atom space tracks NAL-style truth-valued beliefs about how well each of its own tools and
+- **It reasons over a live symbolic cognitive space.** A Hyperon-backed MeTTa engine evaluates the
+  journaled authoritative AtomSpace, including NAL-style truth-valued beliefs about how well its tools and
   behavioral patterns tend to work, and can advise — or, in stricter mode, actually veto —
   low-confidence tool calls before they run. See [NACE](#nace--the-self-improvement-and-governance-loop).
 - **It evaluates its own actions against nine grounded values** before doing anything risky,
   through a 4-channel evaluation pipeline that can block or halt on a values conflict rather than
   just plow ahead. See [The Soul system](#the-soul-system--value-grounded-self-evaluation).
-- **It can improve its own code — but only under supervision.** New tools and behaviors are plain
-  `.py` files dropped into `iter/tools/` or `iter/transformations/`, picked up on the next loop
-  iteration with no restart. Self-triggered proposals go through a pain-threshold gate, a
-  capability-lifecycle registry, and (new) a "service before growth" deferral so the agent doesn't
-  chase self-improvement while it's actively failing the person in front of it.
+- **It can improve its own code — but only under supervision.** Runtime revisions to tools,
+  transformations, and channels are staged as complete immutable generations. Fixed checks inspect
+  candidate structure without importing candidate code; a current PWQ human approval is required
+  before probation. Each loop cycle pins one generation, while Electron watches an external
+  heartbeat and promotes or restores the exact prior generation. Self-triggered proposals still go
+  through the pain threshold, capability lifecycle, and service-before-growth deferral.
+- **Start/Stop is durable intent.** Clicking Start records that Iter should return after a clean
+  app restart or supervised recovery; clicking Stop clears that intent, so an intentional stop is
+  never undone by the watchdog.
 - **You choose the brain.** Talk to it through **OpenRouter** (cloud, any model OpenRouter hosts —
   needs your own API key) or **LM Studio** (a model running fully offline on your own machine, no
   internet required, no API key needed). Switching is a Settings-panel dropdown + Stop/Start.
@@ -96,17 +100,26 @@ Manifest V3 service-worker eviction fights, and no dependency on an extension st
 │   │   └─ active tab's WebContentsView (the actual browsed page)                │
 │   ├─ bridge/browser_bridge_server.js  — Unix socket, JSON-lines protocol       │
 │   ├─ bridge/tab_manager.js            — single source of truth for all tabs   │
-│   └─ bridge/chat_bridge.js            — file-based inbox/outbox with iter/     │
+│   └─ bridge/chat_bridge.js            — durable replay + atomic queues with iter/│
 │                                                                                  │
 │  iter.py  (separate Python process, spawned/stopped by main.js)                │
 │   ├─ tools/browser_*.py       → talk to the socket → drive real tabs          │
 │   ├─ tools/lm_studio_chat.py  → native call to OpenRouter or a local           │
 │   │                              LM Studio server (OpenAI-compatible API)     │
-│   ├─ tools/metta.py           → real MeTTa evaluation via SWI-Prolog          │
+│   ├─ tools/metta.py           → read-only Hyperon evaluation at one commit    │
+│   ├─ tools/atomspace.py       → durable structured AtomSpace transactions     │
 │   ├─ channels/electron_ui.py  → reads/writes the same inbox/outbox files      │
-│   └─ everything else (tools/, transformations/) → hot-reloadable .py files    │
+│   └─ everything else → immutable, recoverably hot-loaded generations         │
 └──────────────────────────────────────────────────────────────────────────────────┘
 ```
+
+Sidebar chat is recoverable application state, not a best-effort IPC stream.
+Electron journals each accepted user or Iter message under
+`.runtime/electron_ui/messages.jsonl` before acknowledging an Iter outbox item;
+the renderer replays that journal by stable message ID after reload or app
+restart. The inbox/outbox/staging files are transient queues and are published
+atomically. Retained hot-load generations that still write plain-text replies
+remain compatible during migration.
 
 **Tab locking and pinning are enforced only at the bridge layer** — the human user can always
 lock/unlock/pin/close/navigate their own tabs from the UI regardless of lock state. The lock only
@@ -116,7 +129,7 @@ ever restrains the agent, never you.
 
 Every turn, `iter.py` runs one cycle: assemble context → call the model → dispatch tool calls →
 run transformations → wait for the next input. Two of the folders under `iter/` are where nearly
-all of this project's actual capability lives, and both are hot-reloadable at runtime:
+all of this project's actual capability lives, and both can be updated through recoverable runtime generations:
 
 - **`iter/tools/`** (53 active) — things the model can explicitly call: browse, remember,
   reason, self-modify, communicate. See the [full catalog](#full-tool-catalog-53-tools) below.
@@ -170,10 +183,10 @@ currently call, grouped by what it's for. (A further ~22 tools exist but are dea
 
 | Name | What it does |
 |---|---|
-| `remember` | Store a memory in the PeTTa chroma_db long-term memory. The memory will be retrievable via chroma_query. Valid provenance types: observed, inferred, model_estimated. Valid mem_type (Headlong-style typed memory, controls retention rules in forget.py): fact, belief, value, todo, preference. fact/belief/value/preference are durable and cannot be forgotten without force=True; todo items may be freely forgotten once resolved. |
-| `chroma_query` | Query the PeTTa chroma_db for similar memories by text. Returns matching entries with their content and metadata. |
+| `remember` | Commit a semantic-memory event and keyed state atom, then refresh the `chroma_db` vector-search projection. Valid provenance types: observed, inferred, model_estimated. Valid mem_type: fact, belief, value, todo, preference. |
+| `chroma_query` | Query the `chroma_db` vector projection for semantically similar authoritative memories. Returns matching entries with content and metadata. |
 | `memory_update` | Update the text content and embedding of a specific memory in chroma_db. All metadata (creation time, linked episodes, stv values) is preserved. Item_id must be a UUID from chroma_query results. |
-| `forget` | Delete a memory from the PeTTa chroma_db. Item_id must be a UUID from chroma_query results. Typed-memory retention rule (Headlong-inspired): items typed fact/belief/value/preference are durable and refuse to delete unless force=True is passed explicitly; items typed todo (or untyped legacy memories) delete freely. Every deletion is journaled. |
+| `forget` | Commit deletion of a semantic memory, then remove it from the `chroma_db` projection. Item_id must be a UUID from chroma_query results. Durable memory types require `force=True`. |
 | `support` | Support a memory item in chroma_db by linking an episode and applying NAL truth revision with positive evidence. Item_id must be a UUID from chroma_query results. |
 | `contradict` | Contradict a memory item in chroma_db by linking an episode and applying NAL truth revision with negative evidence. Item_id must be a UUID from chroma_query results. |
 | `link_episode` | Link an episode timestamp to a memory item in chroma_db. The item_id must be a UUID from chroma_query results, and linked_time is a timestamp string (e.g. '2026-08-12 17:25:05'). |
@@ -193,7 +206,8 @@ currently call, grouped by what it's for. (A further ~22 tools exist but are dea
 
 | Name | What it does |
 |---|---|
-| `metta` | Evaluate MeTTa with a native PeTTa-semantics engine (MeTTa Kernel, github.com/MesTTo/MeTTa-Kernel, running on SWI-Prolog). A single bare S-expression is treated as runnable; for example (+ 1 1) returns 2. Multi-line programs keep their own syntax unchanged, including any '!' markers that request an answer. |
+| `metta` | Evaluate MeTTa read-only against the committed authoritative AtomSpace using Hyperon. Queries run in an isolated engine at a named commit, so temporary facts cannot leak into durable state. |
+| `atomspace` | Query status or commit durable, structured add/upsert/replace/remove transactions. Acknowledged writes are journaled, snapshotted, idempotent by transaction ID, and reconstructed into Hyperon after restart. |
 | `tool_reliability` | Query NAL truth-weighted tool reliability scores. Returns (f, c, calls) for all tracked tools. |
 | `soul_eval` | ClarityOmega 4-channel soul evaluation: person read -> verdict+gap detection -> aliveness gate -> voice. Compass states, paraconsistency halting, calibration accumulation, gap/moat detection. |
 | `soul_lock` | Soul namespace mutation lock: transactional protocol for soul changes. begin -> verify -> commit/rollback. |
@@ -204,7 +218,8 @@ currently call, grouped by what it's for. (A further ~22 tools exist but are dea
 
 | Name | What it does |
 |---|---|
-| `self_improve` | DGM-style self-improvement: fitness snapshots, experiment ledger, champion tracking with backward-compatible key migration, safe apply/revert with 3-level validation. |
+| `self_improve` | DGM-style evidence and fitness tracking whose apply/full-loop actions now stage an inert immutable candidate and a PWQ approval request; it no longer writes live component files directly. |
+| `revision_control` | Inspect, validate, activate, or safely roll back immutable runtime generations. Activation requires the current authorization from the matching human-approved PWQ item and enters externally supervised probation. |
 | `eval` | Run regression tests on Iter's tools and transformations. Args: test_name (str, default 'all'). Returns JSON with pass/fail results. |
 | `token_awareness` | Track token usage estimates. Args: action (str: 'track'\|'report'\|'reset'), text (str, optional). Returns JSON with token estimates. |
 | `test_soul_absent` | Test: verify system degrades gracefully without soul components. |
@@ -260,7 +275,7 @@ transformations exist but are deactivated.)
 | Name | What it does |
 |---|---|
 | `history` | Stores episodes (deduped, restart-safe) |
-| `atom_space_update` | Auto-update space.metta with formalizations from chroma_query results |
+| `atom_space_update` | Refresh the legacy/display `space.metta` projection from semantic-memory formalizations; never an authoritative writer |
 | `auto_consolidation` | Auto-consolidation: auto-rolls up tier files when they exceed size limits. |
 | `trajectory` | Trajectory capture: per-cycle tool-call snapshots for self-improvement evidence. |
 | `transcript` | Maintains transcript of textual communication messages only. |
@@ -291,7 +306,7 @@ transformations exist but are deactivated.)
 
 | Name | What it does |
 |---|---|
-| `dashboard_atomspace` | Atom-space dashboard with raw space.metta and visualization |
+| `dashboard_atomspace` | Atom-space observability dashboard; `space.metta` content is a compatibility/display projection |
 | `dashboard_context` | Renders every tool's live OpenAI-style schema (parameters, types, required/optional) into a browsable HTML page. |
 | `dashboard_gallery` | Gallery wrapper for context, runtime, and atomspace dashboards |
 | `dashboard_runtime` | Runtime dashboard without atom-space visualization or recent messages |
@@ -336,12 +351,12 @@ traceable back to real events.
 
 ## The Soul system — value-grounded self-evaluation
 
-Iter has a **Soul** — a value-driven self-evaluation layer encoded in its own MeTTa atom space,
+Iter has a **Soul** — a value-driven self-evaluation layer whose evaluations and current state are committed into the authoritative AtomSpace,
 built as ten layers across the project's history and documented in full in `iter/AGENTS.md`.
-`iter/self_map.metta` ships in this repo as the static scaffolding for the rule set (values, gate
-equations); the live atom space itself (`space.metta`) and the accumulated NAL beliefs
-(`nace_beliefs.metta`, `nace_substrate.metta`) are runtime state — deliberately git-ignored, since
-they're this specific instance's accumulated experience, not source code (see
+`iter/self_map.metta`, `iter/kb_substrate.metta`, and `iter/seeds/nace_substrate.metta` ship as
+versioned source seeds. Durable live atoms are stored in `.runtime/atomspace/`; accumulated NAL
+beliefs are projected to `nace_beliefs.metta` for compatibility. Display-oriented `space.metta`
+files are projections, not the live authority (see
 [Exporting / resetting your own state](#exporting--resetting-your-own-state)).
 
 **Nine core values**, each grounded in a real past incident rather than abstract philosophy:
@@ -354,7 +369,7 @@ they're this specific instance's accumulated experience, not source code (see
 | Honesty | Admit uncertainty openly | A memory-consolidation incident |
 | Continuity | Maintain memory across cycles | The tiered-memory subsystem's own origin |
 | Service | Prioritize user needs over the agent's own agenda | The same startup incident as Clarity |
-| Integrity | Backup before change, be safe | The self-improve subsystem's safe apply/revert design |
+| Integrity | Backup before change, be safe | Immutable generations, human authorization, and exact rollback |
 | Curiosity | Explore with purpose | An autoresearch incident |
 | Resilience | Recover from failure gracefully | A MicroPython-compatibility incident |
 
@@ -501,7 +516,7 @@ any tab (`file://.../dashboard_gallery.html` or the individual files):
 - **Runtime** — live operational state.
 - **Context** — every tool's current OpenAI-style schema (parameters, types, required/optional),
   browsable.
-- **Atomspace** — the raw `space.metta` atom space with a visualization.
+- **Atomspace** — visualization of AtomSpace status and the legacy `space.metta` display projection.
 - **Gallery** — a single wrapper page linking all three.
 
 ## Component museum — live UI generation with memory
@@ -519,7 +534,17 @@ Beyond browsing, IterBrow can **design UI directly against a real page and remem
 - `export_component` turns a museum entry into a portable, standalone file (plain HTML, a React
   `.jsx` component, or a Svelte single-file component) ready to hand off into a real project.
 
-## Installing on a new Mac
+## Current developer bootstrap on a Mac
+
+> **Distribution status:** the commands below prepare a source checkout; they
+> are not yet the one-command end-user installer. The current script still
+> requires a separate `npm start`, private provider onboarding, and a manual
+> Start action. The accepted end-user contract is tracked as Build Atlas
+> `DIST-1` / `INV-30` and in
+> [`ADR-0011`](docs/architecture/ADR-0011-one-command-mac-installation.md): one
+> downloaded script must install or upgrade without losing state, launch
+> exactly one instance, and verify the app, authoritative AtomSpace, and Iter
+> before claiming success.
 
 ```bash
 git clone https://github.com/Berton-C/IterBrow.git
@@ -527,21 +552,26 @@ cd IterBrow
 ./install.sh
 ```
 
-`install.sh` is a one-shot bootstrapper that:
+The current `install.sh` developer bootstrap:
 
 1. Installs [Homebrew](https://brew.sh) if it's missing.
 2. Installs Node.js 20.11.1 via `nvm` (Electron's runtime).
-3. Installs SWI-Prolog via Homebrew (optional — powers real MeTTa reasoning; everything else works
-   fine without it, it just prints a warning and moves on if this step fails).
+3. Installs SWI-Prolog via Homebrew optionally for future PeTTa/SWI adapter work. The shipped
+   AtomSpace uses Hyperon and does not require SWI-Prolog.
 4. Creates a Python 3.12 virtual environment inside `iter/` and installs the exact pinned
-   dependencies from `scripts/requirements.txt`.
+   dependencies from `scripts/requirements.txt`, including Hyperon. Installation stops if Hyperon
+   cannot import because native cognition is a required runtime service.
 5. Runs `npm install` to fetch Electron and its native dependencies.
 
-It's safe to re-run — every step checks what's already installed and skips it. It doesn't touch
-any accumulated chat/memory data (a fresh clone doesn't have any yet).
+It is intended to be re-runnable in a source checkout and does not deliberately
+reset accumulated chat or memory data. It does not yet provide DIST-1's
+interrupted-stage resume ledger, state-preserving upgrade proof, single-owner
+launch acceptance, or end-to-end health verdict. SWI-Prolog and Godot are
+currently included by the branch bootstrap but will move to opt-in developer
+extras in the end-user path.
 
-If you're on Linux instead of macOS, `install.sh` will tell you the three manual commands to run
-(Node 18+, Python 3.12, optionally your distro's SWI-Prolog package) since Homebrew paths differ.
+If you're on Linux instead of macOS, `install.sh` will direct you to Node, Python, and
+`scripts/setup_python_env.sh`; SWI-Prolog is optional adapter tooling.
 
 ## First run
 
@@ -551,6 +581,12 @@ npm start
 
 The app opens as a normal window: tab strip + address bar at top, a chat panel and a collapsible
 **Settings** drawer down the left side.
+
+On the first journaled start of an existing checkout, the AtomSpace service reads the current NACE
+beliefs, latest task states, semantic memories, Soul state/skills, and tool-reliability records and
+admits them in one idempotent migration transaction. Their files are left untouched as compatibility
+projections/indexes; semantic embeddings are not copied into native atoms. A malformed source stops
+the service before it reports ready rather than silently accepting partial cognition.
 
 1. Open **Settings**.
 2. Pick a provider:
@@ -567,8 +603,10 @@ The app opens as a normal window: tab strip + address bar at top, a chat panel a
 4. Type in the chat box. The agent will start responding and, if you ask it to, opening tabs,
    searching, and reading pages in the same window.
 
-**Never share or commit your API key.** It lives only in `iter/.runtime/settings.json`, which is
-git-ignored — it is never written into any file this repo tracks.
+**Never share or commit credentials.** Provider settings live in
+`iter/.runtime/settings.json`; connector credentials and tokens may live under `iter/private/`.
+Both are git-ignored, classified as secrets in `iter/state_manifest.json`, and excluded from
+Export and automatic backup. Transfer credentials separately through a secure channel.
 
 ## Using it day to day
 
@@ -583,15 +621,27 @@ git-ignored — it is never written into any file this repo tracks.
 - **Activity log drawer:** shows the agent's raw stdout — every tool call, LLM response, and error
   — if you want to see exactly what it's doing and why.
 
-## Extending Iter (hot-reload + the instrument-everything policy)
+## Extending Iter (recoverable hot-load + the instrument-everything policy)
 
 - **New tools:** a `.py` file in `iter/tools/` with a `DESCRIPTION` string and `def run()` (or
   `async def run()`).
 - **New transformations:** a `.py` file in `iter/transformations/` with a `DESCRIPTION` string and
   `def transform(messages, tools)`.
 - **New channels:** a `.py` file in `iter/channels/` with `receive()` and optionally `send(content)`.
-- Files starting with `_` are ignored — the standard way to deactivate something without deleting
-  it. Nothing here needs a restart; the next loop iteration picks it up.
+- The live loader reads one complete generation for an entire cycle; it never mixes a newly changed
+  tool with transformations from the preceding generation. Runtime changes are made through
+  `revision_control` (or `self_improve`, which stages the same contract): quarantine → fixed
+  validation → PWQ approval → probation → external promotion or exact rollback. Candidate code
+  cannot run its admission checks or promote itself.
+- New generations copy only the declared `tools/`, `transformations/`, and `channels/` code roots.
+  Runtime queues, ledgers, projections, and indexes stay under the canonical `iter/` root; a
+  non-managed file inside a generation fails validation.
+- Files starting with `_` are not exposed as public tools/transformations/channels, but top-level
+  underscore helpers are still compiled as part of generation validation. Nested scratch and test
+  fixtures are outside the hot-load surface.
+- Direct source-tree edits are development inputs, not live authority once a runtime generation
+  exists. Stop Iter before editing source; intentionally ingest the revised source through the
+  governed revision path rather than relying on an untracked next-cycle reload.
 - **Instrument everything:** every new capability should register a `(cap-lifecycle <name> candidate)`
   entry in `capability_lifecycle.metta` and a neutral `(cap-efficacy <name> (stv 0.5 0.0))` seed in
   `nace_beliefs.metta` from day one, then let real evidence flow through the normal
@@ -614,9 +664,9 @@ To load it:
    exists with its normal folder layout, then quit the app.
 2. In the app: **File → Import State…** (or the sidebar's **State — Export / Import / Reset**
    drawer → **Import…**). Pick the snapshot file you were given.
-3. The app stops the agent if it's running, replaces the state files (`memory/`, `chroma_db/`,
-   `experience.json`, the `.metta` knowledge files, `chat.txt`, `transcript.txt`, etc.), and
-   restarts it. You'll be asked to confirm before this happens.
+3. The app stops Iter, quiesces and stops the AtomSpace service, restores only manifest-approved
+   portable state, verifies the imported snapshot and journal, reconstructs Hyperon, and only then
+   restarts Iter. A failed validation restores the pre-import files.
 4. Set your **own** OpenRouter API key in Settings (the snapshot never contains anyone's key —
    keys live only in the git-ignored `iter/.runtime/settings.json`, which import does not touch).
 
@@ -627,19 +677,21 @@ From then on the agent has all of that prior memory, but is talking to you, thro
 Your tools/transformations are real, editable files on disk (not an opaque blob), so this repo
 draws a clear line:
 
-- **State** (what Export/Import/Reset operate on): `memory/`, `chroma_db/`, `backups/`,
-  `uploads/`, `transformations/.runtime/`, `experience.json`, the `.metta` knowledge files,
-  `chat.txt`, `transcript.txt`, and a few small runtime flag files.
+- **State** is declared in `iter/state_manifest.json`. Every path is labeled source seed,
+  authoritative state, event log, projection/index, cache, secret, or application state. Export
+  includes only `portable: true`; Reset removes only `reset: true`; source seeds and secrets are
+  never reset/exported by broad directory capture.
 - **Code** (never touched by any of these three buttons): `tools/`, `transformations/`,
   `channels/`, `iter.py`, `AGENTS.md`.
 
 All three live in the sidebar's **State — Export / Import / Reset** drawer:
 
-- **Export…** — save-dialog, zips your current state wherever you choose.
-- **Import…** — file-picker for a state zip, stops the agent first if running, replaces state,
-  restarts if it was running. Confirms before proceeding.
-- **Reset** — permanently deletes all accumulated state (your code is never touched). Confirms
-  first, since this can't be undone.
+- **Export…** — quiesces cognition, checkpoints one identified AtomSpace commit, and zips the
+  manifest-approved portable state.
+- **Import…** — validates and reconstructs the live AtomSpace before Iter resumes, with rollback on
+  failure.
+- **Reset** — stops cognition, removes only resettable paths, reloads versioned seeds, verifies a
+  fresh live service, and then resumes Iter.
 
 ## Packaging a standalone .app
 
@@ -653,21 +705,52 @@ This repo ships **unsigned** (no Apple Developer account wired in):
 - On first launch of a built `.app`, Gatekeeper will refuse to open it via double-click.
   Right-click → **Open** once (or `xattr -cr "Iter Browser.app"` in Terminal) to clear the
   quarantine flag.
-- A packaged `.app`'s `iter/` folder won't have its own Python virtualenv. Either make sure your
-  system `python3` already has the packages from `scripts/requirements.txt`, or run
-  `bash scripts/setup_python_env.sh "/path/to/Iter Browser.app/Contents/Resources/app/iter"` to
-  create one inside the bundle.
-- `asar` packaging is deliberately disabled so `iter/` stays a normal folder on disk — a Python
-  interpreter can't be spawned against a path inside an asar archive, and this keeps every
-  hot-reloadable tool/transformation file directly editable even in a packaged build.
+- The `.app` contains a state-free, allowlisted Iter template—not the builder's settings, private
+  credentials, AtomSpace, PWQ ledger, memories, indexes, experience, or chat queues. On first launch
+  it atomically creates a writable `iter/` workspace beneath Electron's per-user `userData`
+  directory. Source-development launches continue to use the checkout's `iter/` directly.
+- A fresh packaged workspace has no Python virtualenv. Either make sure system `python3` already has
+  `scripts/requirements.txt`, or run `bash scripts/setup_python_env.sh "<packaged-workspace>/iter"`.
+  Never install the environment inside `Iter Browser.app/Contents/Resources/app/iter`; that is the
+  immutable bootstrap template. `ITERBROW_WORKSPACE_DIR` selects an isolated workspace for a
+  controlled package smoke test.
+- `asar` packaging is deliberately disabled so the state-free template remains inspectable and can
+  be copied into the writable workspace. All live state and immutable runtime generations belong to
+  that workspace, never to application resources.
 
 ## Troubleshooting
 
-- **"pymetta install failed" / MeTTa tool doesn't work:** SWI-Prolog isn't installed, or is older
-  than 9.3. Run `brew install swi-prolog`, then re-run `./install.sh` (or
-  `iter/.venv/bin/pip install 'pymetta[engine]'` directly). Everything else in the app works fine
-  without this — the capability gate and belief substrate both fall back to a pure-Python reader
-  automatically.
+### Iter says the browser bridge is not running
+
+Current source and packaged launches use a checkout-scoped Unix socket rather
+than the old global `/tmp/iter-browser-bridge.sock`. Electron passes the exact
+endpoint to the Iter process automatically. Do not start a second Iter loop or
+copy another checkout's socket path. If the application was already running
+when this boundary changed, perform one controlled application restart; the
+new main process will recreate its own endpoint without unlinking a responsive
+owner. Directly launched diagnostic tools must receive that app's explicit
+`ITER_BRIDGE_SOCKET` value.
+
+- **"AtomSpace service did not become ready":** run `bash scripts/setup_python_env.sh`, then verify
+  `iter/.venv/bin/python3 -c "import hyperon"`. The service log is
+  `iter/.runtime/metta_server.log`. SWI-Prolog/pymetta are not required for the shipped Hyperon
+  service; optional adapter dependencies are isolated in `scripts/requirements-optional-petta.txt`.
+- **After upgrading a running pre-instance service:** fully quit and relaunch IterBrow before
+  clicking Start. The updated shell identifies and checkpoints this checkout's old generic-socket
+  service, retires it, and reopens the same state through the checkout-specific endpoint. A generic
+  service that reports another checkout is left untouched.
+- **Iter repeatedly exits or a candidate disappears:** inspect the activity log for `[recovery]`.
+  During probation, process exit, the wrong generation, a stale/missing heartbeat, a hard-floor
+  error, or a generation hash mismatch restores the exact parent before restart. Revision state and
+  its hash-chained event history live under `iter/.runtime/hotload/`.
+- **Iter is stopped after a restart:** Start/Stop intent is persisted in
+  `iter/.runtime/settings.json`. Start records automatic recovery; Stop records an intentional
+  hold. For a one-time operator recovery, launch with `ITER_AUTOSTART=1 npm start`; the successful
+  start persists the same setting without creating a second supervisor.
+- **Verify real crash recovery without touching live cognition:** run
+  `iter/.venv/bin/python3 scripts/smoke_atomspace_service.py`. It uses disposable state, commits and
+  queries one atom, kills the service without graceful shutdown, verifies exact replay and
+  idempotency, removes the atom, and shuts down cleanly.
 - **Agent never responds after Start:** check the Activity log drawer for the actual error — the
   most common cause is an invalid or missing API key for whichever provider is selected.
   `chroma_query`/`remember` calls specifically need an OpenRouter key set even under LM Studio,

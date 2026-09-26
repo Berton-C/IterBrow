@@ -3,7 +3,14 @@ Tracks which soul skills exist, their maturity, and allows the agent
 to self-author new skills based on lived experience.
 """
 
-import json, os
+import json, os, sys
+from pathlib import Path
+
+ROOT_PATH = Path(__file__).resolve().parents[1]
+if str(ROOT_PATH) not in sys.path:
+    sys.path.insert(0, str(ROOT_PATH))
+
+from iterbrow_runtime.cognitive_events import commit_event, metta_string
 
 DESCRIPTION = "Soul skill registry: tracks soul skills, maturity, and autonomous self-authoring."
 
@@ -34,9 +41,22 @@ def _load():
     except:
         return {"skills": SEED_SKILLS, "self_authored": []}
 
-def _save(data):
-    with open(SKILLS_PATH, "w") as f:
+def _save(data, event_type="registry_updated", entity_id="registry"):
+    commit_event(
+        "soul_skill", entity_id, event_type,
+        {"registry": data},
+        state_atom="(soul-skill-registry %s)" % metta_string(
+            json.dumps(data, sort_keys=True, ensure_ascii=False)
+        ),
+        source="tools.soul_skill_registry",
+    )
+    os.makedirs(os.path.dirname(SKILLS_PATH), exist_ok=True)
+    temporary = SKILLS_PATH + ".tmp"
+    with open(temporary, "w") as f:
         json.dump(data, f)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(temporary, SKILLS_PATH)
 
 def _name(s):
     return s.get("name") or s.get("n") or "unknown"
@@ -63,7 +83,7 @@ def run(action="list", name="", desc="", episode="0"):
     
     elif action == "seed":
         data = {"skills": SEED_SKILLS, "self_authored": []}
-        _save(data)
+        _save(data, "registry_seeded")
         return json.dumps({"seeded": len(SEED_SKILLS), "message": "Soul skills seeded from E1-E23 lived experience"})
     
     elif action == "author":
@@ -72,7 +92,7 @@ def run(action="list", name="", desc="", episode="0"):
         ep = episode
         skill = {"name": name, "desc": desc, "maturity": "fuzzy", "episodes": [ep]}
         data.setdefault("self_authored", []).append(skill)
-        _save(data)
+        _save(data, "skill_authored", name)
         return json.dumps({"authored": name, "maturity": "fuzzy"})
     
     elif action == "mature":
@@ -84,7 +104,7 @@ def run(action="list", name="", desc="", episode="0"):
                     s["maturity"] = "emerging"
                 elif m == "emerging":
                     s["maturity"] = "nars_pln"
-                _save(data)
+                _save(data, "skill_matured", name)
                 return json.dumps({"skill": name, "new_maturity": s.get("maturity", s.get("m"))})
         return json.dumps({"error": "skill not found"})
     

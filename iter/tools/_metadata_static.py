@@ -15,10 +15,9 @@ Design notes (see StaticParseError contract):
     The caller is expected to fall back to the real subprocess-based
     invoke_dynamic(path, "__tool_metadata__" / "__description__") for that
     one file -- i.e. today's exact existing behavior -- rather than guess.
-  - Parameter extraction order mirrors inspect.signature()'s parameter order
-    exactly: positional-only, positional-or-keyword, *args, keyword-only,
-    **kwargs. Two real files in this codebase (tools/self_improve.py,
-    tools/_self_improve.py) use **kwargs, so this order is not theoretical.
+  - Parameter extraction mirrors the callable JSON boundary: positional-only,
+    positional-or-keyword and keyword-only names are exposed; *args/**kwargs
+    are not JSON properties. Parameters without defaults are required.
   - Description truncation mirrors iter.py's MAX_TOOL_DESCRIPTION_CHARS
     constant and its " [DESCRIPTION TRUNCATED]" marker exactly, for the
     "__tool_metadata__" path only -- "__description__" (used for
@@ -76,29 +75,31 @@ def _extract_function_parameters(tree, path, func_name):
     for node in tree.body:
         if isinstance(node, ast.FunctionDef) and node.name == func_name:
             args = node.args
-            names = []
-            names += [a.arg for a in args.posonlyargs]
-            names += [a.arg for a in args.args]
-            if args.vararg is not None:
-                names.append(args.vararg.arg)
-            names += [a.arg for a in args.kwonlyargs]
-            if args.kwarg is not None:
-                names.append(args.kwarg.arg)
-            return names
+            positional = list(args.posonlyargs) + list(args.args)
+            default_count = len(args.defaults)
+            required_positional_count = len(positional) - default_count
+            names = [argument.arg for argument in positional]
+            required = [argument.arg for argument in positional[:required_positional_count]]
+            for argument, default in zip(args.kwonlyargs, args.kw_defaults):
+                names.append(argument.arg)
+                if default is None:
+                    required.append(argument.arg)
+            return names, required
     raise StaticParseError(f"no top-level def {func_name}(...) found in {path}")
 
 
 def static_tool_metadata(path):
     """Mirrors dynamic_worker()'s "__tool_metadata__" branch exactly,
     including MAX_TOOL_DESCRIPTION_CHARS truncation + marker.
-    Returns {"description": str, "parameters": [str, ...]} -- same shape
-    load_tools() already expects from invoke_dynamic()."""
+    Returns description, exposed parameter names, and the subset required by
+    the callable schema -- the same shape load_tools() expects from the real
+    invoke path."""
     tree = _load_tree(path)
     description = _extract_description(tree, path)
-    parameters = _extract_function_parameters(tree, path, "run")
+    parameters, required = _extract_function_parameters(tree, path, "run")
     if len(description) > MAX_TOOL_DESCRIPTION_CHARS:
         description = description[:MAX_TOOL_DESCRIPTION_CHARS] + TRUNCATION_MARKER
-    return {"description": description, "parameters": parameters}
+    return {"description": description, "parameters": parameters, "required": required}
 
 
 def static_description(path):

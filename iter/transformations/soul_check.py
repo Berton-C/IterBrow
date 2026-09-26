@@ -9,7 +9,7 @@ DESCRIPTION = "Soul check: evaluates current task against core values and inject
 import json
 import os
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = os.path.realpath(os.environ.get("ITER_DIR") or os.getcwd())
 
 VALUE_DESCRIPTIONS = {
     "clarity": "verify before claiming",

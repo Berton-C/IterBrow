@@ -1,6 +1,8 @@
 import importlib.util
 import os
+import re
 import time
+from pathlib import Path
 
 
 def _exists(path):
@@ -31,10 +33,13 @@ def _send_to_channel(channel, content):
     correctly. The previous exec(src, {}) approach ran the channel module with no
     __file__ in its namespace, which crashed any channel - like electron_ui.py -
     that computes its runtime paths relative to __file__."""
-    path = "channels/" + channel + ".py"
+    channel = str(channel or "").strip()
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", channel):
+        return f"Invalid channel: {channel}"
+    path = Path(__file__).resolve().parents[1] / "channels" / (channel + ".py")
     if not _exists(path):
         return f"Channel file not found: {path}"
-    spec = importlib.util.spec_from_file_location("channel_" + channel, path)
+    spec = importlib.util.spec_from_file_location("channel_" + channel, str(path))
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     if not hasattr(module, "send"):

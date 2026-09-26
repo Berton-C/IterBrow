@@ -8,10 +8,10 @@ use this module).
 
 Provides, for anything that wants to reason over the NACE substrate:
   - a portable memory watchdog (see note on macOS below)
-  - a loader for nace_substrate.metta + nace_beliefs.metta with a hard size cap
-  - run_query(): combines substrate + beliefs + extra facts + a query and
-    evaluates it through tools/metta.py's existing pymetta wrapper, with both
-    safety layers applied.
+  - a legacy projection loader used only by explicit offline compatibility
+  - run_query(): evaluates extra facts + a query against the source seeds and
+    runtime atoms already owned by the authoritative AtomSpace, returning the
+    exact commit identity with the answer.
 
 SAFETY DESIGN NOTES
 --------------------
@@ -50,9 +50,11 @@ def _self_dir():
 
 
 def _import_metta_wrapper():
-    """Reach tools/metta.py (which itself already isolates the real pymetta
-    engine under a private name -- see its own docstring). We just need our
-    own directory on sys.path so a plain `import metta` resolves to it."""
+    """Reach tools/metta.py, the authoritative AtomSpace query client.
+
+    We need our own directory on sys.path so a plain `import metta` resolves
+    to the tool rather than an unrelated installed module.
+    """
     d = _self_dir()
     if d not in sys.path:
         sys.path.insert(0, d)
@@ -142,9 +144,9 @@ def breaker_record_result(key, ok, path=_BREAKER_PATH_DEFAULT):
 
 def load_substrate_and_beliefs(root="."):
     """Static cognitive-operation definitions + live efficacy/calibration
-    state, concatenated. Does NOT load space.metta (the much larger compass
-    values file) -- callers that need specific compass facts should pass
-    them in via extra_facts instead of pulling the whole file in."""
+    state, concatenated for an isolated compatibility query. It does not load
+    display projections such as space.metta; callers that need extra facts
+    must pass them explicitly."""
     parts = []
     for fname in ("nace_substrate.metta", "nace_beliefs.metta"):
         path = os.path.join(root, fname)
@@ -159,14 +161,19 @@ def load_substrate_and_beliefs(root="."):
     return "\n\n".join(parts)
 
 
-def run_query(query_code, extra_facts="", mem_limit_mb=512, root="."):
-    """Evaluate `query_code` against substrate+beliefs(+extra_facts).
+def run_query(query_code, extra_facts="", mem_limit_mb=512, root=".",
+              include_legacy_projection=False, view="full"):
+    """Evaluate `query_code` against one authoritative cognitive commit.
 
-    Returns {"ok": True, "result": str} on success, or
+    Source seeds (NACE/KB/lifecycle) and durable belief atoms are reconstructed
+    by the service. Re-reading ``nace_beliefs.metta`` here would make a legacy
+    projection a competing authority, so it is available only through the
+    explicit offline-compatibility flag.
+
+    Returns {"ok": True, "result": str, "epoch": ..., "commit": ...} on success, or
             {"ok": False, "error": str} on any failure -- callers should
     always treat "ok": False as "reasoning substrate unavailable this cycle"
-    and degrade gracefully (skip the summary / fail open on a gate check),
-    never as something to retry or block on.
+    and apply their declared policy rather than claiming a KB verdict.
     """
     try_setrlimit_as(mem_limit_mb)
     stop_event = start_memory_watchdog(mem_limit_mb)
@@ -175,22 +182,27 @@ def run_query(query_code, extra_facts="", mem_limit_mb=512, root="."):
             metta = _import_metta_wrapper()
         except Exception as e:
             return {"ok": False, "error": f"engine unavailable: {type(e).__name__}: {e}"}
-        # Fast, stable path when pymetta isn't installed: tools/metta.py sets
-        # ENGINE_AVAILABLE=False when it fell back to its fail-open stub (see
-        # its own comments). Detecting that here -- instead of calling
-        # metta.run() and trying to parse its placeholder "[]" output as a
-        # real result -- gives callers (nace_courier.py's live-engine
-        # validation, tools/_metta_gate.py) one clean, stable, honest
-        # "ok": False every time, so their circuit breakers actually trip and
-        # stop retrying a dead engine instead of logging a fresh diagnostics
-        # entry on every single cycle forever.
+        # Detect an unavailable authoritative service before submitting the
+        # compatibility query. This gives circuit-breaker callers one stable,
+        # honest failure instead of treating placeholder output as reasoning.
         if not getattr(metta, "ENGINE_AVAILABLE", True):
-            return {"ok": False, "error": "pymetta engine not installed (stub mode) -- see tools/metta.py README notes"}
-        base = load_substrate_and_beliefs(root)
-        code = base + "\n\n" + (extra_facts or "") + "\n\n" + query_code
+            return {"ok": False, "error": "authoritative Hyperon AtomSpace service is unavailable"}
+        base = load_substrate_and_beliefs(root) if include_legacy_projection else ""
+        code = "\n\n".join(
+            part for part in (base, extra_facts or "", query_code) if part.strip()
+        )
         try:
-            result = metta.run(code)
-            return {"ok": True, "result": str(result)}
+            # This helper's internal facts/expectations are snapshot reads.
+            # Arbitrary tools/metta queries remain uncached by default.
+            result = metta.query(code, cacheable=not include_legacy_projection, view=view)
+            return {
+                "ok": True,
+                "result": str(result["result"]),
+                "epoch": result.get("epoch"),
+                "commit": result.get("commit"),
+                "state_hash": result.get("state_hash"),
+                "authority": "atomspace",
+            }
         except Exception as e:
             return {"ok": False, "error": f"{type(e).__name__}: {e}"}
     finally:

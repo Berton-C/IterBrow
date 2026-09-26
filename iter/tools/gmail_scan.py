@@ -15,7 +15,7 @@ Safety: gmail.readonly scope only. Never sends, deletes, or modifies mail.
 import json, os
 
 DESCRIPTION = "Scan Gmail (read-only, gmail.readonly scope) for messages needing the COS's eyes; writes candidates into crm/data/captures.json for the morning Briefing. Configure private/crm/gmail_credentials.json (Google OAuth Desktop client). Never sends or modifies mail."
-BASE = os.path.join(os.path.dirname(__file__), '..')
+BASE = os.path.realpath(os.environ.get('ITER_DIR') or os.getcwd())
 CFG = os.path.join(BASE, 'private', 'crm')
 CAP = os.path.join(BASE, 'crm', 'data', 'captures.json')
 

@@ -9,11 +9,23 @@ iter/.venv*/
 # memory, uploads, backups, per-session trajectory logs. NEVER commit these:
 # a fresh install always starts blank. See iter/AGENTS.md "STATE_PATHS".
 iter/.runtime/
+# User-created foundry applications are durable portable state. Curated sample
+# apps are explicit exceptions so fresh installs still begin with useful tabs.
+/iter/apps/*
+!/iter/apps/music/
+!/iter/apps/music/**
+/iter/apps/.writer.lock
 iter/memory/
 iter/chroma_db/
 iter/backups/
 iter/uploads/
 iter/_screenshots/
+# Runtime-generated dashboard projections. The application may refresh these
+# in place; they are not product source and must not dirty the checkout.
+/iter/dashboard_atomspace.html
+/iter/dashboard_context.html
+/iter/dashboard_gallery.html
+/iter/dashboard_runtime.html
 iter/.trajectory/
 iter/transformations/.runtime/
 iter/experience.json

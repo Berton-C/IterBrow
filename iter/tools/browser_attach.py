@@ -5,11 +5,12 @@ from _browser_bridge import call
 
 DESCRIPTION = (
     "Mark a tab as the current target for navigate/click/type/screenshot/eval/scroll, so you don't have to "
-    "pass tab_id on every call. Pass tab_id from browser_tabs, or omit to target the current active tab."
+    "pass tab_id on every call. Pass tab_id from browser_tabs, or omit to target the current active tab. "
+    "This does not display a background tab; browser_switch_tab both displays and targets a tab."
 )
 
 
 def run(tab_id=None):
     params = {"tabId": int(tab_id)} if tab_id else {}
     result = call("attach", **params)
-    return "attached to tabId=%s title=%r url=%s" % (result["attached"], result["title"], result["url"])
+    return "attached to tabId=%s title=%r url=%s displayed=%s" % (result["attached"], result["title"], result["url"], result.get("displayed", "unknown"))

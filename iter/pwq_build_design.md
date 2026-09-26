@@ -1,109 +1,108 @@
-# PWQ — Pending Work Queue: Build Design Document
-*(Generated 2026-09-19 by Iter from the live shipped build. Everything below was verified against the real files this session.)*
+# PWQ — Human-Agency Protocol
 
-## 1. What PWQ is
-PWQ is the negotiation surface between the user and Iter: a dark-gold dashboard
-where Iter proposes work items and the user answers with clicks (choose option /
-give orders / counter-propose / set alarm / mark done). It is NOT an app feature
-that computes anything — it is a **renderer page + one hand-curated JSON file + an
-agent-side convention**. That tri-partite nature is exactly why it does not
-"transfer": the page and button ship with the app, but the data file is a local
-runtime artifact that each Iter must curate.
+Status: implemented protocol v2. The controlling decisions are
+`docs/architecture/ADR-0002-pwq-human-agency-protocol.md`,
+`docs/architecture/ADR-0004-pwq-build-execution-tracking.md`, and the active
+role-threshold decision in `docs/architecture/ADR-0005-pwq-role-threshold-authorization.md`,
+the narrow-command/recovery decision in
+`docs/architecture/ADR-0006-pwq-command-and-recovery-boundary.md`, plus the active
+build ledger in `docs/ITERBROW_BUILD_ATLAS.md`.
 
-## 2. Architecture (3 layers + 1 convention)
-| Layer | File | Role |
-|---|---|---|
-| App shell | `main.js`, `preload.js`, `renderer/toolbar.{html,js}` | PWQ toolbar button → IPC `pwq:open` → opens the page in a tab |
-| Page | `iter/pwq.html` (16.9KB, self-contained) | All rendering + interaction logic, zero dependencies |
-| Data | `iter/.runtime/pwq.json` | The queue itself |
-| Convention | (none — agent behavior) | Iter writes proposals into pwq.json; reads user answers back each cycle |
+## Contract
 
-### 2.1 App-shell wiring (all verified present at app root, 2026-09-19)
-- `main.js:1434` — `ipcMain.handle('pwq:open', () => tabs.createTab('file://' + path.join(ITER_DIR, 'pwq.html')));`
-- `preload.js:68` — `openPWQ: () => ipcRenderer.invoke('pwq:open'),`
-- `preload.js:60` — `fsRead: (relPath) => ipcRenderer.invoke('fs:read', relPath),` (fsWrite analogous)
-- `preload.js:3` — `contextBridge.exposeInMainWorld('iterApi', {...})`
-- `renderer/toolbar.js:37` — `btn-pwq` click → `window.iterApi.openPWQ()`
+PWQ is the reusable consent boundary between Iter and a human:
 
-## 3. Why her tab exists but stays empty (diagnosis)
-1. **pwq.json is not shipped code** — `.runtime/` is runtime state. A fresh
-   install has the button + page, but no queue file, and nothing populates it
-   until *her* Iter writes one. Page load falls through to
-   `data = {version:1, items:[]}` and renders the empty state. This is the
-   primary cause: **PWQ populates only when the local Iter actively curates it.**
-2. Session restore: `tabs_session.json` pins the tab, but with an absolute
-   `file://` path — if a session file was copied between machines, the tab points
-   at a nonexistent path until re-opened via the toolbar button.
-3. Secondary: older app builds (pre pwq:open patch) lack the IPC handler → the
-   toolbar button silently does nothing. Verify her `main.js` has `pwq:open`.
+1. Iter proposes work.
+2. The human sees the pending intent.
+3. The human approves, rejects, modifies, or reorders it.
+4. The card's declared threshold and required distinct roles sign/attest the exact proposal version and digest.
+5. Only a satisfied approval set mints dispatch authorization.
+6. Execution may start only with the current authorization.
+7. A modification invalidates every prior attestation and authorization.
 
-## 4. Data schema — `.runtime/pwq.json`
-```json
-{
-  "version": 1,
-  "items": [
-    {
-      "id": "pwq-<slug>",
-      "title": "short title",
-      "ask": "1-3 sentence plain-language question to the user",
-      "proposed_shape": "Iter's recommended execution shape",
-      "options": [ { "label": "A — ...", "desc": "what it does" } ],
-      "status": "proposed | negotiating | orders given | in progress | done",
-      "user_input": "",
-      "orders_given": false,
-      "selected_option": null,
-      "created": "2026-09-14 20:29:00",
-      "alarm": null,
-      "negotiation_log": [ { "time": "2026-09-14 20:29:00", "who": "iter|user", "text": "..." } ]
-    }
-  ]
-}
-```
-- `created` format is `YYYY-MM-DD HH:MM:SS` (space separator — the page
-  replaces it with 'T' for Date parsing).
-- Append log entries on EVERY state change, from both sides. The log renders
-  newest-first. Timestamps local.
+The protocol belongs to Platform/Core. The dark-gold board in `pwq.html` is
+one application of the protocol and has no independent authority.
 
-## 5. Page rendering logic (pwq.html)
-- **Load cascade**: `window.iterApi.fsRead('.runtime/pwq.json')` (bridge) →
-  fallback `fetch('.runtime/pwq.json')` (works under file:// because the JSON
-  sits one directory below the page) → final fallback empty queue.
-- **Stats/filter bar**: counts waiting (status != done), orders given
-  (orders_given && !done), done, total + oldest-age. Clicking a filter re-renders.
-- **Card states**: age classes `fresh` (<1.5d) / `warming` (1.5–3d) / `hot`
-  (>=3d, gold glow), `done` dimmed. Status chips: proposed (blue) /
-  negotiating (amber) / orders given (green) / in progress (blue) / done (green).
-- **Interactions** (each = state change + log + save):
-  - click an option → `selected_option=i`, status→`negotiating`, log "Leaning toward: ..."
-  - textarea + ORDERS GIVEN checkbox → `user_input`, status→`orders given`, log
-  - Counter-propose (💬, prompt) → status `negotiating`, log user text
-  - Alarm (⏰, prompt: free text like "tomorrow 9am") → `alarm` chip shown
-  - Mark done (✔) → status `done`
-- **Save cascade**: `iterApi.fsWrite` when the bridge exists; ALWAYS also mirrors
-  to `localStorage['pwq_mirror']`. **Known wart**: without the bridge the page
-  cannot write the JSON back to disk — the agent must be told to pull the mirror.
-- Theme tokens: bg `#0f0d1a`, panels `#1a1730/#221d3d`, gold `#d4a94e`, serif
-  (Georgia). No build step, no dependencies — one file.
+## Canonical implementation
 
-## 6. Faithful recreation on her laptop
-**Fast path (exact copy):**
-1. Copy `iter/pwq.html` to her `iter/` directory.
-2. Create `iter/.runtime/pwq.json` — easiest: copy `iter/pwq_seed.json` (this repo) to `iter/.runtime/pwq.json`. It contains a self-teaching welcome proposal that exercises the full interaction chain; delete it after answering.
-3. Restart IterBrow; click the PWQ toolbar button (re-opens the tab with a
-   correct absolute path); the card should render immediately.
-4. Teach her Iter the convention: proposals → write pwq.json; each cycle → read
-   it back; execute `orders given` items; mark `done` when finished.
+| File | Role |
+|---|---|
+| `iterbrow_runtime/pwq_protocol.py` | Sole protocol writer, transition validator, event ledger, materializer |
+| `pwq_service.py` | JSON-lines process boundary used by Electron and tools |
+| `tools/pwq_write.py` | Agent-facing client for protocol commands |
+| `.runtime/pwq/events.jsonl` | Hash-chained authoritative event ledger |
+| `.runtime/pwq.json` | Rebuildable board projection |
+| `pwq.html` | Human board client/projection |
+| `pwq_seed.json` | Initial example/import input only |
 
-**From-scratch path:** build the page per §4–5 (a single HTML file, ~300 lines:
-theme, stats bar, card renderer, 5 interactions, load/save cascades) — no other
-dependency. The JSON is the only contract.
+No board code, IPC handler, agent tool, or localStorage entry may directly
+write canonical PWQ state. `sync_board` exists only as a compatibility
+migration path and still passes through the sole protocol writer.
 
-## 7. Verification checklist (machine-verify discipline)
-1. **Reload the tab first** — renderer pages serve cached pre-edit state
-   indefinitely; a stale tab is not evidence of failure (learned 2026-09-18).
-2. DOM card count == items in pwq.json payload.
-3. Stats bar counts match (waiting/orders/done/total).
-4. Click each filter — counts stay consistent, empty-state message when zero.
-5. Click an option → verify pwq.json changed on disk (bridge build) or
-   localStorage `pwq_mirror` (standalone) — then reload and confirm persistence.
-6. Screenshot for visual confirmation.
+## Canonical states
+
+`proposed` (including partial attestations), `modified`, `approved`, `in_progress`, `paused`, `completed`,
+`rejected`, `superseded`.
+
+Legacy inputs are normalized at the boundary:
+
+| Legacy | Canonical |
+|---|---|
+| `waiting`, `proposed` | `proposed` |
+| `negotiating` | `modified` |
+| `orders given` | `approved` |
+| `in progress` | `in_progress` |
+| `done` | `completed` |
+
+## Commands
+
+- `propose`: create proposal version 1.
+- `modify`: create a new version and revoke any prior approval.
+- `sign`: append one eligible role attestation to the current proposal digest.
+- `approve`: compatibility alias for the human-owner signature; authorization is minted only if the policy is then satisfied.
+- `reject`: make the item terminal.
+- `reorder`: record a durable ordering decision.
+- `start`: require the matching current authorization, then enter progress.
+- `pause`: stop active dispatch while preserving history.
+- `resume`: return paused work to its exact pre-pause state using the current dispatch authorization.
+- `complete`: make successfully executed work terminal.
+- `supersede`: guardian-only retirement of inert or paused hot-load work in favor of a named replacement.
+- `read`: return the materialized board projection.
+
+## Required verification
+
+- Reusing an event/command id is idempotent.
+- Event hashes verify on replay; corrupt or truncated history fails visibly.
+- A torn final ledger write is hash-recorded, discarded, and atomically repaired before the next append; a complete malformed record fails closed.
+- Start without approval fails.
+- Start with an obsolete authorization after modification fails.
+- Sensitive cards do not mint authorization until threshold and required roles are satisfied.
+- A runtime guardian cannot replace the human owner, and the human owner cannot impersonate the guardian.
+- Modification revokes the full signature set; an exact hot-load candidate/scope mismatch fails.
+- Proof types without an installed verifier fail closed.
+- Reload/restart produces the same materialized state and ordering.
+- The browser board has no localStorage mirror or direct filesystem writer.
+- The browser board has no whole-projection synchronization capability; every mutation is a narrow protocol command.
+- Electron IPC and the Iter tool both invoke `pwq_service.py`.
+
+When this contract changes, update the ADR, Atlas ledger, protocol tests, and
+this document in the same change.
+
+## Execution tracker (protocol v1 additive projection)
+
+The Build Atlas uses Miter-style Tracking to report Target, Stage,
+Evidence/open gaps, Boundaries, and Next/trigger. Builder reports remain a
+discipline reconstructed from primary state, not Iter cognition.
+
+For build-class PWQ work, the proposal declares its allowed Atlas slices and
+invariants before approval. After authorized dispatch, immutable `track`
+events project the five fields beneath that item. Tracking reports progress and
+evidence only. It cannot approve,
+reject, reorder, modify proposal scope, mint dispatch authorization, or amend
+the Build Atlas. General PWQ work cannot claim an IterBrow Atlas slice.
+
+Modifying the proposal clears the current tracker and invalidates approval.
+The next execution must be approved again and tracked against the new version.
+The hot-load manager automatically records admission, probation heartbeats,
+promotion, and rollback; rollback pauses the work item and names the retained
+failure evidence and repair trigger.

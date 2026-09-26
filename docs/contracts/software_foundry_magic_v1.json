@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "contract_id": "software-foundry-magic-v1",
+  "status": "accepted_product_intent_source_implementation_requires_pwq",
+  "north_star": "IterBrow is a user-owned conversational software foundry that lets Iter research, build, prove, revise, recover, and preserve arbitrary user-requested tab/apps.",
+  "intent_checksum": {
+    "means": "A user can request a previously unprepared tool in ordinary chat; Iter turns the request into a versioned blueprint, researches useful trusted patterns, authors the app, proves visible behavior and durable data, and safely performs later requested revisions while the user owns all source and data.",
+    "does_not_mean": "A CRM generator, a prewritten showcase, an infrastructure-only milestone, or one monolithic physical AtomSpace that every application must use."
+  },
+  "first_demo": {
+    "app_request_owner": "human_at_runtime",
+    "preselected_application_forbidden": true,
+    "codex_feature_authorship_forbidden": true,
+    "required_clauses": [
+      "BC-01",
+      "BC-02",
+      "BC-03",
+      "BC-04",
+      "BC-05",
+      "BC-06",
+      "BC-07",
+      "BC-08"
+    ]
+  },
+  "clauses": [
+    {"id": "BC-01", "name": "conversation_to_blueprint", "evidence": ["conversation_reference", "blueprint_hash", "schema_validation"]},
+    {"id": "BC-02", "name": "trustworthy_research", "evidence": ["research_manifest", "source_urls", "license_disposition", "design_notes"]},
+    {"id": "BC-03", "name": "iter_authors_proof_app", "evidence": ["authorship_ledger", "factory_baseline_diff"]},
+    {"id": "BC-04", "name": "user_owned_project", "evidence": ["project_manifest", "workspace_boundary", "export_reopen"]},
+    {"id": "BC-05", "name": "real_visible_function", "evidence": ["external_dom_assertions", "primary_workflow", "visible_acceptance"]},
+    {"id": "BC-06", "name": "durable_data", "evidence": ["application_contract_readback", "reload_identity", "restart_identity"]},
+    {"id": "BC-07", "name": "conversational_revision", "evidence": ["blueprint_delta", "revision_provenance", "migration_result", "changed_visible_acceptance"]},
+    {"id": "BC-08", "name": "exact_recovery", "evidence": ["failed_candidate", "exact_parent", "post_rollback_visible_and_data_proof"]},
+    {"id": "BC-09", "name": "optional_native_cognition", "evidence": ["capability_manifest", "named_snapshot_set", "denied_control_space_mutation"]},
+    {"id": "BC-10", "name": "generality", "evidence": ["materially_different_second_blueprint", "unchanged_factory_contract", "bc01_through_bc08_replay"]}
+  ],
+  "change_policy": {
+    "human_approval_required": true,
+    "silent_reinterpretation_forbidden": true,
+    "candidate_may_not_edit_contract_or_verifier": true
+  },
+  "fast_path_deferrals": [
+    "physical_atomspace_sharding",
+    "multiple_reasoning_engine_integration",
+    "broad_engineering_ontology",
+    "crm_connector_enrichment",
+    "second_generality_app",
+    "non_demo_distribution_hardening"
+  ]
+}

@@ -1,0 +1,413 @@
+{
+  "schema_version": 1,
+  "entries": [
+    {
+      "path": "kb_substrate.metta",
+      "role": "source_seed",
+      "format": "metta",
+      "portable": false,
+      "reset": false,
+      "owner": "cognition.reasoning"
+    },
+    {
+      "path": "capability_lifecycle.metta",
+      "role": "source_seed",
+      "format": "metta",
+      "portable": false,
+      "reset": false,
+      "owner": "cognition.capabilities"
+    },
+    {
+      "path": "self_map.metta",
+      "role": "source_seed",
+      "format": "metta",
+      "portable": false,
+      "reset": false,
+      "owner": "cognition.self_model"
+    },
+    {
+      "path": "seeds/nace_substrate.metta",
+      "role": "source_seed",
+      "format": "metta",
+      "portable": false,
+      "reset": false,
+      "owner": "cognition.nace"
+    },
+    {
+      "path": "seeds/engineering_governor.metta",
+      "role": "source_seed",
+      "format": "metta",
+      "portable": false,
+      "reset": false,
+      "owner": "cognition.engineering_governor"
+    },
+    {
+      "path": "seeds/engineering_learning.metta",
+      "role": "source_seed",
+      "format": "metta_governed",
+      "portable": false,
+      "reset": false,
+      "owner": "cognition.engineering_learning"
+    },
+    {
+      "path": "seeds/engineering_alignment.metta",
+      "role": "source_seed",
+      "format": "metta_governed",
+      "portable": false,
+      "reset": false,
+      "owner": "cognition.engineering_alignment"
+    },
+    {
+      "path": "seeds/foundry_governor.metta",
+      "role": "source_seed",
+      "format": "metta_governed",
+      "portable": false,
+      "reset": false,
+      "owner": "cognition.foundry_governor"
+    },
+    {
+      "path": "apps",
+      "role": "application_state",
+      "format": "foundry_projects_v1",
+      "portable": true,
+      "reset": false,
+      "owner": "user.foundry_projects"
+    },
+    {
+      "path": "seeds/application_contract.metta",
+      "role": "source_seed",
+      "format": "metta",
+      "portable": false,
+      "reset": false,
+      "owner": "cognition.application_contract"
+    },
+    {
+      "path": ".runtime/atomspace",
+      "role": "authoritative_state",
+      "format": "atomspace_v1",
+      "portable": true,
+      "reset": true,
+      "owner": "platform.atomspace"
+    },
+    {
+      "path": ".runtime/das_projection",
+      "role": "projection",
+      "format": "atomspace_event_feed",
+      "portable": false,
+      "reset": true,
+      "owner": "platform.das_adapter"
+    },
+    {
+      "path": ".runtime/hotload",
+      "role": "authoritative_state",
+      "format": "hotload_generations_v1",
+      "portable": true,
+      "reset": false,
+      "owner": "platform.self_extension"
+    },
+    {
+      "path": ".runtime/app_revisions",
+      "role": "authoritative_state",
+      "format": "content_addressed_app_revisions_v1",
+      "portable": true,
+      "reset": false,
+      "owner": "platform.app_revision"
+    },
+    {
+      "path": ".runtime/recovery/iter_heartbeat.json",
+      "role": "cache",
+      "format": "iter_heartbeat_v1",
+      "portable": false,
+      "reset": true,
+      "owner": "platform.recovery_supervisor"
+    },
+    {
+      "path": ".runtime/pwq",
+      "role": "event_log",
+      "format": "pwq_v1",
+      "portable": true,
+      "reset": false,
+      "owner": "platform.human_agency"
+    },
+    {
+      "path": ".runtime/pwq.json",
+      "role": "projection",
+      "format": "json",
+      "portable": true,
+      "reset": false,
+      "owner": "application.pwq_board"
+    },
+    {
+      "path": ".runtime/application_contract.lock",
+      "role": "cache",
+      "format": "lock",
+      "portable": false,
+      "reset": true,
+      "owner": "platform.application_contract"
+    },
+    {
+      "path": ".runtime/application_contract_cache",
+      "role": "cache",
+      "format": "application_replay_cache_v1",
+      "portable": false,
+      "reset": true,
+      "owner": "platform.application_contract"
+    },
+    {
+      "path": ".runtime/settings.json",
+      "role": "secret",
+      "format": "json",
+      "portable": false,
+      "reset": false,
+      "owner": "platform.secrets"
+    },
+    {
+      "path": ".runtime/tabs_session.json",
+      "role": "application_state",
+      "format": "json",
+      "portable": true,
+      "reset": false,
+      "owner": "core.tabs"
+    },
+    {
+      "path": ".runtime/closed_tabs.json",
+      "role": "application_state",
+      "format": "json",
+      "portable": true,
+      "reset": false,
+      "owner": "core.tabs"
+    },
+    {
+      "path": ".runtime/tab_groups.json",
+      "role": "application_state",
+      "format": "json",
+      "portable": true,
+      "reset": false,
+      "owner": "core.tabs"
+    },
+    {
+      "path": ".runtime/electron_ui/messages.jsonl",
+      "role": "application_state",
+      "format": "jsonl",
+      "portable": true,
+      "reset": false,
+      "owner": "core.chat_bridge"
+    },
+    {
+      "path": ".runtime/electron_ui/inbox",
+      "role": "cache",
+      "format": "file_queue",
+      "portable": false,
+      "reset": true,
+      "owner": "core.chat_bridge"
+    },
+    {
+      "path": ".runtime/electron_ui/outbox",
+      "role": "cache",
+      "format": "file_queue",
+      "portable": false,
+      "reset": true,
+      "owner": "core.chat_bridge"
+    },
+    {
+      "path": ".runtime/electron_ui/staging",
+      "role": "cache",
+      "format": "file_queue",
+      "portable": false,
+      "reset": true,
+      "owner": "core.chat_bridge"
+    },
+    {
+      "path": ".runtime/electron_ui/recovery",
+      "role": "legacy_log",
+      "format": "json_fragments",
+      "portable": false,
+      "reset": true,
+      "owner": "core.chat_bridge"
+    },
+    {
+      "path": ".runtime/pages",
+      "role": "projection",
+      "format": "html",
+      "portable": false,
+      "reset": true,
+      "owner": "application.dashboards"
+    },
+    {
+      "path": "experience.json",
+      "role": "authoritative_state",
+      "format": "json",
+      "portable": true,
+      "reset": true,
+      "owner": "cognition.loop"
+    },
+    {
+      "path": "memory",
+      "role": "authoritative_state",
+      "format": "mixed_legacy",
+      "portable": true,
+      "reset": true,
+      "owner": "cognition.memory"
+    },
+    {
+      "path": "chroma_db",
+      "role": "projection_index",
+      "format": "iter_json_vector_v1",
+      "portable": true,
+      "reset": true,
+      "owner": "platform.semantic_index"
+    },
+    {
+      "path": "nace_beliefs.metta",
+      "role": "projection",
+      "format": "metta",
+      "portable": true,
+      "reset": true,
+      "owner": "cognition.nace"
+    },
+    {
+      "path": "nace_pending.metta",
+      "role": "legacy_queue",
+      "format": "metta",
+      "portable": true,
+      "reset": true,
+      "owner": "cognition.nace"
+    },
+    {
+      "path": "nace_substrate.metta",
+      "role": "projection",
+      "format": "metta_legacy",
+      "portable": true,
+      "reset": true,
+      "owner": "cognition.nace"
+    },
+    {
+      "path": "task_state.metta",
+      "role": "projection",
+      "format": "metta",
+      "portable": true,
+      "reset": true,
+      "owner": "cognition.tasks"
+    },
+    {
+      "path": "history.metta",
+      "role": "legacy_log",
+      "format": "metta",
+      "portable": true,
+      "reset": true,
+      "owner": "cognition.memory"
+    },
+    {
+      "path": "transcript.txt",
+      "role": "legacy_log",
+      "format": "text",
+      "portable": true,
+      "reset": true,
+      "owner": "cognition.memory"
+    },
+    {
+      "path": "space.metta",
+      "role": "projection",
+      "format": "metta_legacy",
+      "portable": true,
+      "reset": true,
+      "owner": "application.atomspace_dashboard"
+    },
+    {
+      "path": "chat.txt",
+      "role": "legacy_log",
+      "format": "text",
+      "portable": true,
+      "reset": true,
+      "owner": "cognition.memory"
+    },
+    {
+      "path": ".improve_cooldown",
+      "role": "cache",
+      "format": "text",
+      "portable": true,
+      "reset": true,
+      "owner": "cognition.self_extension"
+    },
+    {
+      "path": ".stall_state.json",
+      "role": "cache",
+      "format": "json",
+      "portable": true,
+      "reset": true,
+      "owner": "cognition.metacognition"
+    },
+    {
+      "path": ".history_state",
+      "role": "cache",
+      "format": "text",
+      "portable": true,
+      "reset": true,
+      "owner": "cognition.memory"
+    },
+    {
+      "path": ".transcript_state",
+      "role": "cache",
+      "format": "text",
+      "portable": true,
+      "reset": true,
+      "owner": "cognition.memory"
+    },
+    {
+      "path": "atomspace_data.json",
+      "role": "projection",
+      "format": "json_legacy",
+      "portable": true,
+      "reset": true,
+      "owner": "application.atomspace_dashboard"
+    },
+    {
+      "path": "transformations/.runtime",
+      "role": "projection",
+      "format": "mixed_legacy",
+      "portable": true,
+      "reset": true,
+      "owner": "cognition.transformations"
+    },
+    {
+      "path": "private",
+      "role": "secret",
+      "format": "mixed",
+      "portable": false,
+      "reset": false,
+      "owner": "platform.secrets"
+    },
+    {
+      "path": "crm/data",
+      "role": "projection",
+      "format": "json",
+      "portable": true,
+      "reset": true,
+      "owner": "application.crm_projection"
+    },
+    {
+      "path": "backups",
+      "role": "cache",
+      "format": "mixed",
+      "portable": false,
+      "reset": true,
+      "owner": "platform.local_backups"
+    },
+    {
+      "path": "uploads",
+      "role": "application_state",
+      "format": "mixed",
+      "portable": true,
+      "reset": true,
+      "owner": "application.uploads"
+    },
+    {
+      "path": "_screenshots",
+      "role": "cache",
+      "format": "images",
+      "portable": false,
+      "reset": true,
+      "owner": "cognition.perception"
+    }
+  ]
+}

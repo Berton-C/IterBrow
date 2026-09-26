@@ -13,10 +13,11 @@ LOG_PATH = os.path.join(BASE, ".context_budget_log.txt")
 ERROR_LOG = os.path.join(BASE, ".context_budget_errors.txt")
 
 # ---- Budget configuration (derive-able) ----
-# Model context window estimate; budget = fraction of window for injected content
-MODEL_CONTEXT_WINDOW = 128000       # chars (rough estimate for ~32k tokens)
+# Injection allowance derived from the 45k INPUT target, not input plus output.
+# The kernel separately estimates the COMPLETE request after transformations.
+MODEL_CONTEXT_WINDOW = 180000       # chars (rough estimate for ~45k input tokens)
 INJECTED_FRACTION = 0.20            # 20% of context window for memory injections
-BASE_BUDGET = int(MODEL_CONTEXT_WINDOW * INJECTED_FRACTION)  # 25600
+BASE_BUDGET = int(MODEL_CONTEXT_WINDOW * INJECTED_FRACTION)  # 36000
 FLOOR_BUDGET = 4000                  # absolute minimum
 SHRINK_THRESHOLD = 10               # messages before budget starts shrinking
 SHRINK_PER_5_MSGS = 800             # chars to subtract per 5 additional messages

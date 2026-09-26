@@ -87,19 +87,21 @@ def _kb_verdict_summary(root=".", gate_go=0.7, gate_block=0.3):
             return ""
         query = "\n".join([
             "(--> iter ([] current_context %s))" % ctx,
-            "!(match &self (--> $th ([] gate_go_threshold)) $th)",
-            "!(match &self (--> $th ([] gate_block_threshold)) $th)",
-            "!(match &self (--> $a ([] gate_score $f)) (--> $a ([] evaluate_action $f)))",
-            "!(match &self (--> $ag ([] current_context %s)) (--> $ag ([] should %s)))" % (
-                ctx, "serve_user" if ctx == "human_present" else "self_improve"),
+            "!(match &self (--> $th ([] gate_go_threshold)) (kb-go $th))",
+            "!(match &self (--> $th ([] gate_block_threshold)) (kb-block $th))",
+            "!(match &self (==> (--> $a ([] gate_score $f)) $conclusion) (match &self (--> $a ([] gate_score $f)) $conclusion))",
+            "!(match &self (==> (--> $ag ([] current_context %s)) $conclusion) (match &self (--> $ag ([] current_context %s)) $conclusion))" % (ctx, ctx),
         ])
-        result = _sub.run_query(query, extra_facts=kb_text, root=root)
+        # kb_substrate.metta is a declared source seed. Passing its file text
+        # again would create a second, projection-like authority and duplicate
+        # rules inside the one-shot query engine.
+        result = _sub.run_query(query, root=root, view="current")
         _sub.breaker_record_result("kb_consumer", result["ok"])
         if not result["ok"]:
             return ""
         text = result["result"]
-        m_go = re.search(r"([0-9.]+)\s*\[\]\s*gate_go_threshold", text)
-        m_bl = re.search(r"([0-9.]+)\s*\[\]\s*gate_block_threshold", text)
+        m_go = re.search(r"kb-go\s+([0-9.eE+-]+)", text)
+        m_bl = re.search(r"kb-block\s+([0-9.eE+-]+)", text)
         if m_go:
             gate_go = float(m_go.group(1))
         if m_bl:
@@ -162,7 +164,7 @@ def _plan_vet_summary(root="."):
         q = ["!(match &self (inv-feature-score $feat (stv $f $c)) (inv-score $feat $f))",
              "!(match &self (inv-feature-invariant $f $inv) (inv-map $f $inv))"]
         q += ["!(match &self (--> ($s $e) ([] %s)) (--> ($s $e) ([] flag %s)))" % (f, f) for f in feats]
-        result = _sub.run_query("\n".join(q), extra_facts=kb_text + "\n" + plan_text, root=root)
+        result = _sub.run_query("\n".join(q), extra_facts=plan_text, root=root, view="current")
         _sub.breaker_record_result("kb_consumer", result["ok"])
         if not result["ok"]:
             return ""
@@ -222,27 +224,25 @@ def _tool_names(tools):
 
 
 def _parse_batch_result(result_text, names):
-    """result_text looks like '[[Grounded(0.29)], [Grounded(0.96)], []]' --
-    one bracketed group per query, in the same order names were queried."""
-    # FIX 2026-09-20: the MeTTa kernel merges ALL per-query match outputs into
-    # ONE flat list of values with no separators between queries (batch of 3
-    # tools returned 48 values = 16 formulas each, in query order). The old
-    # innermost-bracket regex assumed one bracketed group per query, so every
-    # multi-tool batch silently parsed to None. Robust parse: flatten every
-    # number, then chunk the flat list equally among the queries. Within one
-    # tool all matched formulas carry the same Truth_Expectation value, so
-    # equal chunking is safe whenever the total is divisible; if not divisible
-    # (unexpected), fall back to None per tool rather than guessing.
-    nums = re.findall(r"[-]?\d+\.\d+(?:[eE][-+]?\d+)?", result_text)
-    if not nums:
-        return {n: None for n in names}
-    if len(nums) % len(names) == 0:
-        chunk = len(nums) // len(names)
-        return {
-            n: float(nums[i * chunk])
-            for i, n in enumerate(names)
-        }
-    return {n: None for n in names}
+    """Keep native expectations attached to their tool, including empty matches.
+
+    Positional chunking loses every result when just one tool has no belief.
+    No expectation is calculated here; native MeTTa supplies the tagged values.
+    Conflicting results remain unknown instead of choosing an arbitrary belief.
+    """
+    values = {name: set() for name in names}
+    for name, raw in re.findall(
+            r"\(tool-expectation\s+([A-Za-z0-9_]+)\s+([-+\d.eE]+)\)", result_text):
+        if name not in values:
+            continue
+        try:
+            value = float(raw)
+        except ValueError:
+            continue
+        if 0 <= value <= 1:
+            values[name].add(value)
+    return {name: next(iter(found)) if len(found) == 1 else None
+            for name, found in values.items()}
 
 
 def transform(messages, tools):
@@ -254,9 +254,10 @@ def transform(messages, tools):
         return messages, tools
 
     query = "\n".join(
-        "!(match &self (cap-efficacy %s $stv) (Truth_Expectation $stv))" % n for n in names
+        "!(match &self (cap-efficacy %s $stv) (tool-expectation %s (Truth_Expectation $stv)))"
+        % (n, n) for n in names
     )
-    result = _sub.run_query(query)
+    result = _sub.run_query(query, view="current")
     _sub.breaker_record_result(_BREAKER_KEY, result["ok"])
     if not result["ok"]:
         return messages, tools
@@ -269,7 +270,7 @@ def transform(messages, tools):
     if low:
         parts.append("below should-dispatch threshold (%.2f): %s" % (_THRESHOLD, ", ".join(low)))
     if unknown_count:
-        parts.append("%d tool(s) with no calibration data yet" % unknown_count)
+        parts.append("%d tool expectation(s) unavailable this pass (missing belief or query error; not evidence of a calibration reset)" % unknown_count)
     if not parts:
         parts.append("all %d checked tools currently above threshold" % len(names))
 

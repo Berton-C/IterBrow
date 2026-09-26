@@ -1,5 +1,7 @@
 """Auto-Consolidation: automatically roll up tier files when they exceed size limits."""
 import os
+from pathlib import Path
+from iterbrow_runtime.episodic_history import archive_text
 
 DESCRIPTION = "Auto-consolidation: auto-rolls up tier files when they exceed size limits."
 
@@ -57,6 +59,11 @@ def _consolidate_tier(tier_name):
         return False
     fine_content = _read(fine_path)
     coarse_content = _read(coarse_path) if _exists(coarse_path) else ""
+    # Preserve exact source material before a lossy display rollup. An archive
+    # failure prevents this rollup; the original files remain intact.
+    archive_text(fine_path, Path(fine_path).read_text())
+    if Path(coarse_path).exists():
+        archive_text(coarse_path, Path(coarse_path).read_text())
     # Split fine content into lines, keep first half in fine, roll up rest
     fine_lines = [l for l in fine_content.split("\n") if l.strip()]
     keep_count = max(1, len(fine_lines) // 2)

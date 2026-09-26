@@ -1,10 +1,10 @@
-// Scoped preload for the PWQ board tab ONLY (write-through fix 2026-09-20).
-// Mirrors crm_preload.js: exposes just pwqRead/pwqWrite -> main.js whitelists
-// these to the single canonical .runtime/pwq.json file. No fs:*, no tab
-// control, nothing else. restrictNavigation locks the tab to pwq.html.
+// Scoped preload for the PWQ board tab ONLY. The board can read its canonical
+// projection and submit narrow protocol commands; it cannot write files or
+// synchronize a caller-supplied whole-board snapshot. Navigation is locked by
+// the tab owner in main.js.
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('iterApi', {
-  fsRead: (rel) => ipcRenderer.invoke('pwq:read', rel),
-  fsWrite: (rel, content) => ipcRenderer.invoke('pwq:write', rel, content),
+  pwqRead: () => ipcRenderer.invoke('pwq:read'),
+  pwqCommand: (request) => ipcRenderer.invoke('pwq:command', request),
 });

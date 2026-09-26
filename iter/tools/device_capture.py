@@ -23,6 +23,7 @@ timestamped files -- never overwriting anything, so no memory-guard
 protection class applies.
 """
 import base64
+import os
 import sys
 import time
 from pathlib import Path
@@ -43,7 +44,7 @@ DESCRIPTION = (
 )
 
 _TOOLS_DIR = Path(__file__).resolve().parent
-_ITER_DIR = _TOOLS_DIR.parent
+_ITER_DIR = Path(os.environ.get("ITER_DIR") or Path.cwd()).resolve()
 _SOURCE_DIR = _ITER_DIR.parent
 _CAPTURE_HTML = _SOURCE_DIR / "renderer" / "capture.html"
 _CAPTURE_DIR = _ITER_DIR / "memory" / "captures"

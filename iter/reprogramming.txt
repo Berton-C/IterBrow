@@ -1,14 +1,14 @@
 #CHANNELS:
-Communication channels are hot-reloaded from channels/*.py and expose receive() and optionally send(content).
+Communication channels expose receive() and optionally send(content).
 If a channel needs persistent connections or state, it can launch itself as an external daemon/process; see channels/_example.py.
 #TOOLS:
-You can create tools as .py files in ./tools/. New tools are available in the next agent cycle. Format:
+Implement tools as .py source for ./tools/, then use self_improve apply/full_loop below to load them. Editing a source file alone does not replace the active immutable generation. Activated tools are available in the next agent cycle. Format:
 DESCRIPTION = "How the tool should be described"
 def run():
     # any code
     return VALUE
 #TRANSFORMATIONS:
-You can create transformations as .py files in ./transformations/ (executed in alphabetical order) to modify messages and tools before each model call. It must expose:
+Implement transformations as .py source for ./transformations/ and load them through the same self_improve path (executed in alphabetical order). They modify messages and tools before each model call and must expose:
 DESCRIPTION = "What the context transformation does"
 def transform(messages, tools):
     return messages, tools
@@ -22,3 +22,8 @@ Example use cases:
 - alter which tools are exposed
 #LESSONS:
 If name starts with underline, it is not considered. Can be used to de-activate items.
+#RECOVERABLE HOT-LOAD:
+Use self_improve apply/full_loop for tools, channels and transformations: validate, run existing regression checks, then activate under heartbeat supervision. Ordinary self-repair does not create or require a PWQ card. Supply proposal_id when the work was explicitly assigned through a card; its approval and scope remain binding. stage prepares without activation. Activation takes effect next cycle, and Electron promotes healthy probation or restores the exact parent on failure. revert uses the returned backup without rewinding memory. Original Soul lock and memory protections remain. Other source-file repairs retain the original backup/validation/revert path; core host revisions still require a restart to take effect.
+
+#ORDINARY WORK:
+Use the existing research, browser, shell, editing, execution and memory tools to do the requested work. The old foundry submit/decide/execute procedure, fixed alternatives and Atlas labels are not prerequisites. Shared app storage, durable cognition, NACE, semantic and episodic memory and recovery remain in use. Respect the user's actual scope, Stop, tab locks and data ownership; ask when the requested effects materially change.

@@ -20,7 +20,12 @@ HIDE_THRESHOLD = 0.5
 MIN_CALLS_TO_HIDE = 3
 PROBE_INTERVAL = 20
 PROBE_FILE = RUNTIME_DIR + "/probe_state.json"
-PROTECTED_TOOLS = {"send", "nop", "shell", "python", "start_new_task"}
+# PORT: Retained-output reading is lossless observation transport, not permission
+# to act; missing records or malformed reads must not hide the recovery path.
+# Keep observation and target recovery discoverable after failures. This only
+# affects the offered catalog: native NACE dispatch and user tab locks still act.
+PROTECTED_TOOLS = {"send", "nop", "shell", "python", "start_new_task", "read_tool_result", "pin",
+                   "browser_tabs", "browser_attach", "browser_switch_tab", "browser_screenshot"}
 ISSUE_LOG = RUNTIME_DIR + "/budget_issues.log"
 
 def _log_issue(detail):
@@ -57,7 +62,7 @@ def _read_json(path):
         _log_issue("unreadable/corrupt JSON at %s (treating as empty this cycle): %s: %s" % (path, type(e).__name__, e))
         return {}
 
-def _memory_chars():
+def _memory_chars(messages=None):
     """Prompt-projection size of memory/ -- the same number iter.py compares
     against MAX_MEMORY_CHARS.
 
@@ -70,6 +75,9 @@ def _memory_chars():
     truth from the 2026-09-17 audit that iter.py, self_improve.py, and
     auto_improve.py already use.
 
+    When cycle messages are available, use the host's relevance selection too:
+    omitted old notes are not pressure on this cycle's working memory.
+
     Fail-open: if the projection module can't be imported or raises, fall
     back to the old raw walk (an overestimate, never zero) rather than
     breaking the budget computation.
@@ -80,7 +88,14 @@ def _memory_chars():
                                 os.pardir, "tools")
         if proj_dir not in sys.path:
             sys.path.insert(0, proj_dir)
-        from _memory_projection import projection_chars
+        from _memory_projection import projection_chars, projection_files
+        if messages is not None:
+            from iterbrow_runtime.request_budget import relevant_memory
+            items = []
+            for path in projection_files(MEMORY_DIR):
+                with open(path, "r", encoding="utf-8", errors="replace") as source:
+                    items.append((os.path.normpath(path), source.read().strip()))
+            return sum(len(content) for _, content in relevant_memory(items, messages)), 0
         return projection_chars(MEMORY_DIR), 0
     except Exception as e:
         _log_issue("projection_chars() unavailable, falling back to raw walk: %s: %s" % (type(e).__name__, e))
@@ -196,7 +211,7 @@ def transform(messages, tools):
     try:
         reliability = _read_json(RELIABILITY_FILE)
         stall = _read_json(STALL_PATH)
-        mem_chars, mem_skipped = _memory_chars()
+        mem_chars, mem_skipped = _memory_chars(messages)
         budget, signals = _compute_budget(reliability, stall, mem_chars)
         if mem_skipped:
             signals.append("memory measurement incomplete (%d entries unreadable, total may be low)" % mem_skipped)
@@ -206,11 +221,17 @@ def transform(messages, tools):
             probe_state = {}
         cycles = probe_state.get("cycles_since_probe", 0) + 1
         probe_target = None
-        candidates = [n for n, v in reliability.items()
+        available = {tool.get("function", {}).get("name") for tool in tools}
+        candidates = sorted(n for n, v in reliability.items()
                       if v.get("calls", 0) >= MIN_CALLS_TO_HIDE and v.get("f", 1.0) < HIDE_THRESHOLD
-                      and n not in PROTECTED_TOOLS]
+                      and n not in PROTECTED_TOOLS and n in available)
         if candidates and cycles >= PROBE_INTERVAL:
-            probe_target = max(candidates, key=lambda n: reliability[n].get("f", 0.0))
+            # A highest-score-only probe can offer the same unused tool forever.
+            # Rotate through the loaded candidates; do not change their beliefs
+            # or bypass the independent native dispatch decision.
+            last = probe_state.get("last_probed")
+            index = (candidates.index(last) + 1) % len(candidates) if last in candidates else 0
+            probe_target = candidates[index]
             cycles = 0
             signals.append("probation probe: un-hiding %s for one cycle" % probe_target)
         try:

@@ -6,100 +6,41 @@ Features:
   - Fitness compare: compares snapshots, computes composite delta with effect sizing
   - Experiment ledger: logs each experiment with file hashes and outcomes
   - Champion tracking: keeps best-known configuration with backward-compat
-  - Apply: backup â write â validate (compile, regression, integrity)
-  - Revert: restore from backup on failure or degradation
-  - Full loop: snapshot â apply â validate â snapshot â compare â accept/revert
-
-MicroPython-compatible: no os.path.getsize, no asyncio, manual hex.
+  - Apply/full loop: backup, validate, repair and observe the result
+  - Activation: ordinary-loop repair or explicitly selected PWQ work
+  - Revert: legacy backup restore plus generation-level automatic rollback
 """
 import os, json, sys, time, hashlib
+from pathlib import Path
 
 TOOLS_DIR = os.path.dirname(os.path.abspath(__file__))
 if TOOLS_DIR not in sys.path:
     sys.path.insert(0, TOOLS_DIR)
 import _memory_guard as _guard
 import _memory_projection as _projection  # single source of truth for "what counts as prompt memory"
-import soul_lock as _soul_lock  # SOUL_FILES + lock state: the design's existing notion of constitutional files
-
-# ---- Constitutional gate (2026-09-17) ----
-# Before this, apply/full_loop consulted NO protected list: a single call could
-# overwrite a soul file, this tool, or the fitness ruler (_memory_projection.py)
-# with nothing but a compile check, and full_loop would then CROWN the result if
-# the number went up. The DGM premise (the improver may improve itself) is kept:
-# these files are still writable -- but only while the soul lock is held, so the
-# change goes through soul_lock's backups and an explicit commit/rollback. This is
-# a guardrail on the sanctioned path, not an OS boundary; `revert` is deliberately
-# NOT gated (undo must never require the lock that let the change through).
-GATED_EXTRA = [
-    "iter.py",                     # core loop; --invoke re-executes it per tool call, so a hot-load creates mixed state
-    "tools/self_improve.py",       # the referee
-    "tools/_memory_projection.py", # the ruler
-    "tools/_memory_guard.py",      # the content-mutation guard
-]
-
-def _gated_paths():
-    out = set()
-    for rel in list(_soul_lock.SOUL_FILES) + GATED_EXTRA:
-        out.add(os.path.realpath(os.path.join(ITER_ROOT, rel)))
-    return out
-
-def _gate_check(target):
-    """Return None if `target` may be written now, else an error dict.
-    Gated files require memory/soul_lock.json status == "locked" (any holder;
-    the holder is recorded in the ledger by the caller)."""
-    real = os.path.realpath(target)
-    if real not in _gated_paths():
-        return None
-    lock = _soul_lock._load_lock()
-    if lock.get("status") == "locked":
-        return None
-    return {
-        "error": "constitutional file: soul lock required",
-        "target": target,
-        "how_to": "call soul_lock action=begin first (backs up all SOUL_FILES), then re-run this "
-                  "apply/full_loop, then soul_lock action=commit to keep or action=rollback to undo. "
-                  "revert is never gated.",
-        "gated_files": sorted(os.path.relpath(p, os.path.realpath(ITER_ROOT)) for p in _gated_paths()),
-    }
-
-def _lock_holder():
-    try:
-        return _soul_lock._load_lock().get("holder")
-    except Exception:
-        return None
-
-def _targets_memory(target):
-    """True if the file being changed lives under memory/ -- shrinking the corpus
-    by editing/deleting it must not read as a memory_efficiency gain."""
-    real = os.path.realpath(target)
-    mem = os.path.realpath(os.path.join(ITER_ROOT, "memory"))
-    return real == mem or real.startswith(mem + os.sep)
+import soul_lock as _soul_lock
+from iterbrow_runtime.hotload_manager import HotloadManager, HotloadError
+from iterbrow_runtime.revision_fitness import (
+    WEIGHTS, fitness_snapshot as _fitness_snapshot, fitness_compare,
+)
 
 DESCRIPTION = ("DGM-style self-improvement: fitness snapshots, experiment ledger, "
                "champion tracking with backward-compatible key migration, "
-               "safe apply/revert with 3-level validation.")
+               "and recoverable hot-loading. apply/full_loop repair through the ordinary loop, "
+               "without creating a PWQ card. Supply proposal_id only for work explicitly "
+               "bound to an existing card. stage only prepares. revert restores the "
+               "returned backup. Original Soul lock and memory protections remain.")
 
 ITER_ROOT = "."
 CHAMPION_PATH = os.path.join(ITER_ROOT, "memory", "champion.json")
 LOG_PATH = os.path.join(ITER_ROOT, "memory", "self_improve_log.json")
 MEMORY_DIR = os.path.join(ITER_ROOT, "memory")
 BACKUP_DIR = os.path.join(ITER_ROOT, "memory", "self_improve_backups")
-# FIX (2026-09-17 audit): this used to point at memory/regression_tests.json,
-# which tools/eval.py *also* writes to -- but eval.py writes a run-results
-# log there ({"ts": ..., "t": [{"test": ..., "pass": ...}, ...]}), not the
-# {name: python_source} shape _validate_regression() below expects. Every
-# real apply()/full_loop() call read eval.py's file, iterated its two keys
-# ("ts", "t") as if they were test names, tried to exec() a float and a list
-# as Python source, and always failed both -- meaning Level 2 validation
-# could never pass, and auto_revert (default True) reverted every real
-# candidate change regardless of its actual quality. Confirmed via
-# self_improve_log.json: 2 lifetime entries, both action=record with
-# files_changed=[], i.e. apply/full_loop has never completed a real change.
-# Given self_improve.py its own file so the two tools stop colliding.
-REGRESSION_PATH = os.path.join(ITER_ROOT, "memory", "self_improve_regression_tests.json")
 MAX_MEMORY_CHARS = 20000  # kept in sync with iter.py's cap
+HOTLOAD = HotloadManager(os.path.realpath(ITER_ROOT))
+REGRESSION_PATH = os.path.join(ITER_ROOT, "memory", "self_improve_regression_tests.json")
 
-# ---- MicroPython compat helpers ----
+# ---- Filesystem helpers ----
 
 def _exists(path):
     try:
@@ -217,60 +158,8 @@ def _save_champion(champ):
 
 # ---- Fitness measurement ----
 
-WEIGHTS = {"reliability": 0.4, "memory_efficiency": 0.3, "context_utilization": 0.3}
-
 def fitness_snapshot():
-    snap = {}
-    # Reliability: from tool_reliability runtime JSON
-    rel_path = os.path.join(ITER_ROOT, "transformations", ".runtime", "tool_reliability.json")
-    rel = _read_json(rel_path)
-    if rel:
-        scores = []
-        for tname, tdata in rel.items():
-            f = tdata.get("f", 1.0)
-            c = tdata.get("c", 0.0)
-            calls = tdata.get("calls", 0)
-            if calls >= 2:
-                scores.append(f * c)
-        snap["reliability"] = sum(scores) / len(scores) if scores else 0.5
-    else:
-        snap["reliability"] = 0.5
-    # Memory efficiency: how close to budget.
-    # FIX 2026-09-17: measure the PROMPT PROJECTION (what iter.py actually
-    # compares against MAX_MEMORY_CHARS), not the raw folder. The raw walk
-    # counted ~1 MB of on-disk storage (story_journal web app, localStorage
-    # dumps, logs) that never reaches the prompt, pinning this dimension at
-    # 0.0 and making the champion unreachable. Rule lives in
-    # tools/_memory_projection.py, shared with iter.py and auto_improve.py.
-    mem_size = _projection.projection_chars(MEMORY_DIR)
-    snap["memory_efficiency"] = max(0.0, min(1.0, 1.0 - (mem_size / (MAX_MEMORY_CHARS * 3))))
-    # Context utilization: fraction of tier content used (simplified)
-    snap["context_utilization"] = 0.5  # default; could be enhanced
-    # Composite
-    composite = sum(WEIGHTS.get(k, 0) * v for k, v in snap.items())
-    snap["composite"] = composite
-    snap["timestamp"] = _now()
-    return snap
-
-def fitness_compare(prev, curr):
-    if not prev or not curr:
-        return {"delta_composite": 0.0, "delta_dimensions": {}, "effect": "unknown"}
-    delta_c = curr.get("composite", 0.0) - prev.get("composite", 0.0)
-    deltas = {}
-    for dim in WEIGHTS:
-        deltas[dim] = curr.get(dim, 0.0) - prev.get(dim, 0.0)
-    # Effect size: Cohen's d approximation (simple delta / 0.5 spread)
-    spread = 0.5
-    effect_size = abs(delta_c) / spread if spread > 0 else 0.0
-    if effect_size < 0.2:
-        effect = "negligible"
-    elif effect_size < 0.5:
-        effect = "small"
-    elif effect_size < 0.8:
-        effect = "medium"
-    else:
-        effect = "large"
-    return {"delta_composite": delta_c, "delta_dimensions": deltas, "effect": effect, "effect_size": effect_size}
+    return _fitness_snapshot(ITER_ROOT, MAX_MEMORY_CHARS)
 
 # ---- Logging ----
 
@@ -301,7 +190,51 @@ def _hash_all_tools():
         pass
     return hashes
 
-# ---- Validation (3-level) ----
+GATED_EXTRA = [
+    "iter.py",                     # core loop; --invoke re-executes it per tool call, so a hot-load creates mixed state
+    "tools/self_improve.py",       # the referee
+    "tools/_memory_projection.py", # the ruler
+    "tools/_memory_guard.py",      # the content-mutation guard
+]
+
+def _gated_paths():
+    out = set()
+    for rel in list(_soul_lock.SOUL_FILES) + GATED_EXTRA:
+        out.add(os.path.realpath(os.path.join(ITER_ROOT, rel)))
+    return out
+
+def _gate_check(target):
+    """Return None if `target` may be written now, else an error dict.
+    Gated files require memory/soul_lock.json status == "locked" (any holder;
+    the holder is recorded in the ledger by the caller)."""
+    real = os.path.realpath(target)
+    if real not in _gated_paths():
+        return None
+    lock = _soul_lock._load_lock()
+    if lock.get("status") == "locked":
+        return None
+    return {
+        "error": "constitutional file: soul lock required",
+        "target": target,
+        "how_to": "call soul_lock action=begin first (backs up all SOUL_FILES), then re-run this "
+                  "apply/full_loop, then soul_lock action=commit to keep or action=rollback to undo. "
+                  "revert is never gated.",
+        "gated_files": sorted(os.path.relpath(p, os.path.realpath(ITER_ROOT)) for p in _gated_paths()),
+    }
+
+def _lock_holder():
+    try:
+        return _soul_lock._load_lock().get("holder")
+    except Exception:
+        return None
+
+def _targets_memory(target):
+    """True if the file being changed lives under memory/ -- shrinking the corpus
+    by editing/deleting it must not read as a memory_efficiency gain."""
+    real = os.path.realpath(target)
+    mem = os.path.realpath(os.path.join(ITER_ROOT, "memory"))
+    return real == mem or real.startswith(mem + os.sep)
+
 
 def _validate_compile(filepath):
     """Level 1: Smoke test â does the file compile?"""
@@ -377,6 +310,7 @@ def _run_validation(filepath):
     results["all_passed"] = all_passed
     return all_passed, results
 
+
 # ---- Backup / Restore ----
 
 def _make_backup(filepath):
@@ -399,6 +333,8 @@ def _make_backup(filepath):
     if _write_file(backup_path, content):
         return backup_path
     return None
+
+
 
 def _restore_backup(backup_path, target_path):
     """Restore file from backup. Returns True on success."""
@@ -425,95 +361,7 @@ def _list_backups():
         pass
     return sorted(backups, key=lambda b: b["file"], reverse=True)
 
-# ---- Main run ----
-
-def _coerce_bool(value, default=True):
-    """Schema types every parameter as string, so "false" must not be truthy."""
-    if isinstance(value, bool):
-        return value
-    if value is None or str(value).strip() == "":
-        return default
-    return str(value).strip().lower() not in ("false", "0", "no", "off", "n")
-
-
-def _coerce_list(value):
-    """Accept a JSON array string, a comma-separated string, or a real list."""
-    if isinstance(value, list):
-        return value
-    if value is None or str(value).strip() == "":
-        return []
-    text = str(value).strip()
-    if text.startswith("["):
-        try:
-            parsed = json.loads(text)
-            if isinstance(parsed, list):
-                return parsed
-        except ValueError:
-            pass
-    return [p.strip() for p in text.split(",") if p.strip()]
-
-
-def run(action="snapshot", target="", content="", description="", backup="",
-        prev="", curr="", prev_snapshot="", curr_snapshot="", files_changed="",
-        auto_revert="", revert_on_degradation=""):
-    """Entry point.
-
-    FIX (2026-09-17 audit, root cause of "hot-load/rollback never fired"):
-    this used to be `def run(action="snapshot", **kwargs)`. iter.py builds
-    each tool's schema from inspect.signature(run) -- it advertises every
-    parameter NAME as a required string property with additionalProperties
-    False. `**kwargs` therefore showed up to the model as a single string
-    field literally named "kwargs", and target/content/description/etc. were
-    never exposed at all. Any JSON the model stuffed into that field arrived
-    here as kwargs["kwargs"] = "<string>", so kwargs.get("target") was always
-    None and apply/full_loop/revert/compare/record returned
-    {"error": "missing 'target' argument"} on every attempt. Only the
-    no-argument actions (snapshot, champion, backups, log, dry_run) were
-    ever reachable -- which is exactly the set of actions present in the
-    lifetime ledger. Reproduced live during the 2026-09-17 verification
-    drill (3 identical failures on STEP 2).
-
-    Parameters are now declared explicitly so the schema exposes them. The
-    body below is unchanged: it still reads from a `kwargs` dict, which is
-    rebuilt here from the named parameters. Booleans and lists are coerced
-    because the schema delivers everything as strings ("false" would
-    otherwise be truthy and defeat auto_revert).
-    """
-    action = action or "snapshot"
-    kwargs = {
-        "target": target or "",
-        "content": content if content is not None else "",
-        "description": description or "",
-        "backup": backup or "",
-        "prev": prev if prev not in ("", None) else None,
-        "curr": curr if curr not in ("", None) else None,
-        "prev_snapshot": prev_snapshot if prev_snapshot not in ("", None) else None,
-        "curr_snapshot": curr_snapshot if curr_snapshot not in ("", None) else None,
-        "files_changed": _coerce_list(files_changed),
-        "auto_revert": _coerce_bool(auto_revert, True),
-        "revert_on_degradation": _coerce_bool(revert_on_degradation, True),
-    }
-
-    if action == "snapshot":
-        snap = fitness_snapshot()
-        return json.dumps(snap)
-
-    if action == "compare":
-        prev = kwargs.get("prev")
-        curr = kwargs.get("curr")
-        if isinstance(prev, str):
-            prev = json.loads(prev)
-        if isinstance(curr, str):
-            curr = json.loads(curr)
-        result = fitness_compare(prev, curr)
-        return json.dumps(result)
-
-    if action == "champion":
-        champ = _load_champion()
-        if champ:
-            return json.dumps(champ)
-        return json.dumps({"status": "no champion set"})
-
+def _file_revision(action, kwargs):
     if action == "apply":
         """Safe change: backup â write â validate. Auto-revert on failure.
 
@@ -574,57 +422,6 @@ def run(action="snapshot", target="", content="", description="", backup="",
             response["revert_reason"] = "validation failed"
 
         return json.dumps(response)
-
-    if action == "revert":
-        """Restore a file from a backup.
-
-        Args:
-          backup: backup file path (from apply response)
-          target: original file path (where to restore)
-        """
-        backup = kwargs.get("backup", "")
-        target = kwargs.get("target", "")
-
-        if not backup:
-            # Try to find most recent backup for target
-            if target:
-                if not target.startswith("/"):
-                    target = os.path.join(ITER_ROOT, target)
-                basename = os.path.basename(target).replace(".", "_")
-                backups = _list_backups()
-                for b in backups:
-                    if b["file"].startswith(basename):
-                        backup = b["path"]
-                        break
-            if not backup:
-                return json.dumps({"error": "no backup specified or found"})
-
-        if not target:
-            # Derive target from backup name
-            basename = os.path.basename(backup)
-            # Format: name_ext_TIMESTAMP.bak â name.ext
-            parts = basename.rsplit("_", 1)  # split off timestamp.bak
-            if len(parts) == 2:
-                name_part = parts[0]
-                # Restore dots: convert name_ext â name.ext
-                last_underscore = name_part.rfind("_")
-                if last_underscore >= 0:
-                    target = name_part[:last_underscore] + "." + name_part[last_underscore + 1:]
-                    target = os.path.join(ITER_ROOT, target)
-
-        if not target:
-            return json.dumps({"error": "could not determine target path"})
-
-        restored = _restore_backup(backup, target)
-        return json.dumps({
-            "restored": restored,
-            "backup": backup,
-            "target": target,
-        })
-
-    if action == "backups":
-        """List available backups."""
-        return json.dumps(_list_backups())
 
     if action == "full_loop":
         """Complete DGM cycle: snapshot â apply â validate â snapshot â compare â accept/revert.
@@ -794,8 +591,269 @@ def run(action="snapshot", target="", content="", description="", backup="",
             "experiment": entry,
         })
 
+
+# ---- Main run ----
+
+def _coerce_list(value):
+    """Accept a JSON array string, a comma-separated string, or a real list."""
+    if isinstance(value, list):
+        return value
+    if value is None or str(value).strip() == "":
+        return []
+    text = str(value).strip()
+    if text.startswith("["):
+        try:
+            parsed = json.loads(text)
+            if isinstance(parsed, list):
+                return parsed
+        except ValueError:
+            pass
+    return [p.strip() for p in text.split(",") if p.strip()]
+
+
+def _stage_hotload_revision(target, content, description, action, proposal_id="",
+                           revert_on_degradation=True):
+    """Replace the historic live write with an inert candidate generation."""
+    if not target:
+        return {"error": "missing 'target' argument"}
+    supplied = target
+    if os.path.isabs(supplied):
+        try:
+            supplied = os.path.relpath(os.path.realpath(supplied), os.path.realpath(ITER_ROOT))
+        except ValueError:
+            return {"error": "target is outside the Iter runtime root", "target": target}
+    supplied = supplied.replace("\\", "/")
+    if supplied.startswith("./"):
+        supplied = supplied[2:]
+    try:
+        parent = HOTLOAD.active()["generation_id"]
+        contract = {
+            "module_id": supplied,
+            "version": time.strftime("%Y%m%dT%H%M%S", time.gmtime()),
+            "purpose": description or "Iter-proposed runtime repair",
+            "source_pressure": description or "self-improvement request",
+            "atlas_slice": "HOT-1/HOT-2",
+            "allowed_writes": [supplied],
+            "allowed_effects": ["managed-component-runtime"],
+            "tests": ["python_compile", "component_contract"],
+            "rollback_target": parent,
+            "provenance": "tools/self_improve.py:%s" % action,
+        }
+        if action == "full_loop":
+            contract["fitness_review"] = {"revert_on_degradation": revert_on_degradation}
+        candidate = HOTLOAD.stage({supplied: content}, contract)
+        candidate = HOTLOAD.validate(candidate["candidate_id"])
+        if candidate["validation"]["passed"]:
+            ok, message = _candidate_regressions(candidate)
+            candidate["validation"]["regression"] = {"passed": ok, "message": message}
+            if not ok:
+                candidate["validation"]["passed"] = False
+                candidate["status"] = "validation_failed"
+            with HOTLOAD._locked():
+                HOTLOAD._write_candidate(candidate)
+        response = {
+            "status": candidate["status"],
+            "candidate_id": candidate["candidate_id"],
+            "generation_id": candidate["generation_id"],
+            "rollback_target": parent,
+            "backup": "generation:" + parent,
+            "validation": candidate["validation"],
+            "live_generation_unchanged": True,
+            "candidate_executed": False,
+        }
+        if not candidate["validation"]["passed"]:
+            response["reverted"] = False
+            response["revert_reason"] = "candidate never left quarantine"
+            return response
+        if action == "stage":
+            return response
+        # A card is optional. If selected, it must be genuinely authorized;
+        # an invalid selected card never falls back to the ordinary-loop path.
+        work = HOTLOAD.approved_revision_work(candidate, proposal_id) if proposal_id else None
+        active = HOTLOAD.activate(candidate["candidate_id"],
+                                  work["id"] if work else "",
+                                  work["dispatch_authorization"] if work else "")
+        response.update(status="probation", active=active,
+                        live_generation_unchanged=False,
+                        next="Use the revision next cycle. External supervision promotes it or restores the saved parent.")
+        if work:
+            response["pwq_proposal_id"] = work["id"]
+        if action == "full_loop":
+            response["pre_snapshot"] = HOTLOAD._read_candidate(candidate["candidate_id"])["fitness_before"]
+        return response
+    except (HotloadError, ValueError, OSError) as exc:
+        return {"error": "%s: %s" % (type(exc).__name__, exc), "target": supplied}
+
+
+def _candidate_regressions(candidate):
+    """Run the user's existing registered checks against candidate components.
+
+    The temporary path view is not a security sandbox. These are the same
+    trusted local checks the original self_improve executed, not new rules.
+    """
+    import tempfile
+    root = Path(ITER_ROOT).resolve()
+    generation = HOTLOAD._generation_path(candidate["generation_id"])
+    previous = os.getcwd()
+    with tempfile.TemporaryDirectory(prefix="iter-regression-", dir="/tmp") as directory:
+        view = Path(directory)
+        for entry in root.iterdir():
+            target = generation / entry.name if entry.name in ("tools", "transformations", "channels") else entry
+            (view / entry.name).symlink_to(target, target_is_directory=target.is_dir())
+        try:
+            os.chdir(view)
+            return _validate_regression()
+        finally:
+            os.chdir(previous)
+
+
+def run(action="snapshot", target="", content="", description="", backup="",
+        prev="", curr="", prev_snapshot="", curr_snapshot="", files_changed="",
+        proposal_id="", revert_on_degradation="", auto_revert=""):
+    """Snapshot/compare/record fitness or apply a recoverable code revision.
+
+    Named optional parameters remain visible to Iter's callable schema while
+    Python defaults stay genuinely optional. apply/full_loop activate revisions
+    through the ordinary loop; stage prepares without activation. An explicitly
+    selected PWQ work item retains its consent/scope checks.
+    """
+    action = action or "snapshot"
+    if action == "status":
+        return json.dumps(HOTLOAD.status(), default=str)
+    kwargs = {
+        "target": target or "",
+        "content": content if content is not None else "",
+        "description": description or "",
+        "backup": backup or "",
+        "prev": prev if prev not in ("", None) else None,
+        "curr": curr if curr not in ("", None) else None,
+        "prev_snapshot": prev_snapshot if prev_snapshot not in ("", None) else None,
+        "curr_snapshot": curr_snapshot if curr_snapshot not in ("", None) else None,
+        "files_changed": _coerce_list(files_changed),
+    }
+
+    if action == "snapshot":
+        snap = fitness_snapshot()
+        return json.dumps(snap)
+
+    if action == "compare":
+        prev = kwargs.get("prev")
+        curr = kwargs.get("curr")
+        if isinstance(prev, str):
+            prev = json.loads(prev)
+        if isinstance(curr, str):
+            curr = json.loads(curr)
+        result = fitness_compare(prev, curr)
+        return json.dumps(result)
+
+    if action == "champion":
+        champ = _load_champion()
+        if champ:
+            return json.dumps(champ)
+        return json.dumps({"status": "no champion set"})
+
+    if action in ("apply", "full_loop", "stage"):
+        if not target:
+            return json.dumps({"error": "missing 'target' argument"})
+        relative = os.path.relpath(os.path.realpath(target), os.path.realpath(ITER_ROOT)).replace("\\", "/")
+        managed = len(Path(relative).parts) == 2 and Path(relative).parts[0] in ("tools", "transformations", "channels") and relative.endswith(".py")
+        if action != "stage":
+            blocked = _gate_check(target)
+            if blocked:
+                return json.dumps(blocked)
+        if not managed and action != "stage":
+            kwargs["auto_revert"] = str(auto_revert).lower() not in ("false", "0", "no", "off")
+            kwargs["revert_on_degradation"] = str(revert_on_degradation).lower() not in ("false", "0", "no", "off")
+            return _file_revision(action, kwargs)
+        result = _stage_hotload_revision(
+            kwargs.get("target", ""),
+            kwargs.get("content", ""),
+            kwargs.get("description", ""),
+            action,
+            proposal_id,
+            str(revert_on_degradation).strip().lower() not in ("false", "0", "no", "off", "n"),
+        )
+        if action == "full_loop" and "error" not in result and result.get("validation", {}).get("passed"):
+            result["comparison"] = {
+                "status": "automatic_after_probation",
+                "reason": "The external supervisor compares recorded before/after fitness and accepts or restores the parent. Read revision_control status or self_improve log for the outcome.",
+            }
+        return json.dumps(result)
+
+    if action == "revert":
+        """Restore a file from a backup.
+
+        Args:
+          backup: backup file path (from apply response)
+          target: original file path (where to restore)
+        """
+        backup = kwargs.get("backup", "")
+        target = kwargs.get("target", "")
+
+        if backup.startswith("generation:"):
+            try:
+                from iterbrow_runtime.hotload_manager import _safe_relative
+                relative = _safe_relative(target)
+                generation, _ = HOTLOAD._verify_generation(backup.split(":", 1)[1])
+                content = (generation / relative).read_text(encoding="utf-8")
+                return json.dumps(_stage_hotload_revision(
+                    relative.as_posix(), content, description or "Restore exact saved component",
+                    "apply", proposal_id))
+            except (HotloadError, ValueError, OSError) as exc:
+                return json.dumps({"error": str(exc), "restored": False})
+
+        if not backup:
+            # Try to find most recent backup for target
+            if target:
+                if not target.startswith("/"):
+                    target = os.path.join(ITER_ROOT, target)
+                basename = os.path.basename(target).replace(".", "_")
+                backups = _list_backups()
+                for b in backups:
+                    if b["file"].startswith(basename):
+                        backup = b["path"]
+                        break
+            if not backup:
+                return json.dumps({"error": "no backup specified or found"})
+
+        if not target:
+            # Derive target from backup name
+            basename = os.path.basename(backup)
+            # Format: name_ext_TIMESTAMP.bak â name.ext
+            parts = basename.rsplit("_", 1)  # split off timestamp.bak
+            if len(parts) == 2:
+                name_part = parts[0]
+                # Restore dots: convert name_ext â name.ext
+                last_underscore = name_part.rfind("_")
+                if last_underscore >= 0:
+                    target = name_part[:last_underscore] + "." + name_part[last_underscore + 1:]
+                    target = os.path.join(ITER_ROOT, target)
+
+        if not target:
+            return json.dumps({"error": "could not determine target path"})
+
+        # A historical file backup is still useful, but a write to the source
+        # tree alone cannot replace an active immutable component generation.
+        relative = os.path.relpath(os.path.realpath(target), os.path.realpath(ITER_ROOT)).replace("\\", "/")
+        if relative.split("/", 1)[0] in ("tools", "transformations", "channels"):
+            if not _exists(backup):
+                return json.dumps({"error": "backup does not exist", "restored": False})
+            return json.dumps(_stage_hotload_revision(
+                relative, _read_file(backup), description or "Restore historical component backup",
+                "apply", proposal_id))
+        restored = _restore_backup(backup, target)
+        return json.dumps({
+            "restored": restored,
+            "backup": backup,
+            "target": target,
+        })
+
+    if action == "backups":
+        """List available backups."""
+        return json.dumps(_list_backups())
+
     if action == "record":
-        # Record an experiment result (manual, without apply/revert)
+        # Record an experiment result without staging or activation.
         prev_snap = kwargs.get("prev_snapshot")
         curr_snap = kwargs.get("curr_snapshot")
         files_changed = kwargs.get("files_changed", [])
@@ -865,6 +923,7 @@ def run(action="snapshot", target="", content="", description="", backup="",
             "micropython_compat": True,
             "actions": ["snapshot", "compare", "champion", "apply", "revert",
                         "backups", "full_loop", "record", "log", "dry_run"],
+            "apply_semantics": "backup_validate_hotload_recover",
         })
 
     return json.dumps({"error": "unknown action: " + action})

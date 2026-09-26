@@ -17,10 +17,16 @@ import time
 import math
 import hashlib
 import binascii
+import sys
+import uuid
+import fcntl
 import urllib.request
+from pathlib import Path
 
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# Component code may execute from an immutable hot-load generation.  The
+# semantic-memory projection is application state and must never move with it.
+ROOT = os.path.realpath(os.environ.get("ITER_DIR") or os.getcwd())
 DB_DIR = ROOT + "/chroma_db"
 DB_FILE = DB_DIR + "/memories.json"
 
@@ -31,6 +37,132 @@ EMBEDDING_SCHEMA = 3
 EMBEDDING_BATCH_SIZE = 32
 
 _id_counter = 0
+
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
+
+from iterbrow_runtime.cognitive_events import commit_batch, metta_string, _call_atomspace
+
+
+class MemoryCommitUncertain(RuntimeError):
+    execution_outcome = {"success": None, "state": "uncertain", "scope": "invocation",
+                         "task_fulfillment": "unverified"}
+
+
+class MemoryProjectionPending(RuntimeError):
+    execution_outcome = {"success": None, "state": "projection_pending", "scope": "invocation",
+                         "task_fulfillment": "unverified"}
+
+
+def pending_remember(text):
+    """Reuse the original identity after an interrupted write, not a new fact."""
+    wanted = " ".join(text.split())
+    for path in sorted((Path(ROOT) / ".runtime" / "memory_pending").glob("*.json")):
+        entry = json.loads(path.read_text())
+        kind, records, _ = entry["request"]
+        if kind == "remembered" and len(records) == 1 and " ".join(records[0]["document"].split()) == wanted:
+            return records[0]
+    return None
+
+
+def memory_status(item_id):
+    """Read committed identity without embeddings or repeating the write."""
+    key = "state:semantic_memory:" + str(item_id)
+    snapshot = _call_atomspace("read_atoms", timeout=10, prefix=key)
+    atom = snapshot["atoms"].get(key)
+    return {"memory_id": item_id, "state": "committed" if atom else "not_observed",
+            "commit": snapshot["commit"], "atom": atom,
+            "search_projection_present": item_id in _load()["ids"],
+            "notice": "A missing record is not proof that an in-flight write failed."}
+
+
+def _finish_memory_projection(result):
+    if isinstance(result, dict) and result.get("_pending_path"):
+        path = Path(result["_pending_path"])
+        if path.exists() and json.loads(path.read_text())["operation_id"] == result["_operation_id"]:
+            path.unlink()
+
+
+def _save_committed_projection(db, committed):
+    try:
+        _save(db)
+    except Exception as error:
+        if isinstance(committed, dict) and not committed.get("deferred"):
+            raise MemoryProjectionPending(
+                "Durable memory commit %s is confirmed, but its search projection could not be saved. "
+                "Retry the original text/IDs to finish the projection; do not create a replacement."
+                % committed.get("commit")
+            ) from error
+        raise
+    _finish_memory_projection(committed)
+
+
+def _memory_atom(item_id, document, metadata):
+    return "(semantic-memory %s %s %s)" % (
+        metta_string(item_id), metta_string(document),
+        metta_string(json.dumps(metadata or {}, sort_keys=True, ensure_ascii=False)),
+    )
+
+
+def _commit_memory_change(kind, records, remove_ids=None):
+    # Keep uncertain retries stable, but never confuse a later A->B->A edit
+    # with an earlier completed operation. Reuse the existing runtime directory.
+    canonical = json.dumps([kind, records, remove_ids or []], sort_keys=True, ensure_ascii=False)
+    pending_dir = Path(ROOT) / ".runtime" / "memory_pending"
+    pending_dir.mkdir(parents=True, exist_ok=True)
+    pending = pending_dir / (hashlib.sha256(canonical.encode()).hexdigest() + ".json")
+    from iterbrow_runtime.atomspace_store import _atomic_json
+    with (pending_dir / "writer.lock").open("a") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        if pending.exists():
+            operation_id = json.loads(pending.read_text())["operation_id"]
+        else:
+            operation_id = uuid.uuid4().hex
+            _atomic_json(pending, {"operation_id": operation_id, "request": json.loads(canonical)})
+        try:
+            result = _commit_memory_operation(kind, records, remove_ids, operation_id)
+        except (OSError, json.JSONDecodeError) as error:
+            ids = ",".join(str(record["id"]) for record in records)
+            raise MemoryCommitUncertain(
+                "No confirmed reply for memory ID(s) %s, transaction %s. The write may commit later. "
+                "Use remember(status_id=ID) to inspect it; retry the exact same text/IDs, not a reworded replacement."
+                % (ids, "cognitive:memory:" + operation_id)
+            ) from error
+        # Keep the existing recovery entry until the local search projection is
+        # saved too. An acknowledged commit followed by a crash is recoverable.
+        return {**result, **({"_pending_path": str(pending), "_operation_id": operation_id}
+                            if not result.get("deferred") else {})}
+
+
+def _commit_memory_operation(kind, records, remove_ids, operation_id):
+    canonical = json.dumps(
+        {"kind": kind, "records": records, "remove_ids": remove_ids or []},
+        sort_keys=True, ensure_ascii=False,
+    )
+    digest = operation_id
+    events = []
+    state_atoms = {}
+    for record in records:
+        item_id = record["id"]
+        events.append({
+            "event_id": "memory:%s:%s:%s" % (kind, item_id, digest[:16]),
+            "domain": "semantic_memory",
+            "entity_id": item_id,
+            "event_type": kind,
+            "payload": record,
+        })
+        if kind != "forgotten":
+            state_atoms["semantic_memory:%s" % item_id] = _memory_atom(
+                item_id, record.get("document", ""), record.get("metadata", {})
+            )
+    return commit_batch(
+        events,
+        state_atoms=state_atoms,
+        remove_state_keys=["semantic_memory:%s" % item_id for item_id in (remove_ids or [])],
+        actor="iter",
+        source="tools._petta_db",
+        transaction_id="cognitive:memory:%s" % digest,
+    )
 
 
 def _exists(path):
@@ -104,12 +236,21 @@ def _write_new_file(path, db):
         "embedding_dimensions": db.get("embedding_dimensions", EMBEDDING_DIMENSIONS),
         "embedding_schema": EMBEDDING_SCHEMA,
     }
-    with open(path, "w") as file:
+    with open(path, "w", encoding="utf-8") as file:
         file.write(json.dumps(storage_db))
+        file.flush()
+        os.fsync(file.fileno())
+
+
+def _fsync_db_dir():
+    try:
+        descriptor = os.open(DB_DIR, os.O_RDONLY)
         try:
-            file.flush()
-        except Exception:
-            pass
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+    except OSError:
+        pass
 
 
 def _save(db):
@@ -125,14 +266,16 @@ def _save(db):
     try:
         if _exists(DB_FILE):
             _remove_if_present(backup)
-            os.rename(DB_FILE, backup)
+            os.replace(DB_FILE, backup)
             moved_old = True
-        os.rename(tmp, DB_FILE)
+        os.replace(tmp, DB_FILE)
+        _fsync_db_dir()
     except Exception:
         _remove_if_present(tmp)
         if moved_old and not _exists(DB_FILE) and _exists(backup):
             try:
-                os.rename(backup, DB_FILE)
+                os.replace(backup, DB_FILE)
+                _fsync_db_dir()
             except Exception:
                 pass
         raise
@@ -144,7 +287,8 @@ def _restore_backup(backup):
     _remove_if_present(recover)
     _write_new_file(recover, db)
     _remove_if_present(DB_FILE)
-    os.rename(recover, DB_FILE)
+    os.replace(recover, DB_FILE)
+    _fsync_db_dir()
     return db
 
 
@@ -349,7 +493,11 @@ class Collection:
         db["embedding_model"] = EMBEDDING_MODEL
         db["embedding_dimensions"] = EMBEDDING_DIMENSIONS
         db["embedding_schema"] = EMBEDDING_SCHEMA
-        _save(db)
+        committed = _commit_memory_change("remembered", [
+            {"id": ids[i], "document": documents[i], "metadata": metadatas[i]}
+            for i in range(len(ids))
+        ])
+        _save_committed_projection(db, committed)
 
     def get(self, ids=None, include=None, where=None, where_document=None, limit=None):
         db = _load()
@@ -417,18 +565,35 @@ class Collection:
                 db["metadatas"][index] = metadatas[target_index]
             if embeddings is not None:
                 db["embeddings"][index] = embeddings[target_index]
-        _save(db)
-
-    def delete(self, ids):
-        db = _load()
+        records = []
         for item_id in ids:
             if item_id in db["ids"]:
                 index = db["ids"].index(item_id)
+                records.append({
+                    "id": item_id,
+                    "document": db["documents"][index],
+                    "metadata": db["metadatas"][index],
+                })
+        committed = _commit_memory_change("memory_updated", records) if records else None
+        _save_committed_projection(db, committed)
+
+    def delete(self, ids):
+        db = _load()
+        removed = []
+        for item_id in ids:
+            if item_id in db["ids"]:
+                index = db["ids"].index(item_id)
+                removed.append({
+                    "id": item_id,
+                    "document": db["documents"][index],
+                    "metadata": db["metadatas"][index],
+                })
                 del db["ids"][index]
                 del db["documents"][index]
                 del db["metadatas"][index]
                 del db["embeddings"][index]
-        _save(db)
+        committed = _commit_memory_change("forgotten", removed, remove_ids=[item["id"] for item in removed]) if removed else None
+        _save_committed_projection(db, committed)
 
 
 class PersistentClient:

@@ -5,10 +5,9 @@ recorded at, instead of only trusting the model's own claim in the moment.
 Ported from ClarityOmega/soul/task_state.metta's phase-atom concept. Call
 this explicitly whenever you start, progress, or finish a distinct piece of
 work -- especially right before claiming something is done in a send.
-Cheap: one appended file line per call, plain text (no MeTTa engine
-dependency -- pymetta is not installed on this machine, see
-tools/_metta_gate.py's docstring), consistent with how nace_beliefs.metta
-and other state files here are already read/written directly.
+Each mutation commits a keyed task atom and event to the authoritative
+AtomSpace first, then appends the historic `task_state.metta` line as a
+compatibility projection for existing guards and dashboards.
 
 Phases (expected order, not enforced -- honesty over rigidity):
   planning   -- deciding what to build/do
@@ -25,7 +24,15 @@ remembering to self-check in the moment.
 """
 import os
 import re
+import sys
 import time
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from iterbrow_runtime.cognitive_events import commit_event, metta_string
 
 DESCRIPTION = "Record or query a task's current phase (planning/building/verifying/complete) -- call this before claiming something is done, run(action='set', label=..., phase=...) or run(action='get'|'list')"
 
@@ -59,10 +66,20 @@ def run(action="get", label="", phase="", note=""):
         note_safe = str(note).replace('"', "'")[:200]
         line = '(task-phase "%s" %s "%s") ;; %s\n' % (label_safe, phase_norm, note_safe, _timestamp())
         try:
+            commit_event(
+                "task", label_safe, "phase_set",
+                {"phase": phase_norm, "note": note_safe, "at": _timestamp()},
+                state_atom="(task-phase %s %s %s)" % (
+                    metta_string(label_safe), phase_norm, metta_string(note_safe)
+                ),
+                source="tools.task_state",
+            )
             with open(PATH, "a", encoding="utf-8") as f:
                 f.write(line)
+                f.flush()
+                os.fsync(f.fileno())
         except Exception as e:
-            return "error writing task_state.metta: %s" % e
+            return "error committing task phase: %s" % e
         return "recorded: %s -> %s" % (label_safe, phase_norm)
 
     elif action == "get":

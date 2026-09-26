@@ -45,6 +45,7 @@ MEMORY_DIR = "memory"
 
 # Directories anywhere in the relative path.
 EXCLUDE_DIRS = frozenset({
+    "archive",
     "recap",
     "tiers",
     "self_improve_backups",

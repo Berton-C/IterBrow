@@ -1,14 +1,32 @@
-"""NACE Courier â processes pending belief revisions and writes back to nace_beliefs.metta.
+"""NACE Courier — commits pending belief revisions and refreshes the projection.
 The Mobius cycle glue: reads pending revisions, computes NAL Truth_Revision
-in Python (same formula as the MeTTa substrate), writes updated beliefs back.
-Uses pure string parsing for MicroPython compatibility.
+in the native AtomSpace, commits all revised belief
+atoms in one authoritative transaction, then writes nace_beliefs.metta as a
+compatibility projection.
 """
 
 import json
+import hashlib
 import os
 import sys
+import uuid
+import re
+import math
+from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tools"))
+ROOT_PATH = Path(__file__).resolve().parents[1]
+if str(ROOT_PATH) not in sys.path:
+    sys.path.insert(0, str(ROOT_PATH))
+
+try:
+    from iterbrow_runtime.cognitive_events import commit_batch, _call_atomspace
+except ImportError:
+    # Historical fixture tests copy this transformation into a minimal temp
+    # tree without the runtime package. The real Electron runtime always has
+    # the package and sets ITER_REQUIRE_ATOMSPACE=1.
+    def commit_batch(*_args, **_kwargs):
+        return {"deferred": True, "reason": "fixture without runtime services"}
 
 DESCRIPTION = ("NACE courier: processes pending NAL belief revisions from nace_pending.metta, "
                "writes updated beliefs to nace_beliefs.metta. The Mobius cycle glue.")
@@ -16,19 +34,16 @@ DESCRIPTION = ("NACE courier: processes pending NAL belief revisions from nace_p
 ITER_ROOT = "."
 BELIEFS_PATH = os.path.join(ITER_ROOT, "nace_beliefs.metta")
 PENDING_PATH = os.path.join(ITER_ROOT, "nace_pending.metta")
+RECOVERY_PATH = os.path.join(
+    ITER_ROOT, "transformations", ".runtime", "nace_projection_recovery.json"
+)
 
 # --------------------------------------------------------------------
-# Phase 2 -- live-engine validation (added; does not change any of the
-# behavior above). Runs AFTER process_revisions() has already parsed,
-# revised, and written nace_beliefs.metta -- order matters: the write is the
-# authoritative, load-bearing action and must complete first, unaffected by
-# anything that follows. This validation step re-derives the same NAL
-# Truth_Revision result via the real pymetta engine (nace_substrate.metta's
-# own Truth_Revision formula) for each revision this cycle, purely to check
-# it agrees with the pure-Python reimplementation above, and logs any
-# mismatch/error to a small capped diagnostics file. It never feeds its
-# result back into beliefs, never raises out of transform(), and is skipped
-# entirely (via the shared circuit breaker) after repeated recent failures.
+# Phase 2 -- live-engine validation. After process_revisions() commits the
+# authoritative belief transaction and refreshes nace_beliefs.metta, this
+# re-derives Truth_Revision with the Hyperon query service as a cross-check.
+# It never becomes a writer and is skipped by the circuit breaker after
+# repeated recent failures.
 # -------------------------------------------------------------------
 VALIDATION_LOG_PATH = os.path.join(ITER_ROOT, "memory", "_metta_validation_log.json")
 _VALIDATION_LOG_MAX_ENTRIES = 200
@@ -79,18 +94,19 @@ def validate_against_live_engine(candidates):
     import time
     mismatches = []
     log_entries = []
-    any_ok = False
-    for c in candidates:
-        query = "!(Truth_Revision (stv %s %s) (stv %s %s))" % (c["cur_f"], c["cur_c"], c["ev_f"], c["ev_c"])
-        result = _sub.run_query(query)
-        if not result["ok"]:
-            log_entries.append({"ts": time.time(), "key": c["key"], "error": result["error"]})
-            continue
-        any_ok = True
-        live_f, live_c = _parse_stv(result["result"])
-        if live_f is None:
-            log_entries.append({"ts": time.time(), "key": c["key"], "error": "unparseable engine result: %s" % result["result"][:150]})
-            continue
+    # One read-only engine snapshot per batch, rather than rebuilding a query
+    # worker for every revised belief and timing out the entire courier.
+    query = "\n".join("!(Truth_Revision (stv %s %s) (stv %s %s))" %
+                      (c["cur_f"], c["cur_c"], c["ev_f"], c["ev_c"]) for c in candidates)
+    result = _sub.run_query(query)
+    import re
+    values = re.findall(r"stv\s+([-\d.eE]+)\s+([-\d.eE]+)", str(result.get("result", "")))
+    if not result["ok"] or len(values) != len(candidates):
+        _sub.breaker_record_result(_BREAKER_KEY, False)
+        _append_validation_log([{"ts": time.time(), "error": result.get("error") or "incomplete validation batch"}])
+        return "live-engine cross-check unavailable; committed belief revisions retained"
+    for c, value in zip(candidates, values):
+        live_f, live_c = map(float, value)
         # Small tolerance for float rounding between the two implementations.
         if abs(live_f - c["new_f"]) > 0.01 or abs(live_c - c["new_c"]) > 0.01:
             mismatches.append(c["key"])
@@ -100,7 +116,7 @@ def validate_against_live_engine(candidates):
                 "engine_result": [live_f, live_c],
             })
 
-    _sub.breaker_record_result(_BREAKER_KEY, any_ok or not candidates)
+    _sub.breaker_record_result(_BREAKER_KEY, True)
     if log_entries:
         _append_validation_log(log_entries)
 
@@ -185,11 +201,103 @@ def _read_file(path):
 
 
 def _write_file(path, content):
+    directory = os.path.dirname(path) or "."
+    os.makedirs(directory, exist_ok=True)
+    temporary = path + ".tmp"
+    with open(temporary, "w") as fh:
+        fh.write(content)
+        fh.flush()
+        os.fsync(fh.fileno())
+    os.replace(temporary, path)
+
+
+def _write_recovery(record):
+    directory = os.path.dirname(RECOVERY_PATH) or "."
+    os.makedirs(directory, exist_ok=True)
+    temporary = RECOVERY_PATH + ".tmp"
+    with open(temporary, "w", encoding="utf-8") as handle:
+        json.dump(record, handle, sort_keys=True, ensure_ascii=False)
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(temporary, RECOVERY_PATH)
+
+
+def _remove_consumed_pending(current_content, consumed_content):
+    """Remove only the exact revision lines included in this transaction.
+
+    Writers may append new evidence after the authoritative commit but before
+    the compatibility queue is refreshed. Those new lines must survive.
+    """
+    counts = {}
+    for line in consumed_content.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("(pending-revision "):
+            counts[stripped] = counts.get(stripped, 0) + 1
+    output = []
+    remove_adjacent_tracker_marker = False
+    for line in current_content.splitlines():
+        stripped = line.strip()
+        if counts.get(stripped, 0) > 0:
+            counts[stripped] -= 1
+            remove_adjacent_tracker_marker = True
+        elif stripped.startswith(";; tool-reliability-event "):
+            if remove_adjacent_tracker_marker:
+                remove_adjacent_tracker_marker = False
+            else:
+                output.append(line)
+        elif stripped and not stripped.startswith(";; NACE Pending"):
+            remove_adjacent_tracker_marker = False
+            output.append(line)
+        elif stripped:
+            remove_adjacent_tracker_marker = False
+    if any(counts.values()):
+        raise RuntimeError("NACE pending queue changed incompatibly during projection")
+    header = ";; NACE Pending — Queue cleared" if not output else ";; NACE Pending — unprocessed evidence"
+    return header + "\n" + ("\n".join(output) + "\n" if output else "")
+
+
+def _finish_recovery(record):
+    result = commit_batch(
+        record["domain_events"],
+        state_atoms=record["state_atoms"],
+        actor="iter",
+        source="transformations.nace_courier",
+        transaction_id=record["transaction_id"],
+        expected_atoms=record.get("expected_atoms"),
+    )
+    if result.get("deferred") and os.environ.get("ITER_REQUIRE_ATOMSPACE") == "1":
+        raise RuntimeError("NACE revision retained pending authoritative commit")
+    _write_file(BELIEFS_PATH, record["beliefs_content"])
+    remaining = _remove_consumed_pending(
+        _read_file(PENDING_PATH), record["pending_content"]
+    )
+    _write_file(PENDING_PATH, remaining)
     try:
-        with open(path, "w") as fh:
-            fh.write(content)
-    except Exception:
+        os.unlink(RECOVERY_PATH)
+    except FileNotFoundError:
         pass
+
+
+def _recover_projection_if_needed():
+    if not _exists(RECOVERY_PATH):
+        return None
+    with open(RECOVERY_PATH, "r", encoding="utf-8") as handle:
+        record = json.load(handle)
+    if record.get("schema_version") != 1:
+        raise RuntimeError("unsupported NACE projection recovery record")
+    try:
+        _finish_recovery(record)
+    except Exception as exc:
+        if "source beliefs changed; recompute" in str(exc):
+            # The store rejects this before writing anything. Keep the source
+            # observations; discard only the stale, uncommitted calculation.
+            os.unlink(RECOVERY_PATH)
+            return None
+        raise
+    return (
+        "NACE: recovered committed belief projection",
+        record.get("validation_candidates", []),
+    )
 
 
 def _split_key(key):
@@ -248,15 +356,45 @@ def _parse_pending(content):
     return pending
 
 
+def _native_revisions(pending):
+    state = _call_atomspace("read_atoms", timeout=4, prefix="state:nace_belief:")
+    atoms = state["atoms"]
+    beliefs = _parse_beliefs("\n".join(atoms.values()))
+    expressions, queries, candidates, expected = {}, [], [], {}
+    for index, (rtype, name, outcome) in enumerate(pending):
+        key = TYPE_PREFIX.get(rtype, "cap-efficacy") + ":" + name
+        if outcome not in EVIDENCE:
+            raise ValueError("unknown NACE observation outcome: " + outcome)
+        ev_f, ev_c = EVIDENCE[outcome]
+        f, c = beliefs.get(key, (0.5, 0.0))
+        prior = expressions.get(key, "(stv %s %s)" % (f, c))
+        revised = "(Truth_Revision %s (stv %s %s))" % (prior, ev_f, ev_c)
+        queries.append("!(let $prior %s (nace-revised %s $prior (Truth_Revision $prior (stv %s %s))))" % (prior, index, ev_f, ev_c))
+        expressions[key] = revised
+        expected["state:nace_belief:" + key] = atoms.get("state:nace_belief:" + key)
+        candidates.append({"key":key, "ev_f":ev_f, "ev_c":ev_c})
+    response = _call_atomspace("query", timeout=8, code="\n".join(queries), view="current")
+    pattern = r"nace-revised\s+(\d+)\s+\(stv\s+([-\d.eE]+)\s+([-\d.eE]+)\)\s+\(stv\s+([-\d.eE]+)\s+([-\d.eE]+)\)"
+    matches = re.findall(pattern, response.get("result", ""))
+    if len(matches) != len(candidates) or len({row[0] for row in matches}) != len(candidates):
+        raise RuntimeError("native revision batch incomplete; observations remain pending")
+    for index, f, c, nf, nc in matches:
+        values = [float(v) for v in (f,c,nf,nc)]
+        if not all(math.isfinite(v) and 0 <= v <= 1 for v in values):
+            raise RuntimeError("native revision returned an invalid truth value")
+        candidates[int(index)].update(zip(("cur_f","cur_c","new_f","new_c"), values))
+    return beliefs, candidates, expected
+
+
 def process_revisions():
     """Process pending revisions and write updated beliefs.
 
-    Returns (summary, validation_candidates) -- the second element is a list
-    of dicts capturing each revision's inputs/outputs, for the Phase 2
-    live-engine validation pass (see validate_against_live_engine above),
-    which the caller runs strictly AFTER this function's write has already
-    completed.
+    Native MeTTa supplies the candidate values before commit. The returned
+    inputs/outputs are evidence, not a second Python decision authority.
     """
+    recovered = _recover_projection_if_needed()
+    if recovered:
+        return recovered
     if not _exists(PENDING_PATH):
         return "", []
 
@@ -265,8 +403,17 @@ def process_revisions():
     if not pending:
         return "", []
 
-    beliefs_content = _read_file(BELIEFS_PATH)
-    beliefs = _parse_beliefs(beliefs_content)
+    # Production and normal source invocations always use native revision.
+    # Only the old explicitly isolated fixtures without a runtime package use
+    # their historical pure-function compatibility path.
+    native = "_call_atomspace" in globals()
+    if native:
+        beliefs, native_candidates, expected_atoms = _native_revisions(pending)
+        beliefs_content = "\n".join("(%s %s (stv %s %s))" % (*_split_key(k), *v) for k,v in beliefs.items())
+    else:
+        beliefs_content = _read_file(BELIEFS_PATH)
+        beliefs = _parse_beliefs(beliefs_content)
+        native_candidates, expected_atoms = None, None
 
     revised = 0
     low_efficacy = []
@@ -297,7 +444,11 @@ def process_revisions():
             cur_f = 0.5
             cur_c = 0.0
 
-        result = nal_revise(cur_f, cur_c, ev_f, ev_c)
+        if native_candidates is not None:
+            cur_f, cur_c = native_candidates[i]["cur_f"], native_candidates[i]["cur_c"]
+            result = (native_candidates[i]["new_f"], native_candidates[i]["new_c"])
+        else:
+            result = nal_revise(cur_f, cur_c, ev_f, ev_c)
         new_f = result[0]
         new_c = result[1]
         beliefs[key] = (new_f, new_c)
@@ -377,7 +528,49 @@ def process_revisions():
             new_content += "(" + prefix + " " + name + " (stv " + \
                 str(val[0]) + " " + str(val[1]) + "))\n"
 
-    # STAGE 4 (2026-09-14): route the actual belief mutation through
+    # Commit all belief revisions and their current keyed atoms together.
+    # The .metta files below are compatibility projections; if this durable
+    # transaction fails, neither projection nor pending queue advances.
+    # A new consumed batch is new evidence, even when its text repeats. The
+    # durable recovery record below retains this identity across retries.
+    pending_digest = uuid.uuid4().hex
+    domain_events = []
+    state_atoms = {}
+    for index, candidate in enumerate(validation_candidates):
+        prefix, name = _split_key(candidate["key"])
+        domain_events.append({
+            "event_id": "nace:%s:%s" % (pending_digest, index),
+            "domain": "nace_belief",
+            "entity_id": candidate["key"],
+            "event_type": "belief_revised",
+            "payload": dict(candidate),
+        })
+        state_atoms["nace_belief:%s" % candidate["key"]] = (
+            "(%s %s (stv %s %s))" % (
+                prefix, name, candidate["new_f"], candidate["new_c"]
+            )
+        )
+    transaction_id = "cognitive:nace:%s" % pending_digest
+    _write_recovery({
+        "schema_version": 1,
+        "transaction_id": transaction_id,
+        "pending_content": pending_content,
+        "beliefs_content": new_content,
+        "domain_events": domain_events,
+        "state_atoms": state_atoms,
+        "validation_candidates": validation_candidates,
+        "expected_atoms": expected_atoms,
+    })
+    commit_batch(
+        domain_events,
+        state_atoms=state_atoms,
+        actor="iter",
+        source="transformations.nace_courier",
+        transaction_id=transaction_id,
+        expected_atoms=expected_atoms,
+    )
+
+    # STAGE 4 (2026-09-14): route the projection mutation through
     # soul_lock's begin/commit so it gets the same backup discipline as the
     # other soul-namespace files -- this was previously a plain unprotected
     # write. Deliberately fails OPEN: if soul_lock is unavailable, or
@@ -396,14 +589,29 @@ def process_revisions():
     except Exception as e:
         lock_note = " | soul_lock unavailable this cycle (%s) -- writing without backup" % type(e).__name__
 
-    _write_file(BELIEFS_PATH, new_content)
-    _write_file(PENDING_PATH, ";; NACE Pending â Queue cleared\n")
+    try:
+        _write_file(BELIEFS_PATH, new_content)
+        _write_file(
+            PENDING_PATH,
+            _remove_consumed_pending(_read_file(PENDING_PATH), pending_content),
+        )
+    except Exception:
+        if lock_active:
+            try:
+                soul_lock.run(action="rollback", holder="nace_courier")
+            except Exception:
+                pass
+        raise
 
     if lock_active:
         try:
             soul_lock.run(action="commit", holder="nace_courier")
         except Exception:
             pass
+    try:
+        os.unlink(RECOVERY_PATH)
+    except FileNotFoundError:
+        pass
 
     summary = "NACE: " + str(revised) + " beliefs revised"
     if len(low_efficacy) > 0:
@@ -418,18 +626,17 @@ def transform(messages, tools):
     """Run the courier each cycle."""
     try:
         summary, validation_candidates = process_revisions()
-    except Exception:
+    except Exception as exc:
+        if messages and isinstance(messages[0], dict):
+            messages[0]["content"] = messages[0].get("content", "") + (
+                "\n\n[NACE courier paused: authoritative belief transaction or "
+                "projection recovery failed: %s: %s]" % (type(exc).__name__, exc)
+            )
         return messages, tools
 
-    # Phase 2: live-engine validation. Runs only AFTER process_revisions()
-    # above has already written nace_beliefs.metta -- this is purely a
-    # best-effort diagnostic on top, never able to affect the write that
-    # already happened. Broadly guarded: any failure here is swallowed.
+    # Native calculation already supplied the committed values. Do not pay
+    # for another full engine reconstruction to cross-check the same result.
     validation_note = ""
-    try:
-        validation_note = validate_against_live_engine(validation_candidates)
-    except Exception:
-        validation_note = ""
 
     if summary:
         note = summary

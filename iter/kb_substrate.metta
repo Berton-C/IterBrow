@@ -75,6 +75,7 @@
 (inv-feature-score silent_failure_risk (stv 0.35 0.9))
 (inv-feature-score no_reread_after_mutation (stv 0.4 0.9))
 (inv-feature-score no_feedback_path (stv 0.45 0.9))
+(inv-feature-score bypasses_human_authorization (stv 0.0 1.0))
 (inv-feature-score clean_step (stv 0.9 0.9))
 (inv-feature-invariant introduces_second_writer one_shape_one_writer)
 (inv-feature-invariant parses_unprobed_form observe_before_model)
@@ -82,17 +83,18 @@
 (inv-feature-invariant silent_failure_risk no_silent_failure)
 (inv-feature-invariant no_reread_after_mutation reread_after_mutation)
 (inv-feature-invariant no_feedback_path feedback_closes_loop)
+(inv-feature-invariant bypasses_human_authorization human_agency_before_dispatch)
 ;; ============ end Layer 6 ============
 
 ;; ============ Layer 7: PWQ Card-Shape Invariants — the first REAL gate (2026-09-20) ============
 ;; Approved by user 20:10 ("proceed with your PROPOSED CHANGES").
-;; Consumed FAIL-CLOSED by tools/pwq_write.py (the canonical writer, proposal A).
-;; The writer parses (card-invariant <name> <check>) atoms below; unknown check
-;; names or a missing/unreadable KB layer => write REFUSED. This is no longer
-;; advisory: the KB content drives enforcement at the moment of action.
+;; Retained as governance facts for native reasoning and compatibility.
+;; Runtime PWQ enforcement lives in the canonical hash-chained protocol
+;; service (iterbrow_runtime/pwq_protocol.py); tools/pwq_write.py and the board
+;; are clients and cannot write the materialized projection directly.
 (card-invariant ci_options_shape options_are_objects)
 (card-invariant ci_neglog_present negotiation_log_is_list)
-(card-invariant ci_known_status status_is_known)
+(card-invariant ci_known_status canonical_status_is_known)
 (card-invariant ci_id_is_str id_is_nonempty_string)
-(card-invariant ci_no_raw_writer write_goes_through_pwq_write)
+(card-invariant ci_no_raw_writer write_goes_through_pwq_protocol)
 ;; ============ end Layer 7 ============

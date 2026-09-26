@@ -21,13 +21,16 @@
 // that really do need the DevTools Protocol.
 const { WebContentsView } = require('electron');
 const path = require('path');
+const { pathToFileURL } = require('url');
 
 let nextId = 1;
+const APP_SCOPE_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 
 class TabManager {
-  constructor(win, { getContentBounds }) {
+  constructor(win, { getContentBounds, pwqPath = path.join(__dirname, '..', 'iter', 'pwq.html') }) {
     this.win = win;
     this.getContentBounds = getContentBounds; // () => {x,y,width,height} for the tab area
+    this.pwqUrl = pathToFileURL(path.resolve(pwqPath)).toString();
     this.tabs = new Map(); // id -> { id, view, title, url }
     this.activeId = null;
     this.attachedId = null; // bookkeeping only, mirrors the old extension's "attached tab" concept
@@ -105,16 +108,44 @@ class TabManager {
   createTab(url = 'https://www.google.com', opts = {}) {
     const id = nextId++;
     const webPreferences = { contextIsolation: true, sandbox: true };
+    const hasAppScope = opts.appId !== undefined || opts.consumerId !== undefined;
+    let appScope = null;
+    if (hasAppScope) {
+      if (!opts.preload || opts.restrictNavigation !== true) {
+        throw new Error('Application tabs require a preload and restricted navigation');
+      }
+      const appId = String(opts.appId || '');
+      const consumerId = String(opts.consumerId || '');
+      if (!APP_SCOPE_ID.test(appId) || !APP_SCOPE_ID.test(consumerId)) {
+        throw new Error('Application tab scope is invalid');
+      }
+      appScope = Object.freeze({ appId, consumerId });
+      // These values initialize the isolated preload. They are never accepted
+      // back from the renderer as authority: main.js resolves every request
+      // through this TabManager's WebContents-bound appScope below.
+      webPreferences.additionalArguments = [
+        `--iter-app-id=${appId}`,
+        `--iter-consumer-id=${consumerId}`,
+      ];
+    }
     if (opts.preload) webPreferences.preload = opts.preload;
     // Chokepoint: auto-attach the PWQ write bridge to any tab whose URL is the
     // PWQ page, regardless of creation path (menu, session restore, agent), so
     // card actions always have the disk-write transport (one canonical writer
     // stays pwq.html itself; this preload is transport, not a second writer).
-    if (!webPreferences.preload && typeof url === 'string' && url.includes('pwq.html')) {
-      try { webPreferences.preload = path.join(__dirname, 'pwq_preload.js'); } catch (e) {}
+    const isPWQ = typeof url === 'string' && new URL(url).toString() === this.pwqUrl;
+    if (isPWQ) {
+      webPreferences.preload = path.join(__dirname, 'pwq_preload.js');
+      opts = { ...opts, restrictNavigation: true };
     }
     const view = new WebContentsView({ webPreferences });
-    const tab = { id, view, title: 'New Tab', url, locked: false, pinned: false };
+    const tab = {
+      id, view, title: 'New Tab', url, locked: false, pinned: false, appScope,
+      // Unlike a closure over the first URL, this remains replaceable only by
+      // loadAppRevision(), the main-process app revision supervisor. Page
+      // content still cannot navigate the bridged renderer anywhere else.
+      allowedUrl: opts.restrictNavigation ? url : null,
+    };
     this.tabs.set(id, tab);
     view.webContents.on('page-title-updated', (_e, title) => {
       tab.title = title;
@@ -129,9 +160,8 @@ class TabManager {
       this._notify();
     });
     if (opts.restrictNavigation) {
-      const startUrl = url;
       view.webContents.on('will-navigate', (e, navUrl) => {
-        if (navUrl !== startUrl) e.preventDefault();
+        if (navUrl !== tab.allowedUrl) e.preventDefault();
       });
       view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     }
@@ -144,6 +174,116 @@ class TabManager {
     // for something else (see AGENTS.md, 2026-09-14 note).
     this.attachedId = id;
     return id;
+  }
+
+  // Server-side application identity. IPC handlers use the sender's actual
+  // WebContents id and never accept an app or consumer id from page content.
+  appScopeForWebContentsId(webContentsId) {
+    for (const tab of this.tabs.values()) {
+      if (tab.view.webContents.id === Number(webContentsId)) {
+        return tab.appScope ? { ...tab.appScope } : null;
+      }
+    }
+    return null;
+  }
+
+  isPWQSender(event) {
+    if (!event || !event.sender || !event.senderFrame) return false;
+    if (event.senderFrame !== event.sender.mainFrame) return false;
+    return [...this.tabs.values()].some(tab =>
+      tab.view.webContents === event.sender && tab.allowedUrl === this.pwqUrl
+      && event.senderFrame.url === this.pwqUrl);
+  }
+
+  // Load an already-authorized immutable application revision, then collect
+  // health from outside the candidate: Electron owns the load result, invokes
+  // the narrow APP-1 context bridge itself, and observes the renderer's visible
+  // readiness postcondition. Candidate code cannot call this method or report
+  // its own promotion evidence.
+  async loadAppRevision(appId, url, revisionId, timeoutMs = 15000) {
+    const matching = [...this.tabs.values()].filter(
+      (tab) => tab.appScope && tab.appScope.appId === appId,
+    );
+    if (!matching.length) {
+      return { appId, revisionId, rendererPresent: false, observations: [] };
+    }
+    const observations = [];
+    for (const tab of matching) {
+      tab.allowedUrl = url;
+      const observed = await new Promise((resolve) => {
+        let done = false;
+        const finish = (value) => {
+          if (done) return;
+          done = true;
+          clearTimeout(timer);
+          tab.view.webContents.removeListener('did-finish-load', onFinish);
+          tab.view.webContents.removeListener('did-fail-load', onFail);
+          resolve(value);
+        };
+        const onFail = (_event, code, description, failedUrl) => finish({
+          observationId: `${revisionId}:${tab.view.webContents.id}:${Date.now()}`,
+          revisionId,
+          loadOk: false,
+          visibleHandshake: false,
+          contextOk: false,
+          contextCommit: null,
+          detail: `${code} ${description} (${failedUrl})`,
+        });
+        const onFinish = async () => {
+          try {
+            const proof = await tab.view.webContents.executeJavaScript(`(async () => {
+              if (!window.iterApp || typeof window.iterApp.appContext !== 'function') {
+                return { contextOk: false, visibleHandshake: false, contextCommit: null, detail: 'APP-1 bridge unavailable' };
+              }
+              const context = await window.iterApp.appContext();
+              const deadline = Date.now() + 2000;
+              while (Date.now() < deadline && (!document.body || document.body.dataset.iterReady !== 'true')) {
+                await new Promise((accept) => setTimeout(accept, 25));
+              }
+              return {
+                contextOk: !!context && Number.isInteger(Number(context.commit)),
+                contextCommit: context ? Number(context.commit) : null,
+                visibleHandshake: !!document.body && document.body.dataset.iterReady === 'true',
+                detail: ''
+              };
+            })()`, true);
+            finish({
+              observationId: `${revisionId}:${tab.view.webContents.id}:${Date.now()}`,
+              revisionId,
+              loadOk: true,
+              visibleHandshake: !!(proof && proof.visibleHandshake),
+              contextOk: !!(proof && proof.contextOk),
+              contextCommit: proof ? proof.contextCommit : null,
+              detail: (proof && proof.detail) || '',
+            });
+          } catch (error) {
+            finish({
+              observationId: `${revisionId}:${tab.view.webContents.id}:${Date.now()}`,
+              revisionId,
+              loadOk: true,
+              visibleHandshake: false,
+              contextOk: false,
+              contextCommit: null,
+              detail: error.message,
+            });
+          }
+        };
+        tab.view.webContents.once('did-finish-load', onFinish);
+        tab.view.webContents.once('did-fail-load', onFail);
+        const timer = setTimeout(() => finish({
+          observationId: `${revisionId}:${tab.view.webContents.id}:${Date.now()}`,
+          revisionId,
+          loadOk: false,
+          visibleHandshake: false,
+          contextOk: false,
+          contextCommit: null,
+          detail: 'timed out waiting for application revision load',
+        }), timeoutMs);
+        tab.view.webContents.loadURL(url).catch(() => { /* listeners own the result */ });
+      });
+      observations.push(observed);
+    }
+    return { appId, revisionId, rendererPresent: true, observations };
   }
 
   // Creates a tab like createTab(), then moves it to sit immediately after
@@ -291,9 +431,9 @@ class TabManager {
   }
 
   attach(id) {
-    const tab = this._tab(id);
+    const tab = this._tab(id == null ? this.activeId : id);
     this.attachedId = tab.id;
-    return { attached: tab.id, url: tab.url, title: tab.title };
+    return { attached: tab.id, url: tab.url, title: tab.title, displayed: tab.id === this.activeId };
   }
 
   detach(id) {
@@ -342,13 +482,40 @@ class TabManager {
 
   async screenshot(id) {
     const tab = this._tab(id);
-    const image = await tab.view.webContents.capturePage();
-    return { dataUrl: 'data:image/png;base64,' + image.toPNG().toString('base64') };
+    const displayed = this.activeId;
+    const attachedToWindow = this.win.contentView.children.includes(tab.view);
+    try {
+      const image = await tab.view.webContents.capturePage();
+      const png = image.toPNG();
+      if (!png.length) throw new Error('Browser capture returned an empty image');
+      return { dataUrl: 'data:image/png;base64,' + png.toString('base64') };
+    } catch (error) {
+      throw new Error(`${error.message || error}\nCapture target tab=${tab.id}; displayed tab=${displayed}; target attached to window=${attachedToWindow}. Attaching a tool target does not bring the tab into view.`, { cause: error });
+    }
   }
 
   async evaluate(id, expression) {
     const tab = this._tab(id);
-    return tab.view.webContents.executeJavaScript(expression, true);
+    const contents = tab.view.webContents;
+    const observedErrors = [];
+    // Electron can replace a thrown page exception with a generic rejection.
+    // Observe its console during this call; never wrap or re-execute the script,
+    // which would change page-level declarations or duplicate side effects.
+    const onConsole = (_event, level, message, line, sourceId) => {
+      if (level !== 3 || observedErrors.length >= 3) return;
+      observedErrors.push(`${String(message).slice(0, 900)} (${String(sourceId || '').slice(0, 300)}:${line})`);
+    };
+    contents.on('console-message', onConsole);
+    try {
+      return await contents.executeJavaScript(expression, true);
+    } catch (error) {
+      if (observedErrors.length && String(error && error.message).startsWith('Script failed to execute')) {
+        throw new Error(`${error.message}\nObserved renderer console during this evaluation (may include unrelated page errors):\n${observedErrors.join('\n')}`, { cause: error });
+      }
+      throw error;
+    } finally {
+      contents.removeListener('console-message', onConsole);
+    }
   }
 
   async getText(id) {

@@ -80,12 +80,12 @@ def test_admit_uncertainty_bridge():
     messages = base_messages() + [{"role": "assistant", "content": "The dashboard is now live and verified."}]
     new_messages, _ = bridge.transform(list(messages), [])
     lines = pending_lines(tmp)
-    check("admit_uncertainty_bridge: unverified claim -> violated on admit_uncertainty",
-          "(pending-revision pattern admit_uncertainty violated)" in lines, str(lines))
-    check("admit_uncertainty_bridge: unverified claim -> violated on verify_before_claiming too",
-          "(pending-revision pattern verify_before_claiming violated)" in lines, str(lines))
+    check("admit_uncertainty_bridge: claim alone is not negative evidence",
+          "(pending-revision pattern admit_uncertainty violated)" not in lines, str(lines))
+    check("admit_uncertainty_bridge: missing phase is not failed verification",
+          "(pending-revision pattern verify_before_claiming violated)" not in lines, str(lines))
     check("admit_uncertainty_bridge: appends an advisory note, does not touch tools",
-          "Admit Uncertainty" in new_messages[0]["content"], new_messages[0]["content"])
+          "Completion Claim Guard" in new_messages[0]["content"], new_messages[0]["content"])
 
     # Idempotency: same fingerprint must not re-emit
     before = pending_lines(tmp)
@@ -100,8 +100,8 @@ def test_admit_uncertainty_bridge():
     messages2 = base_messages() + [{"role": "assistant", "content": "The dashboard build is now complete and verified for real."}]
     bridge.transform(list(messages2), [])
     lines2 = pending_lines(tmp)
-    check("admit_uncertainty_bridge: verified phase -> confirmed",
-          "(pending-revision pattern admit_uncertainty confirmed)" in lines2, str(lines2))
+    check("admit_uncertainty_bridge: phase alone is not positive evidence",
+          "(pending-revision pattern admit_uncertainty confirmed)" not in lines2, str(lines2))
 
 
 # ============================================================

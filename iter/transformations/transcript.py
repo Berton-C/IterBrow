@@ -4,6 +4,7 @@ to a queryable file. Excludes control messages injected by iter.py.
 State = string keys of current context window messages only (like history.py).
 """
 import os, json, time
+from iterbrow_runtime.conversation_view import CONTROL_PATTERNS, is_runner_control
 
 
 
@@ -18,20 +19,8 @@ DESCRIPTION = "Maintains transcript of textual communication messages only."
 LOG_PATH = "transcript.txt"
 STATE_PATH = ".transcript_state"
 
-CONTROL_PATTERNS = [
-    "[NO ADDITIONAL",
-    "[TASK COMPLETED",
-    "[NO NEW USER",
-    "[TOOL LIMIT",
-    "[MEMORY FOLDER",
-    "[OUTPUT TOKEN",
-    "[YOUR PREVIOUS",
-    "[NOT DELIVERED",
-    "[ALARM]",
-]
-
 def _is_control(content):
-    return any(p in content for p in CONTROL_PATTERNS)
+    return is_runner_control(content)
 
 def _timestamp():
     current = time.localtime()
@@ -47,9 +36,15 @@ def _step_timestamp(content):
 def transform(messages, tools):
     try:
         prev_keys = set()
+        legacy_state = ""
         if _exists(STATE_PATH):
             with open(STATE_PATH) as f:
-                prev_keys = set(l.strip() for l in f if l.strip())
+                raw = f.read()
+            if raw.lstrip().startswith("["):
+                prev_keys = set(json.loads(raw))
+            else:
+                prev_keys = set(raw.splitlines())
+                legacy_state = "\n" + raw.strip("\n") + "\n"
 
         current_keys = set()
         lines_to_write = []
@@ -68,11 +63,11 @@ def transform(messages, tools):
             content = msg.get("content", "")
 
             if role == "user" and isinstance(content, str) and content.strip():
-                if _is_control(content):
+                if msg.get("_iter_runner") or _is_control(content):
                     continue
                 key = "u:" + content
                 current_keys.add(key)
-                if key not in prev_keys:
+                if key not in prev_keys and not (legacy_state and "\n" + key + "\n" in legacy_state):
                     timestamp = _step_timestamp(content) or _timestamp()
                     lines_to_write.append("[" + timestamp + "][user] " + content)
 
@@ -84,7 +79,14 @@ def transform(messages, tools):
                             try:
                                 args = json.loads(fn.get("arguments", "{}"))
                                 timestamp = tool_times.get(tc.get("id")) or _timestamp()
-                                line = "[" + timestamp + "][send -> " + str(args.get('channel', '')) + "] " + str(args.get('message', ''))
+                                # send.run(channel, content) has used `content`
+                                # for years; the old `message` lookup recorded a
+                                # delivery marker with an empty body, destroying
+                                # the evidence needed to distinguish model silence
+                                # from a UI delivery failure. Keep `message` only
+                                # as a compatibility fallback for old episodes.
+                                body = args.get('content', args.get('message', ''))
+                                line = "[" + timestamp + "][send -> " + str(args.get('channel', '')) + "] " + str(body)
                                 key = "s:" + str(tc.get("id", line))
                                 current_keys.add(key)
                                 if key not in prev_keys:
@@ -93,13 +95,18 @@ def transform(messages, tools):
                                 pass
 
         if lines_to_write:
+            from iterbrow_runtime.episodic_history import recover_rotation
+            recover_rotation(LOG_PATH)
             with open(LOG_PATH, "a") as f:
                 for line in lines_to_write:
                     f.write(line + "\n")
 
-        with open(STATE_PATH, "w") as f:
-            for key in current_keys:
-                f.write(key + "\n")
+        temporary = STATE_PATH + ".tmp"
+        with open(temporary, "w") as f:
+            json.dump(sorted(current_keys), f, ensure_ascii=False)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(temporary, STATE_PATH)
 
     except Exception:
         pass

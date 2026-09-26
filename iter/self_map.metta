@@ -5,9 +5,8 @@
 ;; pursues its own growth goals, and self-directed work should only proceed
 ;; when no user has pending high-priority need for attention right now.
 ;;
-;; This file is the MeTTa-side DOCUMENTATION of the rule. The actual
-;; enforcement lives in two Python call sites (dormant-engine-safe, since
-;; pymetta is not installed on this machine -- see tools/_metta_gate.py):
+;; This file is a declared native-reasoning seed and documents the rule.
+;; Fail-safe enforcement also lives in two Python call sites:
 ;;   - transformations/cognitive_resilience_guard.py sets the flag
 ;;     (memory/.service_before_growth_flag.json, 30-min TTL) when
 ;;     send-discipline has recurringly degraded -- see that file's
@@ -17,10 +16,8 @@
 ;;     memory/.improve_needed (the actual self-build trigger) and defers
 ;;     the proposal, with a note to the model, while the flag is active.
 ;;
-;; Dormant until pymetta is installed -- documents the rule so a live-engine
-;; cross-check can later confirm the Python path agrees, matching
-;; nace_courier.py's established "Python computes, MeTTa validates" split
-;; used throughout this registry.
+;; Hyperon can cross-check the Python enforcement path; neither path writes
+;; the other's state.
 
 (= (may-pursue-growth)
    (if (service-before-growth-flag-active) False True))
@@ -29,7 +26,7 @@
 ;; real truth lives in memory/.service_before_growth_flag.json (a file, not
 ;; a belief atom, deliberately, since it needs a wall-clock expiry that
 ;; plain MeTTa facts don't carry on their own). This equation exists for
-;; documentation and future live-engine parity, not as the enforced path.
+;; native reasoning parity, not as the wall-clock authority.
 (= (service-before-growth-flag-active) False)
 
 (soul-value service (stv 1.0 0.9))

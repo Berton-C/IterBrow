@@ -75,7 +75,7 @@ def main():
     r3 = gate.run("old_quarantined_cap")
     mode3, action3, detail3 = r3.split("|", 2)
     check("quarantined capability still always flagged (Stage 3 doesn't regress this)",
-          action3 == "ADVISE" and "quarantined" in detail3, r3)
+          action3 == "VETO" and mode3 == "enforce" and "quarantined" in detail3, r3)
 
     # --- probe_eligible: real but thin evidence, critical floor NOT granted ---
     _reset_breaker()

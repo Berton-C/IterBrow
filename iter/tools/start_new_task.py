@@ -1,6 +1,15 @@
 import importlib.util
 import os
+import re
+import sys
 import time
+from pathlib import Path
+
+ROOT_PATH = Path(__file__).resolve().parents[1]
+if str(ROOT_PATH) not in sys.path:
+    sys.path.insert(0, str(ROOT_PATH))
+
+from iterbrow_runtime.cognitive_events import commit_event, metta_string
 
 
 
@@ -24,7 +33,7 @@ def _mkdirs(path):
         except OSError:
             pass
 
-DESCRIPTION = "Start a new task by overwriting memory/tasks/current_tasks.txt. ALWAYS call this before beginning any new user-requested work. Required fields: person, requestchannel, taskcontent, completionsendcriterium, originalUserMessage."
+DESCRIPTION = "Register the current task in durable memory and memory/tasks/current_tasks.txt. Default updates or continues existing work without moving its history boundary. Set new_work=true only for a genuinely separate user goal, not a clarification, repair, restart or continuation. Required fields: person, requestchannel, taskcontent, completionsendcriterium, originalUserMessage."
 
 def _send_to_channel(channel, content):
     """Send a message through a channel module, loaded the same way tools/send.py
@@ -32,10 +41,13 @@ def _send_to_channel(channel, content):
     correctly. The previous exec(src, {}) approach ran the channel module with no
     __file__ in its namespace, which crashed any channel - like electron_ui.py -
     that computes its runtime paths relative to __file__."""
-    path = "channels/" + channel + ".py"
+    channel = str(channel or "").strip()
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", channel):
+        return f"Invalid channel: {channel}"
+    path = Path(__file__).resolve().parents[1] / "channels" / (channel + ".py")
     if not _exists(path):
         return f"Channel file not found: {path}"
-    spec = importlib.util.spec_from_file_location("channel_" + channel, path)
+    spec = importlib.util.spec_from_file_location("channel_" + channel, str(path))
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     if not hasattr(module, "send"):
@@ -43,7 +55,12 @@ def _send_to_channel(channel, content):
     module.send(content)
     return "SUCCESS"
 
-def run(person, requestchannel, taskcontent, completionsendcriterium, originalUserMessage=""):
+def run(person, requestchannel, taskcontent, completionsendcriterium, originalUserMessage="", new_work="false"):
+    # The existing tool catalog advertises scalar arguments as strings.
+    if new_work in ("true", "false"):
+        new_work = new_work == "true"
+    if type(new_work) is not bool:
+        return "ERROR: new_work must be a boolean; no task state changed."
     ROOT = "."
     TASKS_DIR = ROOT + "/memory/tasks"
     try:
@@ -64,11 +81,35 @@ def run(person, requestchannel, taskcontent, completionsendcriterium, originalUs
 # Original User Message: {originalUserMessage}
 # =============================================
 """
-    with open(TASK_FILE, 'w') as f:
-        f.write(content)
+    try:
+        commit_event(
+            "current_task", "active", "task_started",
+            {
+                "person": person,
+                "request_channel": requestchannel,
+                "task_content": taskcontent,
+                "completion_criterion": completionsendcriterium,
+                "original_user_message": originalUserMessage,
+                "started_at": now_str,
+                "new_work": new_work,
+            },
+            state_atom="(current-task %s %s %s)" % (
+                metta_string(str(person)), metta_string(str(taskcontent)),
+                metta_string(str(completionsendcriterium)),
+            ),
+            source="tools.start_new_task",
+        )
+        tmp = TASK_FILE + ".tmp"
+        with open(tmp, 'w') as f:
+            f.write(content)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, TASK_FILE)
+    except Exception as e:
+        return "ERROR: task was not committed: %s" % e
 
     notification = (
-        f"**NEW TASK STARTED**\n"
+        ("**NEW TASK STARTED**\n" if new_work else "**CURRENT TASK UPDATED**\n") +
         f"**Person:** {person}\n"
         f"**Channel:** {requestchannel}\n"
         f"**Task:** {taskcontent}\n"
@@ -82,4 +123,5 @@ def run(person, requestchannel, taskcontent, completionsendcriterium, originalUs
     except Exception as e:
         send_status = f"send failed: {e}"
 
-    return f"SUCCESS, RETURN: New task started at {now_str}.\n  Person: {person}\n  Channel: {requestchannel}\n  Task: {taskcontent}\n  Completion criterion: {completionsendcriterium}\n  Original message: {originalUserMessage}\n  Written to: {TASK_FILE}\n  Channel notification: {send_status}"
+    status = "New task started" if new_work else "Current task updated"
+    return f"SUCCESS, RETURN: {status} at {now_str}.\n  Person: {person}\n  Channel: {requestchannel}\n  Task: {taskcontent}\n  Completion criterion: {completionsendcriterium}\n  Original message: {originalUserMessage}\n  Written to: {TASK_FILE}\n  Channel notification: {send_status}"

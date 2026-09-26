@@ -26,15 +26,81 @@ function escapeHtml(s) {
 // ---------------------------------------------------------------------
 // Chat
 // ---------------------------------------------------------------------
-function addMessage(role, text) {
-  const row = document.createElement('div');
-  row.className = 'msg ' + role;
-  const bubble = document.createElement('div');
-  bubble.className = 'bubble';
-  bubble.textContent = text;
-  row.appendChild(bubble);
-  chat.appendChild(row);
+const chatMessages = new Map();
+let transientChatSequence = 0;
+
+function renderChatMessages() {
+  chat.textContent = '';
+  const ordered = Array.from(chatMessages.values()).sort((left, right) => {
+    const timeDifference = Number(left.at || 0) - Number(right.at || 0);
+    return timeDifference || String(left.id).localeCompare(String(right.id));
+  });
+  for (const message of ordered) {
+    const row = document.createElement('div');
+    row.className = 'msg ' + message.role;
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble';
+    bubble.textContent = message.content;
+    row.appendChild(bubble);
+    chat.appendChild(row);
+  }
   chat.scrollTop = chat.scrollHeight;
+}
+
+function mergeChatMessage(message) {
+  const normalized = typeof message === 'string'
+    ? {
+        id: `legacy-${Date.now()}-${transientChatSequence += 1}`,
+        role: 'iter',
+        content: message,
+        at: Date.now(),
+      }
+    : message;
+  if (!normalized || !normalized.id || typeof normalized.content !== 'string') return;
+  if (!['user', 'iter', 'sys'].includes(normalized.role)) return;
+  const id = String(normalized.id);
+  const existing = chatMessages.get(id);
+  if (existing
+      && existing.role === normalized.role
+      && existing.content === normalized.content
+      && Number(existing.at || 0) === Number(normalized.at || 0)) return false;
+  chatMessages.set(id, normalized);
+  renderChatMessages();
+  return true;
+}
+
+function mergeChatHistory(history) {
+  let changed = false;
+  for (const message of history) {
+    const normalized = typeof message === 'string'
+      ? {
+          id: `legacy-${Date.now()}-${transientChatSequence += 1}`,
+          role: 'iter',
+          content: message,
+          at: Date.now(),
+        }
+      : message;
+    if (!normalized || !normalized.id || typeof normalized.content !== 'string') continue;
+    if (!['user', 'iter', 'sys'].includes(normalized.role)) continue;
+    const id = String(normalized.id);
+    const existing = chatMessages.get(id);
+    if (existing
+        && existing.role === normalized.role
+        && existing.content === normalized.content
+        && Number(existing.at || 0) === Number(normalized.at || 0)) continue;
+    chatMessages.set(id, normalized);
+    changed = true;
+  }
+  if (changed || !chatMessages.size) renderChatMessages();
+}
+
+function addMessage(role, text) {
+  mergeChatMessage({
+    id: `local-${Date.now()}-${transientChatSequence += 1}`,
+    role,
+    content: String(text),
+    at: Date.now(),
+  });
 }
 
 document.getElementById('btn-send').addEventListener('click', sendChat);
@@ -63,47 +129,117 @@ function autoGrowChatInput() {
 chatInput.addEventListener('input', autoGrowChatInput);
 autoGrowChatInput();
 
-function sendChat() {
+async function sendChat() {
   const text = chatInput.value.trim();
   if (!text) return;
-  addMessage('user', text);
-  window.iterApi.sendChat(text);
   chatInput.value = '';
   autoGrowChatInput();
+  try {
+    const accepted = await window.iterApi.sendChat(text);
+    mergeChatMessage(accepted);
+  } catch (error) {
+    addMessage('sys', `Message was not queued: ${error.message}`);
+    chatInput.value = text;
+    autoGrowChatInput();
+  }
 }
 
-window.iterApi.onChatIncoming((content) => addMessage('iter', content));
+// Register the live listener before requesting history. If a message arrives
+// between those operations, its stable id makes the subsequent replay a
+// harmless dedupe rather than a loss or duplicate.
+window.iterApi.onChatIncoming(mergeChatMessage);
+let chatHistorySyncInFlight = null;
+let chatHistoryFailureShown = false;
+
+function syncChatHistory() {
+  if (chatHistorySyncInFlight) return chatHistorySyncInFlight;
+  chatHistorySyncInFlight = window.iterApi.chatHistory()
+    .then((history) => {
+      chatHistoryFailureShown = false;
+      mergeChatHistory(history);
+    })
+    .catch((error) => {
+      if (!chatHistoryFailureShown) {
+        chatHistoryFailureShown = true;
+        addMessage('sys', `Chat history unavailable: ${error.message}`);
+      }
+    })
+    .finally(() => { chatHistorySyncInFlight = null; });
+  return chatHistorySyncInFlight;
+}
+
+let sidebarStateSyncInFlight = null;
+function syncSidebarState() {
+  if (sidebarStateSyncInFlight) return sidebarStateSyncInFlight;
+  sidebarStateSyncInFlight = Promise.all([
+    syncChatHistory(),
+    window.iterApi.iterStatus().then((status) => setRunning(status.running, status.stopping)),
+    window.iterApi.recentLog().then((lines) => {
+      logView.textContent = lines.map((line) => line.endsWith('\n') ? line : line + '\n').join('');
+      logView.scrollTop = logView.scrollHeight;
+    }),
+  ]).finally(() => { sidebarStateSyncInFlight = null; });
+  return sidebarStateSyncInFlight;
+}
+
+syncSidebarState();
+window.addEventListener('focus', syncSidebarState);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') syncSidebarState();
+});
+window.iterApi.onUiResume(syncSidebarState);
+// Electron may suspend a WebContentsView while the Mac is locked without
+// producing a useful visibility transition. A bounded, idempotent replay
+// closes that gap when timers resume and keeps chat, status, and the activity
+// log aligned with main-process authority. The main process also forces a
+// compositor invalidation at the operating-system unlock/resume boundary.
+setInterval(() => {
+  if (document.visibilityState !== 'hidden') syncSidebarState();
+}, 2000);
 
 // ---------------------------------------------------------------------
 // Iter process controls
 // ---------------------------------------------------------------------
-function setRunning(running) {
+function setRunning(running, stopping = false) {
   statusDot.classList.toggle('on', running);
-  statusText.textContent = running ? 'running' : 'stopped';
-  btnStart.disabled = running;
-  btnStop.disabled = !running;
+  statusText.textContent = stopping ? 'stopping' : running ? 'running' : 'stopped';
+  btnStart.disabled = running || stopping;
+  btnStop.disabled = !running || stopping;
 }
 
 btnStart.addEventListener('click', async () => {
-  await saveSettingsFromForm();
-  await window.iterApi.startIter();
-  setRunning(true);
-  addMessage('sys', 'Iter starting…');
+  btnStart.disabled = true;
+  try {
+    await saveSettingsFromForm();
+    const result = await window.iterApi.startIter();
+    if (result && result.error) throw new Error(result.error);
+    await syncSidebarState();
+    if (!result || !result.cancelled) addMessage('sys', 'Iter starting…');
+  } catch (error) {
+    addMessage('sys', 'Iter did not start: ' + error.message);
+    await syncSidebarState();
+  }
 });
 btnStop.addEventListener('click', async () => {
-  await window.iterApi.stopIter();
-  setRunning(false);
-  addMessage('sys', 'Iter stopped.');
+  btnStop.disabled = true;
+  try {
+    await window.iterApi.stopIter();
+    await syncSidebarState();
+    addMessage('sys', 'Iter stopped.');
+  } catch (error) {
+    addMessage('sys', 'Iter did not stop: ' + error.message);
+    await syncSidebarState();
+  }
 });
 
-window.iterApi.onIterStatus((status) => setRunning(status.running));
-window.iterApi.iterStatus().then((s) => setRunning(s.running));
+window.iterApi.onIterStatus((status) => setRunning(status.running, status.stopping));
+// Initial and resume reconciliation is owned by syncSidebarState() above.
 
 window.iterApi.onIterLog((line) => {
   logView.textContent += line.endsWith('\n') ? line : line + '\n';
   logView.scrollTop = logView.scrollHeight;
 });
-window.iterApi.recentLog().then((lines) => { logView.textContent = lines.join(''); });
+// Initial and resume reconciliation is owned by syncSidebarState() above.
 
 // ---------------------------------------------------------------------
 // Settings
@@ -116,11 +252,38 @@ const lmEndpoint = document.getElementById('lm-endpoint');
 const lmModel = document.getElementById('lm-model');
 const panelOR = document.getElementById('panel-openrouter');
 const panelLM = document.getElementById('panel-lmstudio');
+const panelOA = document.getElementById('panel-openai');
+const oaModel = document.getElementById('oa-model');
+const oaKey = document.getElementById('oa-key');
+const oaReasoning = document.getElementById('oa-reasoning');
+let openaiCatalog = { models: [] };
+
+function paintOpenAIPrice() {
+  const rate = openaiCatalog.models.find((model) => model.id === oaModel.value);
+  document.getElementById('oa-price').textContent = rate
+    ? `USD per 1M tokens: input $${rate.input.toFixed(2)} · cached input $${rate.cachedInput.toFixed(2)} · cache writes $${rate.cacheWrite.toFixed(3)} · output $${rate.output.toFixed(2)}. Reasoning tokens count as output. Standard short-context rates checked ${openaiCatalog.verifiedOn}; rates can change. Example without caching: 30k input + 2k output ≈ $${(rate.input * 0.03 + rate.output * 0.002).toFixed(3)}, excluding surcharges.`
+    : 'Select an OpenAI model to see its token prices.';
+}
+
+function paintOpenAIUsage(usage) {
+  const target = document.getElementById('oa-usage');
+  if (!usage || usage.provider !== 'openai') {
+    target.textContent = 'No direct OpenAI request recorded yet.';
+    return;
+  }
+  const tokens = usage.usage || {};
+  const cost = Number.isFinite(usage.estimated_usd) ? `$${usage.estimated_usd.toFixed(5)}` : 'unavailable';
+  target.textContent = `Last OpenAI request: ${usage.model}, ${new Date(usage.at * 1000).toLocaleString()}, ${usage.seconds}s. Input ${tokens.input_tokens ?? '?'} · output ${tokens.output_tokens ?? '?'} (reasoning ${(tokens.output_tokens_details || {}).reasoning_tokens ?? '?'}). Estimated text-token cost ${cost}. ${usage.note || ''} This is one request, not your account balance or whole-task cost.`;
+}
+oaModel.addEventListener('change', paintOpenAIPrice);
+document.getElementById('btn-oa-usage').addEventListener('click', async () => {
+  paintOpenAIUsage((await window.iterApi.loadSettings()).lastModelUsage);
+});
 
 function syncProviderPanels() {
-  const local = providerSel.value === 'lmstudio';
-  panelOR.style.display = local ? 'none' : 'flex';
-  panelLM.style.display = local ? 'flex' : 'none';
+  panelOR.style.display = providerSel.value === 'openrouter' ? 'flex' : 'none';
+  panelLM.style.display = providerSel.value === 'lmstudio' ? 'flex' : 'none';
+  panelOA.style.display = providerSel.value === 'openai' ? 'flex' : 'none';
 }
 providerSel.addEventListener('change', syncProviderPanels);
 
@@ -134,8 +297,9 @@ async function saveSettingsFromForm() {
   const settings = {
     ...current,
     provider: providerSel.value,
-    openrouter: { endpoint: orEndpoint.value, model: orModel.value, apiKey: orKey.value },
-    lmstudio: { endpoint: lmEndpoint.value, model: lmModel.value },
+    openrouter: { ...current.openrouter, endpoint: orEndpoint.value, model: orModel.value, apiKey: orKey.value },
+    openai: { ...current.openai, model: oaModel.value, apiKey: oaKey.value.trim(), reasoning: oaReasoning.value },
+    lmstudio: { ...current.lmstudio, endpoint: lmEndpoint.value, model: lmModel.value },
   };
   await window.iterApi.saveSettings(settings);
 }
@@ -148,6 +312,18 @@ window.iterApi.loadSettings().then((settings) => {
   orEndpoint.value = settings.openrouter.endpoint;
   orModel.value = settings.openrouter.model;
   orKey.value = settings.openrouter.apiKey || '';
+  openaiCatalog = settings.openaiCatalog || { models: [] };
+  oaModel.replaceChildren(...openaiCatalog.models.map((model) => {
+    const option = document.createElement('option');
+    option.value = model.id;
+    option.textContent = model.label;
+    return option;
+  }));
+  oaModel.value = (settings.openai || {}).model || 'gpt-6-sol';
+  oaKey.value = (settings.openai || {}).apiKey || '';
+  oaReasoning.value = (settings.openai || {}).reasoning || 'low';
+  paintOpenAIPrice();
+  paintOpenAIUsage(settings.lastModelUsage);
   lmEndpoint.value = settings.lmstudio.endpoint;
   lmModel.value = settings.lmstudio.model;
   syncProviderPanels();
@@ -537,7 +713,7 @@ termfilesDetails.addEventListener('panelshow', async () => {
 // to settings.json (local to this Mac -- see saveDockState below).
 // ---------------------------------------------------------------------
 const DOCK_PANEL_INFO = {
-  'settings': { label: 'Settings', desc: 'Model provider (OpenRouter or LM Studio) and API connection details.' },
+  'settings': { label: 'Settings', desc: 'OpenRouter, direct OpenAI GPT, or local LM Studio; models, API keys and OpenAI token costs.' },
   'state-mgmt': { label: 'State', desc: 'Export, import, or reset Iter\u2019s accumulated memory and knowledge files.' },
   'tab-groups': { label: 'Groups', desc: 'Tab Groups -- save your open tabs as a named group; reopen, switch to, or close it later.' },
   'closed-tabs': { label: 'Closed', desc: 'Recently Closed -- the last 20 tabs you closed, most recent first. Reopen any of them.' },

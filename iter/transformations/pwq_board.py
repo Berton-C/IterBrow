@@ -1,9 +1,8 @@
-"""
-PWQ read path: inject user card actions + board state into the system
-message each cycle, so Iter sees the user's PWQ card actions without being
-told (closed feedback loop). READ-ONLY on .runtime/pwq.json -- the page's
-IPC bridge is the single canonical writer; this transformation never
-writes, so the two never race (one_shape_one_writer honored).
+"""Inject the PWQ protocol's board projection into Iter's context.
+
+Approved and in-progress proposals remain visible as authorized work.
+The event ledger is authoritative; `.runtime/pwq.json` is a
+read-only materialized projection.
 """
 import json
 
@@ -18,21 +17,25 @@ def transform(messages, tools):
 
         if not items:
             return messages, tools
-        orders = [i for i in items if i.get("orders_given") and i.get("status") != "done"]
-        active = [i for i in items if i.get("status") != "done"]
+        orders = [i for i in items if i.get("status") in ("approved", "in_progress") and i.get("dispatch_authorization")]
+        active = [i for i in items if i.get("status") not in ("completed", "rejected", "superseded")]
+        waiting = [i for i in active if i not in orders]
         ndone = len(items) - len(active)
         lines = ["## PWQ Board (user actions land here next cycle)"]
         if orders:
-            lines.append("USER GAVE ORDERS on %d card(s) - act on these:" % len(orders))
+            lines.append("Authorized PWQ work (%d card(s)); continue in context of the latest user instructions:" % len(orders))
             for i in orders[:4]:
                 ui = (i.get("user_input") or "").strip()
-                lines.append("- [%s] %s%s" % (i.get("status", "?"), i.get("title", i.get("id", "?")),
-                                              (": " + ui[:100]) if ui else ""))
+                lines.append("- [%s] %s%s [authorization=%s]" % (
+                    i.get("status", "?"), i.get("title", i.get("id", "?")),
+                    (": " + ui[:100]) if ui else "",
+                    i.get("dispatch_authorization"),
+                ))
         else:
             lines.append("No open orders on cards.")
-        if active:
-            lines.append("Waiting: " + "; ".join("%s(%s)" % (i.get("id", "?")[:34], i.get("status", "?")) for i in active[:6])
-                         + (" (+%d more)" % (len(active) - 6) if len(active) > 6 else ""))
+        if waiting:
+            lines.append("Waiting/paused: " + "; ".join("%s(%s)" % (i.get("id", "?")[:34], i.get("status", "?")) for i in waiting[:6])
+                         + (" (+%d more)" % (len(waiting) - 6) if len(waiting) > 6 else ""))
         lines.append("Totals: %d active, %d done." % (len(active), ndone))
         block = "\n".join(lines)
 
