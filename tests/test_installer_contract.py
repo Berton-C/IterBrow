@@ -21,6 +21,12 @@ class InstallerContractTests(unittest.TestCase):
         self.assertIn("npm ci", source)
         self.assertNotIn("\nnpm install\n", source)
 
+    def test_existing_user_nvm_is_loaded_before_homebrew_nvm(self):
+        source = (ROOT / "install.sh").read_text(encoding="utf-8")
+        user_nvm = source.index('source "$NVM_DIR/nvm.sh"')
+        homebrew_nvm = source.index('source "$(brew --prefix nvm)/nvm.sh"')
+        self.assertLess(user_nvm, homebrew_nvm)
+
     def test_install_proves_native_recovery_before_launch(self):
         source = (ROOT / "install.sh").read_text(encoding="utf-8")
         smoke = source.index("smoke_atomspace_service.py")

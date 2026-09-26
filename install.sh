@@ -122,7 +122,11 @@ if [[ ! -s "$NVM_DIR/nvm.sh" ]]; then
   mkdir -p "$NVM_DIR"
 fi
 # shellcheck disable=SC1091
-source "$(brew --prefix nvm)/nvm.sh" 2>/dev/null || source "$NVM_DIR/nvm.sh" 2>/dev/null || true
+if [[ -s "$NVM_DIR/nvm.sh" ]]; then
+  source "$NVM_DIR/nvm.sh"
+else
+  source "$(brew --prefix nvm)/nvm.sh"
+fi
 
 if command -v nvm >/dev/null 2>&1 || [[ -s "$NVM_DIR/nvm.sh" ]]; then
   nvm install 20.11.1
