@@ -534,46 +534,68 @@ Beyond browsing, IterBrow can **design UI directly against a real page and remem
 - `export_component` turns a museum entry into a portable, standalone file (plain HTML, a React
   `.jsx` component, or a Svelte single-file component) ready to hand off into a real project.
 
-## Current developer bootstrap on a Mac
+## Mac install, update, repair, and uninstall
 
-> **Distribution status:** the commands below prepare a source checkout; they
-> are not yet the one-command end-user installer. The current script still
-> requires a separate `npm start`, private provider onboarding, and a manual
-> Start action. The accepted end-user contract is tracked as Build Atlas
-> `DIST-1` / `INV-30` and in
-> [`ADR-0011`](docs/architecture/ADR-0011-one-command-mac-installation.md): one
-> downloaded script must install or upgrade without losing state, launch
-> exactly one instance, and verify the app, authoritative AtomSpace, and Iter
-> before claiming success.
+The same downloaded script owns all four lifecycle operations. A fresh install
+acquires the full `TheWholeEnchilada` branch into
+`~/Applications/IterBrow`, installs the managed runtimes, proves disposable
+AtomSpace crash recovery, and opens IterBrow stopped for private provider
+onboarding:
 
 ```bash
-git clone https://github.com/Berton-C/IterBrow.git
-cd IterBrow
-./install.sh
+curl -fsSL https://raw.githubusercontent.com/Berton-C/IterBrow/main/install.sh \
+  -o /tmp/iterbrow-install.sh
+bash /tmp/iterbrow-install.sh install
 ```
 
-The current `install.sh` developer bootstrap:
+Inside either an installed copy or a source checkout, the explicit commands are:
+
+```bash
+./install.sh install             # install/verify this copy (default command)
+./install.sh repair              # checkpoint state, rebuild managed runtimes
+./install.sh update              # installed copies: stage, verify, then replace
+./install.sh uninstall           # installed copies: preserve state, remove code
+```
+
+Use `--no-launch` with install, repair, or update for a terminal-only run.
+`--developer-extras` adds optional SWI-Prolog and Godot tooling; neither is
+required by the shipped AtomSpace.
+
+The installer:
 
 1. Installs [Homebrew](https://brew.sh) if it's missing.
 2. Installs Node.js 20.11.1 via `nvm` (Electron's runtime).
-3. Installs SWI-Prolog via Homebrew optionally for future PeTTa/SWI adapter work. The shipped
-   AtomSpace uses Hyperon and does not require SWI-Prolog.
-4. Creates a Python 3.12 virtual environment inside `iter/` and installs the exact pinned
-   dependencies from `scripts/requirements.txt`, including Hyperon. Installation stops if Hyperon
-   cannot import because native cognition is a required runtime service.
-5. Runs `npm install` to fetch Electron and its native dependencies.
+3. Creates a Python 3.12 virtual environment and installs the pinned Python
+   dependencies. The published Hyperon 0.2.10 macOS wheel is recognized without
+   executing its crashing AtomSpace-enumeration path; the installer builds the
+   pinned one-line trie repair in the system temporary directory and verifies
+   2,500-atom enumeration before accepting it.
+4. Runs `npm ci` from the committed lockfile using a bounded temporary cache,
+   independent of stale or incorrectly owned global npm caches.
+5. Seeds the CRM and PWQ application surfaces without overwriting existing
+   records, and verifies program files plus disposable journal crash/replay.
 
-It is intended to be re-runnable in a source checkout and does not deliberately
-reset accumulated chat or memory data. It does not yet provide DIST-1's
-interrupted-stage resume ledger, state-preserving upgrade proof, single-owner
-launch acceptance, or end-to-end health verdict. SWI-Prolog and Godot are
-currently included by the branch bootstrap but will move to opt-in developer
-extras in the end-user path.
+Update and uninstall require IterBrow to be closed. Both checkpoint only paths
+declared by `iter/state_manifest.json`, while also retaining the older root
+`private/` boundary when present. Update restores state and secrets into fully
+staged and verified new code before an atomic directory swap; the exact prior
+installation remains beside it as a rollback. Uninstall writes a mode-`600`
+state archive beneath `~/Library/Application Support/IterBrow Installer/backups`
+before removing program files. Git development checkouts are never replaced or
+uninstalled by this lifecycle path; use Git for their code and `repair` for
+their runtimes.
+
+The remaining partner-distribution work in
+[`ADR-0011`](docs/architecture/ADR-0011-one-command-mac-installation.md) is a
+signed/notarized release artifact, interrupted-stage resume ledger, Intel-Mac
+acceptance, and an authenticated post-onboarding `assistant_ready` proof. The
+installer reports `installed` honestly before a private provider credential and
+user-started Iter loop exist.
 
 If you're on Linux instead of macOS, `install.sh` will direct you to Node, Python, and
 `scripts/setup_python_env.sh`; SWI-Prolog is optional adapter tooling.
 
-## First run
+## First run from a source checkout
 
 ```bash
 npm start

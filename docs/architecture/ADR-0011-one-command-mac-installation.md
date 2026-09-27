@@ -24,6 +24,31 @@ Python environment.
 Treating either path as already "one shot" would turn installation success into
 an unsupported claim.
 
+## Implementation status — 2026-09-26
+
+The first lifecycle slice is now operational without changing the readiness
+contract below:
+
+- a standalone `install.sh install` acquires the full branch, installs locked
+  Electron/Python dependencies, repairs the pinned Hyperon 0.2.10 trie defect,
+  and proves disposable journal crash/replay before launch;
+- `repair` checkpoints manifest-declared state and rebuilds managed runtimes;
+- `update` checkpoints state and secrets, builds and verifies new code in a
+  sibling staging directory, restores state into that staged code, and only
+  then swaps directories while retaining the exact prior installation; and
+- `uninstall` preserves a reconstructable mode-`600` state archive before
+  removing an installed copy.
+
+The stock arm64 and x86_64 CPython 3.12 macOS Hyperon binaries are detected by
+immutable extension hashes before native execution, avoiding their fatal
+`space_iterate` path. The repaired build is accepted only after exact binding,
+absent-belief, and 2,500-atom enumeration checks.
+
+Still open from the full DIST-1 matrix: an interrupted-stage resume ledger,
+Intel-Mac execution, signed/notarized release artifacts, automatic live-app
+handoff during update, and a post-onboarding `assistant_ready` round trip. Until
+those pass, `installed` is the strongest unattended terminal claim.
+
 ## Decision
 
 ### One user entry point

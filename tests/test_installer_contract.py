@@ -1,9 +1,20 @@
 #!/usr/bin/env python3
+import importlib.util
+import json
+import tempfile
 import unittest
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def _load_lifecycle():
+    path = ROOT / "scripts" / "iterbrow_lifecycle.py"
+    spec = importlib.util.spec_from_file_location("iterbrow_lifecycle", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 class InstallerContractTests(unittest.TestCase):
@@ -13,6 +24,18 @@ class InstallerContractTests(unittest.TestCase):
         self.assertIn("ITERBROW_BRANCH", source)
         self.assertIn("TheWholeEnchilada", source)
         self.assertIn("exec /bin/bash", source)
+
+    def test_explicit_lifecycle_commands_are_exposed(self):
+        source = (ROOT / "install.sh").read_text(encoding="utf-8")
+        lifecycle = (ROOT / "scripts" / "iterbrow_lifecycle.sh").read_text(encoding="utf-8")
+        for command in ("install", "update", "repair", "uninstall"):
+            self.assertIn(command, source)
+        self.assertIn("prepare-offline", lifecycle)
+        self.assertIn("state_manifest.json", lifecycle)
+        self.assertIn("ITERBROW_UPDATE_SOURCE", lifecycle)
+        self.assertIn("rollback", lifecycle.lower())
+        self.assertIn("validate-atomspace", lifecycle)
+        self.assertIn('case "$LIFECYCLE_ROOT"', lifecycle)
 
     def test_default_install_is_core_only_and_uses_lockfile(self):
         source = (ROOT / "install.sh").read_text(encoding="utf-8")
@@ -30,17 +53,72 @@ class InstallerContractTests(unittest.TestCase):
     def test_install_proves_native_recovery_before_launch(self):
         source = (ROOT / "install.sh").read_text(encoding="utf-8")
         smoke = source.index("smoke_atomspace_service.py")
+        restored_state = source.index("validate-atomspace")
         readiness = source.index("iterbrow_readiness.py")
         launch = source.index("exec npm start")
+        self.assertLess(smoke, restored_state)
+        self.assertLess(restored_state, readiness)
+        self.assertIn("--initialize-if-missing", source)
         self.assertLess(smoke, readiness)
         self.assertLess(readiness, launch)
         self.assertIn("--require installed", source)
+        self.assertNotIn("installed and runtime-verified", source)
 
     def test_provider_secret_stays_in_private_app_onboarding(self):
         source = (ROOT / "install.sh").read_text(encoding="utf-8")
         self.assertNotIn("read -s", source)
         self.assertNotIn("OPENROUTER_API_KEY=", source)
         self.assertIn("Settings drawer", source)
+
+    def test_native_hyperon_repair_detects_the_real_macos_failure_safely(self):
+        probe = (ROOT / "scripts" / "native_engine.py").read_text(encoding="utf-8")
+        repair = (ROOT / "scripts" / "install_native_hyperon.sh").read_text(encoding="utf-8")
+        patch = (ROOT / "scripts" / "patches" / "hyperon-0.2.10-trie-key.patch").read_text(encoding="utf-8")
+
+        self.assertIn("KNOWN_BROKEN_MACOS_BINARIES", probe)
+        self.assertIn("--safe-preflight", repair)
+        self.assertLess(repair.index("--safe-preflight"), repair.index("native_engine.py\"; then"))
+        self.assertIn("range(2500)", probe)
+        self.assertIn("engine.space().get_atoms()", probe)
+        self.assertIn("(self.0 & TK_VALUE_MASK) - TK_MAX_EXPRESSION_SIZE", patch)
+        self.assertIn('export CARGO_HOME="$NATIVE_BUILD/cargo-home"', repair)
+        self.assertIn('export CC="$(xcrun --find clang)"', repair)
+        self.assertIn('"$CXX" -O2 -shared', repair)
+
+    def test_lifecycle_snapshot_preserves_state_but_not_versioned_seeds(self):
+        lifecycle = _load_lifecycle()
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            current = base / "current"
+            staged = base / "staged"
+            archive = base / "state.tar.gz"
+            manifest = {
+                "schema_version": 1,
+                "entries": [
+                    {"path": "memory", "role": "authoritative_state"},
+                    {"path": ".runtime/settings.json", "role": "secret"},
+                    {"path": "seed.metta", "role": "source_seed"},
+                ],
+            }
+            for root in (current, staged):
+                (root / "iter").mkdir(parents=True)
+                (root / "iter" / "state_manifest.json").write_text(
+                    json.dumps(manifest), encoding="utf-8"
+                )
+            (current / "iter" / "memory").mkdir()
+            (current / "iter" / "memory" / "fact.txt").write_text("remember", encoding="utf-8")
+            (current / "iter" / ".runtime").mkdir()
+            (current / "iter" / ".runtime" / "settings.json").write_text("secret", encoding="utf-8")
+            (current / "iter" / "seed.metta").write_text("old", encoding="utf-8")
+            (staged / "iter" / "seed.metta").write_text("new", encoding="utf-8")
+
+            lifecycle.snapshot(current, archive)
+            lifecycle.restore(staged, archive)
+
+            self.assertEqual((staged / "iter" / "memory" / "fact.txt").read_text(), "remember")
+            self.assertEqual((staged / "iter" / ".runtime" / "settings.json").read_text(), "secret")
+            self.assertEqual((staged / "iter" / "seed.metta").read_text(), "new")
+            self.assertEqual(archive.stat().st_mode & 0o777, 0o600)
 
 
 if __name__ == "__main__":

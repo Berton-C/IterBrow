@@ -11,7 +11,10 @@
 #    6. Readiness proof     (disposable AtomSpace recovery smoke test)
 #
 #  Usage:
-#     ./install.sh
+#     ./install.sh install      # fresh install (default)
+#     ./install.sh update       # checkpoint state, stage/verify, atomic replace
+#     ./install.sh repair       # repair managed runtimes without replacing code
+#     ./install.sh uninstall    # remove code after preserving state externally
 #
 #  The same file may be downloaded and run outside a checkout. In that mode it
 #  acquires TheWholeEnchilada into ~/Applications/IterBrow, then continues
@@ -32,7 +35,14 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-INSTALL_ARGS=("$@")
+INSTALL_MODE="install"
+if [[ $# -gt 0 && "$1" != -* ]]; then
+  case "$1" in
+    install|update|repair|uninstall) INSTALL_MODE="$1"; shift ;;
+    *) printf "Unknown installer command: %s\n" "$1" >&2; exit 2 ;;
+  esac
+fi
+INSTALL_ARGS=("$INSTALL_MODE" "$@")
 WITH_DEVELOPER_EXTRAS=0
 LAUNCH_AFTER_INSTALL=1
 
@@ -46,7 +56,7 @@ while [[ $# -gt 0 ]]; do
     --developer-extras) WITH_DEVELOPER_EXTRAS=1 ;;
     --no-launch) LAUNCH_AFTER_INSTALL=0 ;;
     --help|-h)
-      sed -n '1,38p' "$0"
+      sed -n '1,44p' "$0"
       exit 0
       ;;
     *)
@@ -70,6 +80,10 @@ if [[ ! -f "$ROOT_DIR/package.json" || ! -f "$ROOT_DIR/scripts/requirements.txt"
   if [[ -f "$INSTALL_DIR/package.json" && -f "$INSTALL_DIR/install.sh" ]]; then
     ok "Using existing IterBrow source at $INSTALL_DIR."
     exec /bin/bash "$INSTALL_DIR/install.sh" "${INSTALL_ARGS[@]}"
+  fi
+  if [[ "$INSTALL_MODE" != "install" ]]; then
+    warn "There is no complete IterBrow installation at $INSTALL_DIR to $INSTALL_MODE."
+    exit 1
   fi
   if [[ -e "$INSTALL_DIR" ]]; then
     warn "Install destination exists but is not a complete IterBrow checkout:"
@@ -97,7 +111,33 @@ if [[ ! -f "$ROOT_DIR/package.json" || ! -f "$ROOT_DIR/scripts/requirements.txt"
 fi
 
 cd "$ROOT_DIR"
-bold "IterBrow installer — this will take a few minutes on a clean machine."
+
+if [[ "$INSTALL_MODE" == "update" || "$INSTALL_MODE" == "uninstall" ]]; then
+  exec /bin/bash "$ROOT_DIR/scripts/iterbrow_lifecycle.sh" \
+    "$INSTALL_MODE" "$ROOT_DIR" "${ITERBROW_BRANCH:-TheWholeEnchilada}" "$LAUNCH_AFTER_INSTALL"
+fi
+
+if [[ "$INSTALL_MODE" == "repair" ]]; then
+  REPAIR_BACKUP_DIR="${ITERBROW_BACKUP_DIR:-$HOME/Library/Application Support/IterBrow Installer/backups}"
+  mkdir -p "$REPAIR_BACKUP_DIR"
+  chmod 700 "$REPAIR_BACKUP_DIR"
+  REPAIR_STAMP="$(date -u +%Y%m%dT%H%M%SZ)-$$"
+  REPAIR_ARCHIVE="$REPAIR_BACKUP_DIR/repair-state-$REPAIR_STAMP.tar.gz"
+  REPAIR_PYTHON=""
+  for candidate in "$ROOT_DIR/iter/.venv/bin/python3" python3.12 /opt/homebrew/bin/python3.12; do
+    if command -v "$candidate" >/dev/null 2>&1; then REPAIR_PYTHON="$candidate"; break; fi
+  done
+  if [[ -z "$REPAIR_PYTHON" ]]; then
+    warn "Python 3.12 is required to checkpoint an existing installation before repair."
+    exit 1
+  fi
+  "$REPAIR_PYTHON" "$ROOT_DIR/scripts/iterbrow_lifecycle.py" prepare-offline --root "$ROOT_DIR"
+  "$REPAIR_PYTHON" "$ROOT_DIR/scripts/iterbrow_lifecycle.py" snapshot \
+    --root "$ROOT_DIR" --archive "$REPAIR_ARCHIVE" --include-tools
+  ok "Pre-repair state checkpoint saved at $REPAIR_ARCHIVE."
+fi
+
+bold "IterBrow $INSTALL_MODE — this will take a few minutes on a clean machine."
 
 # ------------------------------------------------------------------------------
 step "1/6  Homebrew"
@@ -187,7 +227,9 @@ cd "$ROOT_DIR"
 
 # ------------------------------------------------------------------------------
 step "4/6  Locked Electron dependencies"
-npm ci
+NPM_INSTALL_CACHE="${ITERBROW_NPM_CACHE:-${TMPDIR:-/tmp}/iterbrow-npm-cache-v1}"
+mkdir -p "$NPM_INSTALL_CACHE"
+npm ci --cache "$NPM_INSTALL_CACHE"
 ok "npm ci complete."
 
 # ------------------------------------------------------------------------------
@@ -253,8 +295,8 @@ SCHEMA_EOF
     ok "your own Iter curates real proposals into iter/.runtime/pwq.json."
   fi
 
-  mkdir -p "$ROOT_DIR/private/crm"
-  ok "private/crm/ ready for connector config (Mattermost token, Gmail OAuth client --"
+  mkdir -p "$ROOT_DIR/iter/private/crm"
+  ok "iter/private/crm/ ready for connector config (Mattermost token, Gmail OAuth client --"
   ok "see iter/crm/HANDOFF.md section 7, 'First Session Quickstart', for exact steps)."
 
   if [[ -d "$ROOT_DIR/iter/nodequest/godot/export" ]]; then
@@ -329,6 +371,10 @@ step "6/6  Installation and AtomSpace recovery verification"
 PYTHONDONTWRITEBYTECODE=1 "$ROOT_DIR/iter/.venv/bin/python3" \
   "$ROOT_DIR/scripts/smoke_atomspace_service.py"
 PYTHONDONTWRITEBYTECODE=1 "$ROOT_DIR/iter/.venv/bin/python3" \
+  "$ROOT_DIR/scripts/iterbrow_lifecycle.py" validate-atomspace \
+  --root "$ROOT_DIR" --python "$ROOT_DIR/iter/.venv/bin/python3" \
+  --initialize-if-missing
+PYTHONDONTWRITEBYTECODE=1 "$ROOT_DIR/iter/.venv/bin/python3" \
   "$ROOT_DIR/scripts/iterbrow_readiness.py" \
   --app-root "$ROOT_DIR" \
   --iter-dir "$ROOT_DIR/iter" \
@@ -338,7 +384,7 @@ ok "Program files, managed runtimes, and crash-recoverable AtomSpace verified."
 
 # ------------------------------------------------------------------------------
 printf "\n\033[1;32m======================================================\033[0m\n"
-printf "\033[1;32m  IterBrow is installed and runtime-verified.\033[0m\n"
+printf "\033[1;32m  IterBrow is installed; recovery is verified.\033[0m\n"
 printf "\033[1;32m======================================================\033[0m\n\n"
 echo "In the app's Settings drawer, choose a provider and"
 echo "     paste in your own OpenRouter API key (sign up free at"
