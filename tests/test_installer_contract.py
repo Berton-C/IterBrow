@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import importlib.util
 import json
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -12,6 +13,14 @@ ROOT = Path(__file__).resolve().parents[1]
 def _load_lifecycle():
     path = ROOT / "scripts" / "iterbrow_lifecycle.py"
     spec = importlib.util.spec_from_file_location("iterbrow_lifecycle", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _load_dashboard_refresh():
+    path = ROOT / "scripts" / "refresh_dashboard_projections.py"
+    spec = importlib.util.spec_from_file_location("refresh_dashboard_projections", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -36,6 +45,8 @@ class InstallerContractTests(unittest.TestCase):
         self.assertIn("rollback", lifecycle.lower())
         self.assertIn("validate-atomspace", lifecycle)
         self.assertIn('case "$LIFECYCLE_ROOT"', lifecycle)
+        self.assertIn("refresh_dashboard_projections.py", lifecycle)
+        self.assertLess(lifecycle.index("restore --root"), lifecycle.index("refresh_dashboard_projections.py"))
 
     def test_default_install_is_core_only_and_uses_lockfile(self):
         source = (ROOT / "install.sh").read_text(encoding="utf-8")
@@ -54,10 +65,13 @@ class InstallerContractTests(unittest.TestCase):
         source = (ROOT / "install.sh").read_text(encoding="utf-8")
         smoke = source.index("smoke_atomspace_service.py")
         restored_state = source.index("validate-atomspace")
+        dashboards = source.index("refresh_dashboard_projections.py")
         readiness = source.index("iterbrow_readiness.py")
         launch = source.index("exec npm start")
         self.assertLess(smoke, restored_state)
         self.assertLess(restored_state, readiness)
+        self.assertLess(restored_state, dashboards)
+        self.assertLess(dashboards, readiness)
         self.assertIn("--initialize-if-missing", source)
         self.assertLess(smoke, readiness)
         self.assertLess(readiness, launch)
@@ -83,7 +97,13 @@ class InstallerContractTests(unittest.TestCase):
         self.assertIn("(self.0 & TK_VALUE_MASK) - TK_MAX_EXPRESSION_SIZE", patch)
         self.assertIn('export CARGO_HOME="$NATIVE_BUILD/cargo-home"', repair)
         self.assertIn('export CC="$(xcrun --find clang)"', repair)
+        self.assertIn('export SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"', repair)
+        self.assertIn('-isysroot "$SDKROOT"', repair)
+        self.assertIn("unset CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH", repair)
         self.assertIn('"$CXX" -O2 -shared', repair)
+        self.assertIn("ITERBROW_NATIVE_BUILD_DIR", repair)
+        self.assertIn("Retry without recompiling", repair)
+        self.assertIn("NATIVE_SOURCE_COMMIT", repair)
 
     def test_lifecycle_snapshot_preserves_state_but_not_versioned_seeds(self):
         lifecycle = _load_lifecycle()
@@ -119,6 +139,34 @@ class InstallerContractTests(unittest.TestCase):
             self.assertEqual((staged / "iter" / ".runtime" / "settings.json").read_text(), "secret")
             self.assertEqual((staged / "iter" / "seed.metta").read_text(), "new")
             self.assertEqual(archive.stat().st_mode & 0o777, 0o600)
+
+    def test_dashboard_projection_refresh_requires_and_embeds_current_graph(self):
+        refresh = _load_dashboard_refresh()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            transforms = root / "iter" / "transformations"
+            runtime = transforms / ".runtime"
+            vendor = root / "iter" / "vendor"
+            runtime.mkdir(parents=True)
+            vendor.mkdir(parents=True)
+            for filename in ("dashboard_atomspace.py", "dashboard_gallery.py"):
+                shutil.copy2(ROOT / "iter" / "transformations" / filename, transforms / filename)
+            shutil.copy2(ROOT / "iter" / "vendor" / "force-graph.js", vendor / "force-graph.js")
+            (runtime / "space.metta").write_text(
+                "(-- > placeholder ignored)\n(-- shared-one shared-two)\n",
+                encoding="utf-8",
+            )
+            (root / "iter" / "dashboard_runtime.html").write_text("runtime", encoding="utf-8")
+            (root / "iter" / "dashboard_context.html").write_text("context", encoding="utf-8")
+
+            result = refresh.refresh(root)
+
+            atomspace = (root / "iter" / "dashboard_atomspace.html").read_text(encoding="utf-8")
+            gallery = (root / "iter" / "dashboard_gallery.html").read_text(encoding="utf-8")
+            self.assertIn("window._spaceVizGraph=graph", atomspace)
+            self.assertIn("force-graph.js", atomspace)
+            self.assertIn("_spaceVizGraph", gallery)
+            self.assertGreater(result["gallery_bytes"], result["atomspace_bytes"])
 
 
 if __name__ == "__main__":

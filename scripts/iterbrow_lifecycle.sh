@@ -103,6 +103,8 @@ STAGE_PYTHON="$UPDATE_STAGE/iter/.venv/bin/python3"
 if [[ ! -x "$STAGE_PYTHON" ]]; then STAGE_PYTHON="$PYTHON_BIN"; fi
 PYTHONDONTWRITEBYTECODE=1 "$PYTHON_BIN" "$LIFECYCLE_HELPER" validate-atomspace \
   --root "$UPDATE_STAGE" --python "$STAGE_PYTHON"
+PYTHONDONTWRITEBYTECODE=1 "$STAGE_PYTHON" \
+  "$UPDATE_STAGE/scripts/refresh_dashboard_projections.py" --root "$UPDATE_STAGE"
 PYTHONDONTWRITEBYTECODE=1 "$STAGE_PYTHON" "$UPDATE_STAGE/scripts/iterbrow_readiness.py" \
   --app-root "$UPDATE_STAGE" --iter-dir "$UPDATE_STAGE/iter" \
   --python-bin "$STAGE_PYTHON" --require installed

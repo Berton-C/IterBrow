@@ -375,6 +375,8 @@ PYTHONDONTWRITEBYTECODE=1 "$ROOT_DIR/iter/.venv/bin/python3" \
   --root "$ROOT_DIR" --python "$ROOT_DIR/iter/.venv/bin/python3" \
   --initialize-if-missing
 PYTHONDONTWRITEBYTECODE=1 "$ROOT_DIR/iter/.venv/bin/python3" \
+  "$ROOT_DIR/scripts/refresh_dashboard_projections.py" --root "$ROOT_DIR"
+PYTHONDONTWRITEBYTECODE=1 "$ROOT_DIR/iter/.venv/bin/python3" \
   "$ROOT_DIR/scripts/iterbrow_readiness.py" \
   --app-root "$ROOT_DIR" \
   --iter-dir "$ROOT_DIR/iter" \

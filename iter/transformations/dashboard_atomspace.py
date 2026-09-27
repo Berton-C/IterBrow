@@ -42,7 +42,8 @@ def parse_space_metta():
     through a and b as well.
     """
     try:
-        space_text = open(SPACE_FILE).read()
+        with open(SPACE_FILE) as source:
+            space_text = source.read()
     except Exception:
         return '{"nodes":[],"links":[]}'
 
@@ -338,7 +339,8 @@ def transform(messages, tools):
 
     space_content = ""
     if _exists(SPACE_FILE):
-        space_content = open(SPACE_FILE).read()
+        with open(SPACE_FILE) as source:
+            space_content = source.read()
     space_escaped = _escape_html(space_content)
 
     css = r'''
