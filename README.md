@@ -585,6 +585,38 @@ before removing program files. Git development checkouts are never replaced or
 uninstalled by this lifecycle path; use Git for their code and `repair` for
 their runtimes.
 
+### Update an existing Git checkout (including the test install)
+
+Quit IterBrow completely first, then open Terminal in its repository directory.
+For the `TheWholeEnchilada` branch, paste this as **one command**:
+
+```bash
+git switch TheWholeEnchilada && git pull --ff-only origin TheWholeEnchilada && git rev-parse --short HEAD && ./install.sh repair
+```
+
+For the test checkout at `~/IterBrow`, the same command including its directory is:
+
+```bash
+cd "$HOME/IterBrow" && git switch TheWholeEnchilada && git pull --ff-only origin TheWholeEnchilada && git rev-parse --short HEAD && ./install.sh repair
+```
+
+For `main`, replace both occurrences of `TheWholeEnchilada` with `main`.
+The `&&` separators stop the sequence if a step fails. If Git reports conflicting
+local edits, divergent history, or an unfinished merge, stop and preserve those
+changes; do not reset, clean, or overwrite them to force the update. `repair`
+checkpoints the existing state and verifies the dependencies and AtomSpace. It
+does not fetch code by itself. Add `--no-launch` after `repair` to leave the app
+closed after installation.
+
+**Managed revisions are a separate activation step.** This command preserves
+existing hot-loaded tools, transformations, channels, and activated app bundles;
+it does not silently replace them with newly pulled source files. Changes to those
+components must be staged, validated, and activated through Iter's existing
+revision tools, then checked in the active revision. In particular, the websearch
+input-rejection repair in `8f81b6c` needs that step on an existing managed install;
+the commit hash alone does not prove the repaired tool is running. Do not delete
+`.runtime/hotload` or app revision state to work around this distinction.
+
 The remaining partner-distribution work in
 [`ADR-0011`](docs/architecture/ADR-0011-one-command-mac-installation.md) is a
 signed/notarized release artifact, interrupted-stage resume ledger, Intel-Mac
