@@ -23,6 +23,7 @@ from iterbrow_runtime import tool_results as retained_text
 from iterbrow_runtime.tool_results import capture_tool_output
 from iterbrow_runtime.work_inquiry import question_context
 from iterbrow_runtime.working_handoff import working_context
+from iterbrow_runtime.loop_continuity import resume_event_wait
 
 # Shared rule for "which memory/ files are prompt memory" (tools/_memory_projection.py).
 # iter.py is the authority on the projection; self_improve.py and auto_improve.py
@@ -539,6 +540,10 @@ except Exception as error:
 SESSION_ID = str(uuid.uuid4())
 HOTLOAD_MANAGER = HotloadManager(ITER_ROOT)
 HEARTBEAT = IterHeartbeat(ITER_ROOT, SESSION_ID)
+try:
+    startup_heartbeat = json.loads((ITER_ROOT / ".runtime/recovery/iter_heartbeat.json").read_text())
+except (OSError, ValueError):
+    startup_heartbeat = {}
 REQUEST_EXTRA_BODY = {} if PROVIDER == "openai" else model_request_extra_body(BASE_URL, ITER_ROOT / ".runtime" / "settings.json")
 client = openai.OpenAI(api_key=API_KEY, base_url=BASE_URL, timeout=LLM_TIMEOUT, max_retries=0, default_headers={"X-APC-Tenant": "iter", "x-session-id": SESSION_ID})
 time.sleep(INIT_WAIT)
@@ -569,6 +574,9 @@ while True:
         ACTIVE_COMPONENT_SNAPSHOT = HOTLOAD_MANAGER.component_snapshot()
         cycle_hard_floor_ok = True
         cycle_health_details = []
+        if cycle_number == 1 and resume_event_wait(experience, startup_heartbeat, ACTIVE_COMPONENT_SNAPSHOT):
+            print("[continuity] restoring saved event wait; no model request needed")
+            pending_event_append = slow_wait_for_input(0)
         HEARTBEAT.write(
             ACTIVE_COMPONENT_SNAPSHOT["generation_id"], "cycle_start",
             cycle_number,

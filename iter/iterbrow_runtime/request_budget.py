@@ -13,6 +13,7 @@ import math
 import re
 from pathlib import PurePath
 from .tool_results import WIRE_CHARS, output_excerpt, execution_facts
+from .loop_continuity import event_wait_boundary
 
 
 DEFAULT_INPUT_TOKENS = 45000
@@ -100,10 +101,23 @@ def working_input_limit(messages, tools, ceiling=DEFAULT_INPUT_TOKENS, current_u
     exchanges = [(start, end) for start, end in groups
                  if messages[start].get("role") == "assistant"]
     recent = {i for start, end in exchanges[-2:] for i in range(start, end)}
-    recent.update(range(active_work_start(messages, current_user), len(messages)))
+    recent.update(range(working_set_start(messages, current_user), len(messages)))
     required = [m for i, m in enumerate(messages)
                 if i in recent or m.get("role") in ("system", "developer", "user")]
     return min(ceiling, max(12000, estimate_input_tokens(required, tools) + 2048))
+
+
+def working_set_start(messages, current_user=None):
+    """An explicit wait ends bulk-evidence priority, not the user's task/history.
+
+    Carry the wait exchange itself (which may include actions or a handoff), all
+    subsequent work and every supplied user instruction. Older evidence still
+    competes for request space and remains exactly retrievable. Without a known
+    successful wait, preserve the existing continuous-work selection unchanged.
+    """
+    start = active_work_start(messages, current_user)
+    boundary = event_wait_boundary(messages)
+    return max(start, boundary[0]) if boundary else start
 
 
 def relevant_memory(items, experience):
@@ -298,6 +312,7 @@ trusted reader and stay within input_ceiling (default: input_limit).
         input_ceiling = input_limit
     if type(input_ceiling) is not int or input_ceiling < input_limit:
         raise ValueError("input_ceiling must be an integer at least input_limit")
+    focus_from = working_set_start(messages, protected_user)
     projected = copy.deepcopy(messages)
     for message in projected:
         # Local observed execution facts feed transformations, not provider API
@@ -357,7 +372,7 @@ trusted reader and stay within input_ceiling (default: input_limit).
         return estimate_input_tokens(view, projected_tools)
 
     if restore_observation is not None:
-        for index in range(len(projected) - 1, active_from, -1):
+        for index in range(len(projected) - 1, focus_from, -1):
             message = projected[index]
             if message.get("role") != "tool":
                 continue
@@ -390,7 +405,7 @@ trusted reader and stay within input_ceiling (default: input_limit).
     essential_size = protected_size(protected)
     recent_limit = essential_size + max(0, input_limit - essential_size) // 2
     for start, end in reversed(groups):
-        if end <= active_from:
+        if end <= focus_from:
             break
         required = protected | set(range(start, end))
         # Reserve observations, not just their preview envelopes. Consecutive
@@ -431,7 +446,7 @@ trusted reader and stay within input_ceiling (default: input_limit).
     if restore_observation is not None:
         for start, end in reversed(groups):
             calls = projected[start].get("tool_calls", []) or []
-            if start <= active_from or not calls or any(
+            if start < focus_from or not calls or any(
                     call.get("function", {}).get("name") != "read_tool_result" for call in calls):
                 continue
             results = projected[start + 1:end]
@@ -569,7 +584,7 @@ trusted reader and stay within input_ceiling (default: input_limit).
     if active_from == len(projected):
         active_from = recent[-2] if len(recent) > 1 else protected_from
     if restore_observation is not None:
-        for index in range(len(projected) - 1, active_from, -1):
+        for index in range(len(projected) - 1, focus_from, -1):
             message = projected[index]
             if (index in removed or message.get("role") != "tool"
                     or message.get("tool_call_id") in priority_expanded):
@@ -577,7 +592,7 @@ trusted reader and stay within input_ceiling (default: input_limit).
             original = message.get("content", "")
             if not isinstance(original, str):
                 continue
-            allowance = len(original) + max(0, input_ceiling - estimate_after) * 3
+            allowance = len(original) + max(0, working_limit - estimate_after) * 3
             try:
                 restored = restore_observation(copy.deepcopy(message), allowance)
             except Exception:
@@ -587,7 +602,7 @@ trusted reader and stay within input_ceiling (default: input_limit).
             message["content"] = restored
             remaining = remaining_view()
             estimate = estimate_input_tokens(remaining, projected_tools)
-            if estimate > input_ceiling:
+            if estimate > working_limit:
                 message["content"] = original
             else:
                 estimate_after = estimate
@@ -604,6 +619,7 @@ trusted reader and stay within input_ceiling (default: input_limit).
         "duplicate_reasoning_fields_omitted": deduplicated,
         "parked_completed_exchanges": parked,
         "working_input_limit": working_limit,
+        "working_set_start": focus_from,
         "expanded_tool_outputs": expanded,
         "priority_expanded_tool_outputs": priority_expanded,
         "retained_user_messages": sum(m.get("role") == "user" for m in messages),

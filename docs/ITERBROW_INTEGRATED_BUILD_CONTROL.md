@@ -1,6 +1,32 @@
 # IterBrow: integrated build control
 
-## Current checkpoint — independent music-app foundry trial, September 24–25
+## Current checkpoint — restart continuity and need-driven context, September 27
+
+**C01/C02 bounded follow-up: 3/3 installed and verified.** User authorized addressing
+completed work reopening after restart and unnecessarily bulky requests. Diagnosis:
+startup discarded the loop's saved successful nop(0) wait; budget selection treated
+days of exchanges as active demand and promoted old full captures (including a
+music-app result during the later screenshot task). No semantic completion detector
+or new governance layer was added. Three runtime files now restore a healthy wait
+only in the same stable generation and use successful waits as request-priority
+boundaries, NOT task-completion or durable-history boundaries. All supplied user
+instructions, the working account, fresh evidence, history retrieval, positive
+waits, input/alarm wakeups and probation/recovery remain available. Fresh large
+results can still grow to the 45k ceiling; optional old expansion does not fill it.
+
+Verification: 183 repository tests, 10 new focused checks and 43 prior continuity/
+handoff/source/screenshot regressions passed. A captured small post-wait follow-up
+replay estimated 43,447 -> 28,698 input tokens (34% lower); system/working account
+and all user messages unchanged. The already-active replay did NOT shrink; do not
+generalize the saving to every request or claim measured billing savings. Controlled
+UI Stop/Start produced one new child, same stable generation, fresh idle heartbeat,
+no new model request and identical hashes for 1,625 protected state files. AtomSpace
+remained ready at commit 7282 / 8,965 runtime atoms; native truth revision succeeded.
+No app edits, memory rewrite, new prompts, provider changes or automation. Temporary
+tests/replays/before-images: /tmp/iterbrow-continuity-tyaPFl. Broader C01/C02 behavior
+and next-real-request efficiency remain observations, not universally closed issues.
+
+## Previous checkpoint — independent music-app foundry trial, September 24–25
 
 **Current follow-up — September 25, 17:32: TRACK CURRENT HUMAN INTENT; MUSIC 3/4.**
 User asked Codex to keep tracking what they are having Iter do NOW. Read-only
