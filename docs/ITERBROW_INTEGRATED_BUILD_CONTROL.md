@@ -1,6 +1,47 @@
 # IterBrow: integrated build control
 
-## Current checkpoint — restart continuity and need-driven context, September 27
+## Current checkpoint — self-repair rejection and recovery continuity, September 27
+
+**Scope:** Repair runtime behavior only; Iter owns the unfinished CRM Headlines
+work. Its description-only websearch revision was automatically rolled back when
+its deliberate `source="web"` negative test raised an expected validation error.
+After restart its working account still called the failed revision active, while
+the actual rollback event was absent from the model request.
+
+**Repair:** Explicit ToolInputError rejects invalid arguments without labelling a
+changed component broken. It remains an unsuccessful invocation, not task success.
+Ordinary exceptions, loading/formatting failures, timeouts, generation verification,
+heartbeat and rollback keep their existing behavior. Websearch documents auto/github
+(retaining Iter's own description improvement). The current pinned generation and
+its latest relevant rollback are projected from the existing journal alongside the
+working account. No new store, model call, approval, task or completion inference.
+
+**Counterexample pass:** First-pass formatting exemptions and malformed-history
+crashes were reproduced and repaired before installation. Prior rollback filtering,
+incomplete journal tails, promoted-code corruption, old-tool compatibility, invalid
+arguments and valid search paths are covered offline. Existing durable history and
+recovery records are not rewritten. Tests and before-images remain in
+`/tmp/iterbrow-recovery-repair-gbZtDE`, not the repository.
+
+**Overnight boundary:** User explicitly requires Iter OFF. Install the tested host
+and source changes, stage/validate the managed websearch revision, and push the fix
+to main and TheWholeEnchilada. Do not activate probation, restart the loop, send task
+messages, or schedule work overnight. Live activation/probation and independent CRM
+follow-through remain explicitly unverified until the user permits running Iter.
+This is not a claim that updating source replaces the immutable active tool bundle.
+
+**Verified checkpoint:** 246 offline checks pass (183 repository, 18 targeted,
+35 prior handoff/source/image replays, 10 restart/context checks). Isolated installed
+worker checks and the actual recovery-snapshot replay pass without a model call.
+All 1,781 sampled protected files remain identical, including memory, AtomSpace,
+tabs, CRM, active pointer, last prompt and heartbeat. Host/source changes installed;
+candidate `candidate-06deea3f20b14766afc3ca50ababf8f4` validated but NOT activated.
+Active stable generation remains `candidate-fa99cada2a974debb34ab7db58da93da`.
+On resumption, activate the validated candidate through the existing revision
+service after Start, then observe ordinary probation and independent CRM work.
+Do not infer live success from these offline checks. No new automation was created.
+
+## Previous checkpoint — restart continuity and need-driven context, September 27
 
 **C01/C02 bounded follow-up: 3/3 installed and verified.** User authorized addressing
 completed work reopening after restart and unnecessarily bulky requests. Diagnosis:

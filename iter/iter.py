@@ -22,7 +22,7 @@ from iterbrow_runtime.atomspace_store import _atomic_json
 from iterbrow_runtime import tool_results as retained_text
 from iterbrow_runtime.tool_results import capture_tool_output
 from iterbrow_runtime.work_inquiry import question_context
-from iterbrow_runtime.working_handoff import working_context
+from iterbrow_runtime.working_handoff import working_context, runtime_context
 from iterbrow_runtime.loop_continuity import resume_event_wait
 
 # Shared rule for "which memory/ files are prompt memory" (tools/_memory_projection.py).
@@ -130,6 +130,7 @@ def dynamic_worker():
     payload_path = Path(sys.argv[5])
     execution = {"success": True, "state": "returned", "scope": "invocation",
                  "task_fulfillment": "unverified"}
+    invoking_tool = False
     try:
         # A hot-load generation is a complete component tree.  Put the exact
         # component directory first so a promoted tool can import helper files
@@ -164,14 +165,19 @@ def dynamic_worker():
                 ],
             }
         else:
+            invoking_tool = function == "run"
             result = getattr(module, function)(*payload.get("args", []), **payload.get("kwargs", {}))
+            invoking_tool = False
             execution = getattr(result, "execution_outcome", execution)
             if function != "transform" and result is not None:
                 result = str(result)
         output = {"ok": True, "result": result, "execution": execution}
     except BaseException as error:
         output = {"ok": False, "error": f"{type(error).__name__}: {error}"}
-        if getattr(error, "execution_outcome", None):
+        if invoking_tool and isinstance(error, retained_text.ToolInputError):
+            output["input_rejected"] = True
+        if (getattr(error, "execution_outcome", None)
+                and (not isinstance(error, retained_text.ToolInputError) or invoking_tool)):
             output["execution"] = error.execution_outcome
     try:
         result_path.write_text(json.dumps(output, ensure_ascii=False))
@@ -707,6 +713,9 @@ while True:
                         "\n[Working handoff projection unavailable; saved history is unchanged. "
                         "Use the actual request and observations; no completion is implied.]"
                     )
+            # Current supervisor facts must not depend on a question trigger or
+            # an LLM remembering to re-query a status captured before recovery.
+            request_messages[0]['content'] += runtime_context(ACTIVE_COMPONENT_SNAPSHOT)
             if transformation_error:
                 request_messages += [{"role": "user", "content": transformation_error, "_iter_runner": True}]
                 if TRANSFORMATION_HEALTH_FAILURE:
@@ -860,6 +869,7 @@ while True:
                                 }
                                 if (
                                     not result["ok"]
+                                    and not result.get("input_rejected", False)
                                     and ACTIVE_COMPONENT_SNAPSHOT.get("status") == "probation"
                                 ):
                                     try:
@@ -875,7 +885,10 @@ while True:
                                                 tool_name, str(result.get("error", ""))[:300]
                                             )
                                         )
-                                raw_tool_result = str(result["result"]) if result["ok"] else f"Tool execution failed: {result['error']}"
+                                raw_tool_result = str(result["result"]) if result["ok"] else (
+                                    ("Tool input rejected: " if result.get("input_rejected") else
+                                     "Tool execution failed: ") + result['error']
+                                )
                                 ret = gate_note + raw_tool_result
                     except Exception as error:
                         ret = f"Tool execution failed: {type(error).__name__}: {error}"

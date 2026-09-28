@@ -382,11 +382,31 @@ class HotloadManager:
         """Return one immutable generation and component roots for a whole cycle."""
         active = self.active()
         generation, manifest = self._verify_generation(active["generation_id"])
+        # Reuse the existing journal. This is context, never a new activation
+        # prerequisite; unavailable history must not disable healthy work.
+        recovery = None
+        try:
+            for event in reversed(self._events()):
+                if event["kind"] not in ("candidate_rolled_back", "stable_generation_rolled_back"):
+                    continue
+                payload = event["payload"]
+                if payload.get("restored_generation_id") == active["generation_id"]:
+                    recovery = {"event_id": event["event_id"], "at": event["at"],
+                                "failed_generation_id": payload.get("failed_generation_id"),
+                                "restored_generation_id": payload.get("restored_generation_id"),
+                                "reason": str(payload.get("reason", ""))[:500]}
+                break  # Never present an older rollback as the latest recovery.
+        except Exception as error:
+            # Historical observation is best-effort, including malformed ledger
+            # shapes. Generation verification above and supervisor checks still
+            # enforce the existing health/recovery rules.
+            recovery = {"unavailable": str(error)[:300]}
         return {
             "generation_id": active["generation_id"],
             "status": active["status"],
             "roots": {name: generation / name for name in MANAGED_ROOTS},
             "changed_paths": list(manifest.get("changed_paths") or []),
+            "latest_recovery": recovery,
         }
 
     def _normalise_contract(self, contract, changed_paths, parent_generation_id):

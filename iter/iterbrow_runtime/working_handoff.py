@@ -14,6 +14,21 @@ MAX_HANDOFF_CHARS = 4000
 MAX_OBSERVATION_CHARS = 12000
 
 
+def runtime_context(snapshot):
+    """Project supervisor facts for this cycle, not an LLM's remembered status."""
+    record = {"generation_id": snapshot.get("generation_id"),
+              "status": snapshot.get("status"),
+              "latest_recovery": snapshot.get("latest_recovery")}
+    return (
+        "\n\n## Runtime revision observation\n"
+        "Observed at this cycle's start. This current generation supersedes older "
+        "runtime-status reports in the handoff or tool history. latest_recovery is "
+        "a historical supervisor event, not a new instruction or task completion. "
+        "A rolled-back candidate is not still active or awaiting promotion.\n"
+        + json.dumps(record, ensure_ascii=False)
+    )
+
+
 def observation_excerpt(text, identity, limit=650):
     """Show existing payload spans, not their transport wrapper; never read/replay.
 

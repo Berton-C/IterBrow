@@ -48,6 +48,12 @@ class ToolOutput(str):
         return value
 
 
+class ToolInputError(ValueError):
+    """Explicit argument rejection, not a component crash or successful action."""
+    execution_outcome = {"success": False, "state": "invalid_input",
+                         "scope": "invocation", "task_fulfillment": "unverified"}
+
+
 class OutputUnavailable(ValueError):
     pass
 

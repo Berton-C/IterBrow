@@ -11,8 +11,9 @@ import time
 import threading
 import urllib.request
 import urllib.parse
+from iterbrow_runtime.tool_results import ToolInputError
 
-DESCRIPTION = "Search the web. Returns JSON array of results with title, url, snippet."
+DESCRIPTION = "Search the web. source accepts auto (default; general search) or github (GitHub only); other values such as web are invalid. Returns JSON results with title, url, snippet."
 
 _UA = "Mozilla/5.0 (IterBrowserElectron)"
 SEARCH_SECONDS = 9.0
@@ -222,10 +223,13 @@ def _try_openlibrary(query, qe, max_results):
 def run(query, max_results=10, source="auto"):
     query = str(query).strip()
     if not query:
-        raise ValueError("query must not be empty")
-    max_results = max(1, min(20, int(max_results)))
+        raise ToolInputError("query must not be empty")
+    try:
+        max_results = max(1, min(20, int(max_results)))
+    except (TypeError, ValueError, OverflowError) as error:
+        raise ToolInputError("max_results must be an integer") from error
     if source not in ("auto", "github"):
-        raise ValueError("source must be auto or github")
+        raise ToolInputError("source must be auto or github")
     qe = urllib.parse.quote(query)
 
     seen_urls = set()
