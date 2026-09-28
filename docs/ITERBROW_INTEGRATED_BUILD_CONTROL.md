@@ -23,23 +23,30 @@ arguments and valid search paths are covered offline. Existing durable history a
 recovery records are not rewritten. Tests and before-images remain in
 `/tmp/iterbrow-recovery-repair-gbZtDE`, not the repository.
 
-**Overnight boundary:** User explicitly requires Iter OFF. Install the tested host
-and source changes, stage/validate the managed websearch revision, and push the fix
-to main and TheWholeEnchilada. Do not activate probation, restart the loop, send task
-messages, or schedule work overnight. Live activation/probation and independent CRM
-follow-through remain explicitly unverified until the user permits running Iter.
-This is not a claim that updating source replaces the immutable active tool bundle.
-
-**Verified checkpoint:** 246 offline checks pass (183 repository, 18 targeted,
+**Verified checkpoint — 4/4 complete:** 246 offline checks pass (183 repository, 18 targeted,
 35 prior handoff/source/image replays, 10 restart/context checks). Isolated installed
 worker checks and the actual recovery-snapshot replay pass without a model call.
-All 1,781 sampled protected files remain identical, including memory, AtomSpace,
-tabs, CRM, active pointer, last prompt and heartbeat. Host/source changes installed;
-candidate `candidate-06deea3f20b14766afc3ca50ababf8f4` validated but NOT activated.
-Active stable generation remains `candidate-fa99cada2a974debb34ab7db58da93da`.
-On resumption, activate the validated candidate through the existing revision
-service after Start, then observe ordinary probation and independent CRM work.
-Do not infer live success from these offline checks. No new automation was created.
+All 1,781 sampled protected files were identical immediately after installation,
+including memory, AtomSpace, tabs, CRM, active pointer, last prompt and heartbeat.
+Runtime repair commit: `8f81b6c`, pushed to main and TheWholeEnchilada.
+
+User then authorized a bounded live check and restarts, provided Iter is OFF when
+finished. At 22:52 Iter correctly reported the actual prior rollback/current state,
+activated `candidate-06deea3f20b14766afc3ca50ababf8f4` itself, and deliberately called
+websearch with `source="web"`. The invocation was rejected with success=false and
+state=invalid_input; the completed cycle stayed healthy, with no rollback. Its next
+`source="github"` query returned Berton-C/IterBrow. The external supervisor promoted
+the candidate after three healthy completed cycles at 22:53:33. Iter saved a handoff
+and sent the correct verdict, explicitly preserving the unfinished CRM task, then
+entered nop(0). This was a guided maintenance test, NOT proof of an autonomous CRM
+build. The 23 checked app/bundle/tab/dashboard files were unchanged throughout.
+
+A controlled Stop/Start retained this stable generation and restored idle_wait
+with a new PID and no new model request or usage. History, CRM and saved tabs were
+identical across that restart. Final Stop was verified in the UI and by process
+exit. Live proof and restart records remain in the same /tmp directory above.
+**Next dependency:** User-directed resumption of Iter's unfinished CRM Headlines
+work. Leave Iter OFF; no automation, background observer or scheduled resumption.
 
 ## Previous checkpoint — restart continuity and need-driven context, September 27
 
