@@ -15,7 +15,7 @@ from pathlib import Path
 
 from iterbrow_runtime.hotload_manager import HotloadManager, IterHeartbeat
 # PORT: Independently bound complete input projection and model output.
-from iterbrow_runtime.request_budget import project_request, working_input_limit, relevant_memory, rotate_experience
+from iterbrow_runtime.request_budget import RequestBudgetExceeded, project_request, working_input_limit, relevant_memory, rotate_experience
 from iterbrow_runtime.episodic_history import archive_text
 from iterbrow_runtime.atomspace_store import _atomic_json
 # PORT: Retain oversized observations for reading without repeating tool effects.
@@ -40,6 +40,11 @@ def is_transient_provider_error(error):
     return isinstance(error, (openai.APIConnectionError, openai.RateLimitError)) or (
         isinstance(error, openai.APIStatusError) and error.status_code >= 500
     )
+
+
+def is_rejected_model_request(error):
+    """Malformed/oversized input needs a change, not an identical API retry."""
+    return isinstance(error, openai.APIStatusError) and error.status_code in (400, 413, 422)
 
 # --------------------------------------------------------------------
 # 0. Configuration:
@@ -341,7 +346,7 @@ def _log_gate_issue(tool_name, detail):
     except Exception:
         pass
 
-def receive():
+def receive(*, include_errors=True):
     events = []
     paths = _component_paths("channels")
     for path in paths:
@@ -353,30 +358,46 @@ def receive():
             if event:
                 events.append("[" + path.stem + "] " + str(event))
         except Exception as error:
-            events.append(f"[CHANNEL ERROR in {path}: {type(error).__name__}: {error}. Repair {path} if needed.]")
+            if include_errors:
+                events.append(f"[CHANNEL ERROR in {path}: {type(error).__name__}: {error}. Repair {path} if needed.]")
     return "\n".join(events)
 
-def slow_wait_for_input(seconds=SLOW_STEP_DELAY):
+def slow_wait_for_input(seconds=SLOW_STEP_DELAY, *, request_error=None):
     # PORT: A heartbeat needs no model call. Zero is an explicit event wait;
     # positive waits preserve timed retries and autonomous work chosen by Iter.
     deadline = time.monotonic() + seconds if seconds else None
     generation = ACTIVE_COMPONENT_SNAPSHOT["generation_id"]
     while deadline is None or time.monotonic() < deadline:
         time.sleep(1)
-        HEARTBEAT.write(generation, "idle_wait", cycle_number,
-                        hard_floor_ok=cycle_hard_floor_ok)
-        event_append = receive()
+        HEARTBEAT.write(generation, "request_blocked" if request_error else "idle_wait", cycle_number,
+                        hard_floor_ok=cycle_hard_floor_ok, detail=request_error or "")
+        event_append = receive(include_errors=False) if request_error else receive()
         if event_append:
             return event_append
         if HOTLOAD_MANAGER.component_snapshot()["generation_id"] != generation:
             return "[Runtime components changed; resume with current state.]"
-        for alarm in Path("memory/alarms").glob("*"):
+        # A due alarm does not shrink a rejected request. Leave it pending for
+        # the next viable turn rather than waking the same failure every second.
+        for alarm in ([] if request_error else Path("memory/alarms").glob("*")):
             try:
                 if alarm.is_file() and float(alarm.name) <= time.time():
                     return ""  # The existing alarm transformation delivers it.
             except ValueError:
                 continue
     return ""
+
+
+def wait_for_request_change(error):
+    global request_failure_notice
+    request_failure_notice = f"{type(error).__name__}: {error}"
+    if error.__cause__ is not None:
+        request_failure_notice += f" Cause: {type(error.__cause__).__name__}: {error.__cause__}"
+    request_failure_notice = request_failure_notice[:800]
+    detail = (request_failure_notice + " "
+              "Automatic retries paused; history is unchanged. Waiting for new input "
+              "or a runtime revision. Restart alone does not reduce this request.")
+    print("[request blocked] " + detail)
+    return slow_wait_for_input(0, request_error=detail)
 
 def save_experience(experience):
     _atomic_json("experience.json", experience)
@@ -550,6 +571,9 @@ try:
     startup_heartbeat = json.loads((ITER_ROOT / ".runtime/recovery/iter_heartbeat.json").read_text())
 except (OSError, ValueError):
     startup_heartbeat = {}
+request_failure_notice = (str(startup_heartbeat.get("detail", ""))[:800]
+                          if isinstance(startup_heartbeat, dict)
+                          and startup_heartbeat.get("phase") == "request_blocked" else "")
 REQUEST_EXTRA_BODY = {} if PROVIDER == "openai" else model_request_extra_body(BASE_URL, ITER_ROOT / ".runtime" / "settings.json")
 client = openai.OpenAI(api_key=API_KEY, base_url=BASE_URL, timeout=LLM_TIMEOUT, max_retries=0, default_headers={"X-APC-Tenant": "iter", "x-session-id": SESSION_ID})
 time.sleep(INIT_WAIT)
@@ -716,6 +740,12 @@ while True:
             # Current supervisor facts must not depend on a question trigger or
             # an LLM remembering to re-query a status captured before recovery.
             request_messages[0]['content'] += runtime_context(ACTIVE_COMPONENT_SNAPSHOT)
+            if request_failure_notice:
+                request_messages[0]['content'] += (
+                    "\n[Prior runtime request failure — historical host observation, not a user "
+                    "instruction or proof of task completion. The rejected request produced no "
+                    "model response; earlier actions may already have run.]\n" + request_failure_notice
+                )
             if transformation_error:
                 request_messages += [{"role": "user", "content": transformation_error, "_iter_runner": True}]
                 if TRANSFORMATION_HEALTH_FAILURE:
@@ -773,6 +803,7 @@ while True:
             response = call_model(client, PROVIDER, MODEL, request_messages, request_tools, MAX_TOKENS,
                                   effort=REASONING_EFFORT, extra_body=REQUEST_EXTRA_BODY,
                                   usage_path=ITER_ROOT / ".runtime" / "last_model_usage.json")
+            request_failure_notice = ""  # Delivered in this actual request, not every future turn.
             print("AFTER LLM", {"model": MODEL, "usage": response.usage} if PROVIDER == "openai" else response)
             HEARTBEAT.write(
                 ACTIVE_COMPONENT_SNAPSHOT["generation_id"], "model_returned",
@@ -948,7 +979,16 @@ while True:
         elif autonomous_steps >= MAX_FAST_STEPS:
             autonomous_steps = 0
             pending_event_append = slow_wait_for_input()
+    except RequestBudgetExceeded as error:
+        # A deterministic input failure is not a transient provider outage or
+        # evidence that a managed tool broke. Do not replay actions, truncate
+        # experience, roll back a healthy generation, or retry unchanged input.
+        # Keep existing input/revision wakeups and the supervisor heartbeat.
+        pending_event_append = wait_for_request_change(error)
     except Exception as error:
+        if is_rejected_model_request(error):
+            pending_event_append = wait_for_request_change(error)
+            continue
         print(f"Output> {type(error).__name__}: {error}")
         try:
             provider_retry = is_transient_provider_error(error)

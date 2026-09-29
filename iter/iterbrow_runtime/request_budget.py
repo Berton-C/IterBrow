@@ -27,6 +27,26 @@ class RequestBudgetExceeded(ValueError):
     """The protected current turn, system instructions and tools do not fit."""
 
 
+def budget_breakdown(messages, tools):
+    """Content-free diagnostics; approximate contributions, not billed tokens."""
+    groups = {"system": [], "user": [], "runtime_observations": [], "assistant_tool": []}
+    images = 0
+    for message in messages:
+        role = message.get("role")
+        key = ("system" if role in ("system", "developer") else
+               "runtime_observations" if message.get("_iter_runner") else
+               "user" if role == "user" else "assistant_tool")
+        groups[key].append(message)
+        if isinstance(message.get("content"), list):
+            images += sum(isinstance(part, dict) and part.get("type") == "image_url"
+                          for part in message["content"])
+    base = estimate_input_tokens([], [])
+    values = {name: estimate_input_tokens(rows, []) - base for name, rows in groups.items()}
+    values["tool_schemas"] = estimate_input_tokens([], tools) - base
+    values["images"] = images  # Their reserve is already included in message contributions.
+    return values
+
+
 def is_user_input(message):
     """Runner bookkeeping is not a new intention, even though it uses user role."""
     return message.get("role") == "user" and not message.get("_iter_runner")
@@ -489,10 +509,22 @@ trusted reader and stay within input_ceiling (default: input_limit).
                         message["content"] = original
 
     estimate_before = estimate_input_tokens(projected, projected_tools)
+    compact_history_index = False
     def remaining_view():
         view = [message for index, message in enumerate(projected) if index not in removed]
         index = _omitted_work(messages, removed, active_from)
         if index:
+            if compact_history_index:
+                # This is an optional index into already omitted history, not
+                # the actual user, working account or latest observation. Its
+                # previews must not prevent the retained request from fitting.
+                # Keep the newest entries that fit, with the source/count/notice
+                # even when none do. Originals remain in exact saved history.
+                record = json.loads(index["content"])
+                while (record["indexed_observations"]
+                       and estimate_input_tokens(view + [index], projected_tools) > input_limit):
+                    record["indexed_observations"].pop(0)
+                    index["content"] = json.dumps(record, ensure_ascii=False)
             view.append(index)
         return view
 
@@ -505,6 +537,13 @@ trusted reader and stay within input_ceiling (default: input_limit).
         removed.update(range(start, end))
         remaining = remaining_view()
         estimate_after = estimate_input_tokens(remaining, projected_tools)
+
+    # Try fitting the auxiliary history index before parking any retained
+    # exchange. Otherwise a few extra preview tokens can deadlock a request
+    # whose actual protected instructions and newest evidence already fit.
+    if estimate_after > input_limit:
+        compact_history_index = True
+        estimate_after = estimate_input_tokens(remaining_view(), projected_tools)
 
     references = []
     if estimate_after > input_limit and capture_assistant is not None:
@@ -523,6 +562,7 @@ trusted reader and stay within input_ceiling (default: input_limit).
             estimate_after = estimate_input_tokens(remaining, projected_tools)
 
     parked = []
+    parked_views = []
     if estimate_after > input_limit and capture_exchange is not None:
         # Park a COMPLETE old action/result group, never send a tool call with
         # rewritten or missing reasoning/results. Keep exact originals retrievable
@@ -568,12 +608,46 @@ trusted reader and stay within input_ceiling (default: input_limit).
                 "reference": reference, "observations": observations}, ensure_ascii=False)}
             removed.update(range(start + 1, end))
             parked.append(reference["result_id"])
+            parked_views.append((start, json.loads(projected[start]["content"]), original))
             remaining = remaining_view()
             estimate_after = estimate_input_tokens(remaining, projected_tools)
+
+    # Only if the normal projection still cannot fit: shrink previews of
+    # already captured results, oldest first. Keep their identity, execution
+    # facts, omission counts and exact retrieval pointers. Neither the stored
+    # exchange nor the current screenshot/instructions/working account changes.
+    compacted = []
+    for start, record, original in sorted(parked_views, key=lambda item: item[0]):
+        if estimate_after <= input_limit:
+            break
+        def preview_at(limit):
+            for observation, result in zip(record["observations"], original[1:]):
+                content = result.get("content", "")
+                text = content if isinstance(content, str) else json.dumps(content)
+                excerpt = output_excerpt(text, limit)
+                observation.update(result_prefix=excerpt["preview"], result_tail=excerpt["tail"],
+                                   tail_offset=excerpt["tail_offset"], omitted_chars=excerpt["omitted_chars"],
+                                   prefix_only=excerpt["omitted_chars"] > 0)
+            projected[start]["content"] = json.dumps(record, ensure_ascii=False)
+            return estimate_input_tokens(remaining_view(), projected_tools)
+
+        low, high = 0, WIRE_CHARS + 64
+        estimate_after = preview_at(low)
+        if estimate_after <= input_limit:
+            while low < high:
+                middle = (low + high + 1) // 2
+                if preview_at(middle) <= input_limit:
+                    low = middle
+                else:
+                    high = middle - 1
+            estimate_after = preview_at(low)
+        compacted.append(record["reference"]["result_id"])
 
     if estimate_after > input_limit:
         raise RequestBudgetExceeded(
             f"Protected input estimates {estimate_after} tokens, above the {input_limit} input target. "
+            f"Over by {estimate_after - input_limit}; approximate components: "
+            + json.dumps(budget_breakdown(remaining_view(), projected_tools), sort_keys=True) + ". "
             "Current user, latest tool exchange and stored memories were preserved; request was not sent."
         )
     # Restore whole captured observations only into this request copy, newest
@@ -618,6 +692,7 @@ trusted reader and stay within input_ceiling (default: input_limit).
         "retained_assistant_contents": references,
         "duplicate_reasoning_fields_omitted": deduplicated,
         "parked_completed_exchanges": parked,
+        "compacted_exchange_previews": compacted,
         "working_input_limit": working_limit,
         "working_set_start": focus_from,
         "expanded_tool_outputs": expanded,

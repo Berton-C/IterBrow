@@ -1,5 +1,49 @@
 # IterBrow: integrated build control
 
+## Current checkpoint — request-budget retry repair, September 29
+
+**Tracking: 1/3 diagnosis complete; 2/3 offline repair complete; 3/3 installed
+and verified locally.** Publication targets are main and TheWholeEnchilada;
+the user has authorized both. Earlier automatic-review connection failures are
+resolved for installation. This checkpoint accompanies the two-file runtime repair.
+
+**Active claim / evidence:** Haley's log contains fourteen local
+RequestBudgetExceeded failures, including repeated 45,062-token estimates against
+45,000. These requests never reached the model. Optional omitted-history previews
+now yield to retained instructions/evidence; already-captured exchange previews
+can fit the remaining allowance while retaining exact readers, execution facts
+and omission counts. A structurally similar 45,062-token failure now fits at 44,928,
+preserving all supplied user messages and its image. Original history is unchanged.
+
+Local budget/retention failures and API input rejections (400/413/422) wait for
+changed input/components rather than retrying unchanged requests. Existing heartbeat,
+true health failures, rollback and transient API retries remain. Alarms/channel
+errors do not repeatedly wake a rejected request. Content-free budget contribution
+diagnostics and chained failure causes reach the log/heartbeat; a bounded prior-failure
+observation reaches the next usable request, including after a blocked restart.
+No new store, model call, model setting, NACE rule or approval workflow is added.
+
+**Verification:** 266 checks passed offline and against installed source: 183
+repository, 20 targeted, 35 continuity/source/image replays, 10 restart and 18
+recovery checks. Repository tests use IterBrow's Python environment; system Python
+lacks Hyperon. The old replay's expired screenshot is reconstructed from its exact
+saved request image only in /tmp. Installed runtime files match the tested candidates;
+the unrelated dashboard_atomspace.py edit is preserved and excluded from this commit.
+Tests, logs and fixtures remain in /tmp/iterbrow-budget-repair.0sozEr, not the repo.
+
+**Unresolved / counterexamples:** This is not an exact replay of Haley's unavailable
+failed request or proof of her live recovery. Indispensable input can still exceed
+capacity; unavailable retention storage can prevent projection; previews may require
+retrieval. NACE learning from deduplicated recovery outcomes is a future option,
+not part of this patch. Her Leadership Growth and Daily Primer browser-only stores
+also remain a separate migration task; reuse the existing CRM app contract while
+preserving their current records, rather than adding another storage architecture.
+
+**Next dependency:** Verify both remote branches contain this commit. Haley then
+updates with the README's Git-clone repair command, restarts Iter, and retries her
+task. Host source changes take effect on the next Iter process start; installation
+verification did not start the loop or spend model tokens.
+
 ## Current checkpoint — self-repair rejection and recovery continuity, September 27
 
 **Scope:** Repair runtime behavior only; Iter owns the unfinished CRM Headlines
