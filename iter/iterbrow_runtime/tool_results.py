@@ -554,7 +554,14 @@ def read_tool_output(iter_dir, *, result_id="", tool_call_id="", pointer="", off
                     "next_offset": end if end < len(selected) else None}
         return _fitted(page, min(limit, len(selected) - offset))
     except Exception as exc:
-        return _failure(_error_code(exc))
+        code = _error_code(exc)
+        failed = json.loads(_failure(code))
+        failed["recovery"] = (
+            "Correct the reference, pointer or offset; omit pointer for plain text. Reading never reruns the tool."
+            if code.startswith(("invalid_", "offset_", "result_id_or_", "original_raw_", "json_pointer_", "tool_call_identity_"))
+            else "Historical output is unavailable. Obtain a fresh read-only observation of current state; do not repeat a write to recover its output."
+        )
+        return _json(failed)
 
 
 def run(result_id="", tool_call_id="", pointer="", offset=0, limit=2000):

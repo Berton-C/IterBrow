@@ -1125,6 +1125,15 @@ class AppRevisionManager:
                     candidates.append(candidate)
             return {
                 "schema_version": SCHEMA_VERSION,
+                "storage_contract": {
+                    "app_id": app_id,
+                    "backend": "journaled AtomSpace application_contract",
+                    "collections": "arbitrary valid identifiers; CRM_COLLECTIONS limits only legacy migration/projection",
+                    "read": "window.iterApp.appContext()",
+                    "write": "window.iterApp.appCommand(command)",
+                    "inspect_wiring": "window.iterApp.storageStatus() in a reloaded registered app tab",
+                    "proof": "Observe the intended value saved and reopened; code presence or a receipt alone is insufficient.",
+                },
                 "active": active,
                 **self._resolved(active),
                 "candidate": candidates[-1] if candidates else None,

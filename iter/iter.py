@@ -22,7 +22,7 @@ from iterbrow_runtime.atomspace_store import _atomic_json
 from iterbrow_runtime import tool_results as retained_text
 from iterbrow_runtime.tool_results import capture_tool_output
 from iterbrow_runtime.work_inquiry import question_context
-from iterbrow_runtime.working_handoff import working_context, runtime_context
+from iterbrow_runtime.working_handoff import working_context, working_record, runtime_context
 from iterbrow_runtime.loop_continuity import resume_event_wait
 
 # Shared rule for "which memory/ files are prompt memory" (tools/_memory_projection.py).
@@ -703,13 +703,16 @@ while True:
             # existing memory/tools. No new model call or native policy engine.
             inquiry = question_context(experience, new_input=bool(event_append),
                                        resumed=bool(post_task_mode and cycle_number == 1))
+            evidence_tool_call_ids = ()
             if inquiry:
                 request_messages[0]['content'] += inquiry
                 # Project the LLM's explicit handoff and newer observed results
                 # after transformations, before old bulk captures compete for
                 # space. The existing experience remains the only source.
                 try:
-                    request_messages[0]['content'] += working_context(experience)
+                    record = working_record(experience)
+                    request_messages[0]['content'] += working_context(experience, record=record)
+                    evidence_tool_call_ids = record["referenced_evidence_tool_call_ids"]
                 except (TypeError, ValueError, KeyError, AttributeError) as handoff_error:
                     print("[working handoff unavailable] " + str(handoff_error))
                     request_messages[0]['content'] += (
@@ -746,6 +749,7 @@ while True:
                 restore_observation=lambda message, allowance: retained_text.restore_tool_observation(
                     ITER_ROOT, message, allowance),
                 input_ceiling=MAX_INPUT_TOKENS,
+                evidence_tool_call_ids=evidence_tool_call_ids,
             )
             preparation["projection_seconds"] = round(time.monotonic() - stage_started, 4)
             preparation["total_seconds"] = round(time.monotonic() - preparation_started, 4)
@@ -825,6 +829,8 @@ while True:
         # turn actually dispatches below; later ones short-circuit without spawning a process.
         for tool_call in message.tool_calls:
             tool_name = tool_call.function.name
+            tool_started = time.monotonic()
+            gate_seconds = None
             # PORT: Keep each call's advisory separate from its original JSON body.
             raw_tool_result = None
             gate_note = ""
@@ -850,6 +856,7 @@ while True:
                             # error/timeout/no-data (see tools/_metta_gate.py's own
                             # docstring) -- never able to stall dispatch on its own.
                             gate_note = ""
+                            gate_started = time.monotonic()
                             try:
                                 gate_call = invoke_dynamic(
                                     _component_file("tools/_metta_gate.py"), "run",
@@ -872,6 +879,7 @@ while True:
                             except Exception as gate_error:
                                 gate_mode, gate_action, gate_detail = "advisory", "ALLOW", ""
                                 _log_gate_issue(tool_name, "gate dispatch exception: %s: %s" % (type(gate_error).__name__, gate_error))
+                            gate_seconds = round(time.monotonic() - gate_started, 4)
                             if gate_action == "VETO":
                                 ret = f"Tool execution blocked by reasoning substrate ({gate_mode} mode): {gate_detail}"
                             else:
@@ -911,6 +919,11 @@ while True:
                 if tool_name == "nop":
                     nop_already_run = True
             ret = str(ret)
+            elapsed = round(time.monotonic() - tool_started, 4)
+            print("[tool timing] " + json.dumps({"tool": tool_name,
+                "call_id": tool_call.id, "total_seconds": elapsed,
+                "nace_dispatch_seconds": gate_seconds,
+                "state": execution.get("state")}, sort_keys=True))
             # PORT: This is captured output, never cached execution/authorization.
             # The bounded reader only reads these bytes; it cannot replay a tool.
             ret = capture_tool_output(

@@ -1,6 +1,55 @@
 # IterBrow: integrated build control
 
-## Current checkpoint — working-context selection and preparation cost, September 29
+## Current checkpoint — remaining runtime failure conditions, September 29
+
+**Tracking: 4/4 installed and verified.**
+Sequence: trace the six conditions, repair in /tmp, combined offline verification,
+install the exact batch. Iter remains the app builder; this is runtime support,
+not another governor or a new memory architecture.
+
+**Active claim / implementation:**
+
+| Condition | Small additive change | Limit retained |
+|---|---|---|
+| Evidence exceeds context | Up to four exact existing call/result references in the LLM handoff receive priority over old filler; full results when they fit, previews otherwise | Newer actions/failures, explicit reads, user messages and images retain priority; capacity is finite |
+| Mistaken working account | Latest actual user updates appear beside the explicitly unverified account and subsequent observations | The LLM must still revise its interpretation; the host does not invent a verdict |
+| Uninformative memory filename | At most two 1,000-character local paragraph excerpts matching at least two non-generic query terms | Tasks/standing context lead; paid semantic retrieval remains available; lexical selection is not guaranteed relevance |
+| Missing/outdated capture | Reader failures preserve their cause and distinguish correcting a reference from obtaining a fresh read-only observation | Original observation/capture timestamps remain; no write replay or claim that historical evidence is current |
+| Delay elsewhere | Content-free per-tool total/NACE-dispatch timing complements existing preparation/component/provider measurements | Isolated 9 MB worker round trip was ~0.11s, not proof of the earlier ~94s live gap's cause; deadlines are unchanged |
+| Broken save/load wiring | Existing app-revision status names the generic storage API. Page-local storageStatus reports actual reads, bounded command outcomes, matching receipts and failures without record values | Reload the registered app tab for the updated preload. Backend acceptance does not prove intended values or save/reopen behaviour; no app migration was authored |
+
+**Evidence / counterexamples:** 303 checks pass offline: 183 repository, 12 new
+handoff/memory/retention, 13 preceding context repairs, 35 continuity/source/image,
+20 budget/retry, 10 restart, 18 recovery, 12 mock-preload checks. Citation punctuation
+was corrected after reproduction. Redundant timestamp metadata initially displaced
+one prior receipt; removal preserves the existing timestamps and all replay receipts.
+Concurrent writes/reads, rejected or mismatched receipts, pending outcomes, tight
+budgets, oversized evidence, unavailable captures and hidden/generic memories are
+covered. Mock preload checks are not live UI acceptance.
+
+Installed runtime files match the tested candidate; all 16,174 protected sampled
+files are unchanged, including memory, AtomSpace, app bundles, recovery/hot-load
+state, experience and the unrelated dashboard edit. The 24 new checks also pass
+against installed source. UI Stop was verified; the drafted chat text was untouched.
+
+The saved real request with the revised handoff fits at 44,695 estimated tokens,
+with all supplied user/image messages and its latest exchange intact; budgeting
+took 0.0455s. Bounded local excerpt selection over 3.6M synthetic characters took
+0.0587s, selecting 2,194 excerpt characters. These are local measurements, not
+provider counts, billing savings or proof of autonomous follow-through.
+
+**Unresolved:** A fresh Iter-owned task must demonstrate improved choices and actual
+app save/reopen results. No new store, model call, paid memory query, scheduled task,
+approval workflow, native reasoning layer, timeout change or automatic action retry.
+Tests/logs/before-images remain in /tmp/iterbrow-runtime-followup.SSAddz. The unrelated
+dashboard_atomspace.py edit is preserved and excluded from the repair commit.
+
+**Next dependency:** Start Iter to load the host changes; reload a registered app
+when its new page-local diagnostics are needed. Observe actual task behaviour and
+use the existing timings/receipts to locate remaining defects. Keep Iter stopped
+after maintenance; do not create automated monitoring.
+
+## Previous checkpoint — working-context selection and preparation cost, September 29
 
 **Tracking: 4/4 installed and verified.** Sequence: shared-path diagnosis,
 offline reproduction, bounded repair, installed verification. Iter owns app work;

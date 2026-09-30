@@ -163,7 +163,14 @@ def relevant_memory(items, experience):
     terms -= {"the", "and", "for", "not", "all", "its", "use", "has", "any",
               "that", "this", "with", "have", "from", "please", "what", "your",
               "when", "would", "should"}
-    selected, omitted = [], []
+    selected, omitted, body_matches = [], [], []
+    # A bounded lexical fallback finds poorly named notes without admitting a
+    # whole historical plan on generic words such as work/build/code/data.
+    specific = terms - {"work", "working", "build", "building", "code", "data",
+        "app", "apps", "file", "files", "fix", "repair", "test", "tests", "good",
+        "make", "need", "want", "can", "could", "does", "done", "into", "there",
+        "then", "been", "but", "are", "was", "will", "using", "runtime", "tool",
+        "tools", "user", "system", "memory", "save", "load", "update", "change"}
     for path, content in items:
         name = str(path).lower()
         parts = PurePath(name).parts
@@ -182,6 +189,18 @@ def relevant_memory(items, experience):
             selected.append((path, content))
         else:
             omitted.append(str(path))
+            if not bookkeeping:
+                candidates = []
+                for paragraph in re.split(r"\n\s*\n", str(content)):
+                    shared = specific & set(re.findall(r"[a-z0-9]{3,}", paragraph.lower()))
+                    if len(shared) >= 2:
+                        candidates.append((len(shared), -len(paragraph), paragraph, shared))
+                if candidates:
+                    score, _, paragraph, shared = max(candidates, key=lambda row: row[:2])
+                    first = re.search(r"\b(?:" + "|".join(map(re.escape, sorted(shared)))
+                                      + r")\b", paragraph, re.I)
+                    offset = max(0, first.start() - 160) if first else 0
+                    body_matches.append((score, str(path), paragraph[offset:offset + 1000]))
     # Preserve current work before a long optional note when the host bounds
     # the raw-memory view. Selection changes no files or memory authority.
     selected.sort(key=lambda item: (
@@ -189,6 +208,9 @@ def relevant_memory(items, experience):
         not any(word in str(item[0]).lower() for word in
                 ("instruction", "preference", "standing", "policy", "user_feedback")),
     ))
+    for _, path, excerpt in sorted(body_matches, key=lambda row: (-row[0], row[1]))[:2]:
+        selected.append((path, "[Local topic excerpt, not the complete memory; read this file "
+                         "or use memory search for context.]\n" + excerpt))
     if omitted:
         selected.append(("memory/index (request view only)",
                          "Other memory remains available through chroma_query or file reads:\n" + "\n".join(omitted)))
@@ -352,7 +374,8 @@ def _assistant_reference(message, index, capture_assistant):
 
 def project_request(messages, tools, input_limit=DEFAULT_INPUT_TOKENS, protected_user=None,
                     *, capture_assistant=None, capture_exchange=None,
-                    restore_observation=None, input_ceiling=None):
+                    restore_observation=None, input_ceiling=None,
+                    evidence_tool_call_ids=()):
     """Return copies under the estimated budget, dropping oldest whole exchanges.
 
 System/developer messages, tool schemas, supplied user messages and
@@ -579,6 +602,38 @@ trusted reader and stay within input_ceiling (default: input_limit).
             else:
                 message["content"] = original
 
+    # Explicit working-note citations compete before old filler, never before
+    # newer actions/failures, user intent, images or requested distinct reads.
+    # If a full cited observation does not fit, keep its preview when possible.
+    cited_kept = []
+    cited_ids = list(dict.fromkeys(identity for identity in evidence_tool_call_ids
+                                if isinstance(identity, str)))[-4:]
+    for identity in reversed(cited_ids):
+        index = next((i for i in range(len(projected) - 1, active_from - 1, -1)
+                      if projected[i].get("role") == "tool"
+                      and projected[i].get("tool_call_id") == identity), None)
+        if index is None or index in removed:
+            continue
+        start, end = next((a, b) for a, b in groups if a <= index < b)
+        required = protected | set(range(start, end))
+        message, original = projected[index], projected[index].get("content", "")
+        if restore_observation is not None and identity not in priority_expanded:
+            try:
+                restored = restore_observation(copy.deepcopy(message), input_limit * 3)
+                if isinstance(restored, str):
+                    message["content"] = restored
+            except Exception:
+                pass
+        if protected_size(required) > input_limit:
+            message["content"] = original
+        if protected_size(required) <= input_limit:
+            protected = required
+            cited_kept.append(identity)
+            if message["content"] != original and identity not in priority_expanded:
+                priority_expanded.append(identity)
+        else:
+            message["content"] = original
+
     estimate_before = estimate_input_tokens(projected, projected_tools)
     compact_history_index = False
     def remaining_view():
@@ -786,5 +841,9 @@ trusted reader and stay within input_ceiling (default: input_limit).
         "working_set_start": focus_from,
         "expanded_tool_outputs": expanded,
         "priority_expanded_tool_outputs": priority_expanded,
+        **({"referenced_evidence_kept": [identity for identity in cited_kept if identity in visible_results],
+            "referenced_evidence_not_in_request": [identity for identity in cited_ids
+                                                   if identity not in visible_results]}
+           if cited_ids else {}),
         "retained_user_messages": sum(m.get("role") == "user" for m in messages),
     }

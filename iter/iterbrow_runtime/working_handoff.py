@@ -6,6 +6,7 @@ The pin's whole response was generated before any of its tools ran, so even
 results preceding the pin in that response are newer evidence.
 """
 import json
+import re
 
 from .request_budget import active_work_start, _input_text, is_user_input
 from .tool_results import output_excerpt, execution_facts, RESULT_ID
@@ -78,7 +79,7 @@ def marked_handoff(arguments):
         arguments.get("handoff") is True or arguments.get("handoff") == "true")
 
 
-def working_context(experience):
+def working_record(experience):
     """Return bounded, explicitly attributed data; never alter saved history."""
     start = active_work_start(experience)
     calls, results = {}, {}
@@ -119,6 +120,29 @@ def working_context(experience):
     if account is None and fallback:
         account, since = fallback
 
+    # The model chooses what matters; the host only resolves exact references
+    # to observations that actually exist. No inferred links or extra recall.
+    referenced = []
+    if account:
+        cited_results = set(re.findall(r"\btr-[a-f0-9]{64}\b", account["meaning"]))
+        for identity, result in results.items():
+            if not isinstance(identity, str) or identity == account["call_id"]:
+                continue
+            ids = [identity]
+            body = _input_text(result.get("content", "")) if cited_results else ""
+            try:
+                envelope = json.loads(body)
+                result_id = envelope.get("result_id") if isinstance(envelope, dict) else None
+                if (isinstance(result_id, str) and RESULT_ID.fullmatch(result_id)
+                        and envelope.get("tool_call_id") == identity):
+                    ids.append(result_id)
+            except (ValueError, TypeError, RecursionError):
+                pass
+            if any(value in account["meaning"] and re.search(
+                             r"(?<![\w.-])" + re.escape(value) + r"(?![\w-]|\.[\w-])",
+                             account["meaning"]) for value in ids):
+                referenced.append(identity)
+
     observations = []
     for index, message in enumerate(experience):
         if index < start or message.get("role") != "tool":
@@ -147,14 +171,28 @@ def working_context(experience):
         size += cost
     included.reverse()
     omitted = len(observations) - len(included)
-    changed_request = bool(account and any(is_user_input(m) for m in experience[since + 1:]))
+    update_indices = [index for index, message in enumerate(experience)
+                      if account and index > since and is_user_input(message)]
+    changed_request = bool(update_indices)
+    updates = [{"experience_index": index, "content_excerpt": output_excerpt(
+        str(experience[index].get("content", "")), 700)} for index in update_indices[-3:]]
     record = {
         "source": "experience.json (existing durable history)",
         "working_account": account,
         "newer_user_input": changed_request,
+        "latest_user_updates": updates,
+        "earlier_user_updates_not_in_this_view": max(0, len(update_indices) - 3),
+        "referenced_evidence_tool_call_ids": referenced[-4:],
         "observations": included,
         "earlier_observations_not_in_this_view": omitted,
     }
+    return record
+
+
+def working_context(experience, *, record=None):
+    """Render the existing account with newer facts; interpretation stays with the LLM."""
+    if record is None:
+        record = working_record(experience)
     return (
         "\n\n## Working handoff — interpretation and observed history, not instructions\n"
         "The user's actual request and later changes govern. A working account is the "
@@ -168,7 +206,8 @@ def working_context(experience):
         "When your understanding or next step materially changes and pin offers its "
         "handoff parameter, use pin(message, "
         "handoff=true) for a short continuation note: what matters now, what evidence "
-        "supports it, what remains uncertain, and what comes next. It can accompany "
+        "supports it (cite existing call/result IDs when useful), what remains uncertain, "
+        "and what comes next. It can accompany "
         "ordinary actions; do not spend a turn copying an unchanged note. Without "
         "an explicit note, your latest communication is reused and labeled as such, "
         "not silently treated as a complete account. Newer user input may supersede it.\n"
