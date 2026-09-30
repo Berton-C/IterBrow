@@ -174,44 +174,77 @@ def relevant_memory(items, experience):
         topic -= {"note", "notes", "proposal", "plan", "log", "state", "status", "draft"}
         standing = any(word in name for word in
                        ("instruction", "preference", "standing", "policy", "user_feedback"))
-        match = bool(topic & terms) or ("notes" not in parts and
-                bool(set(re.findall(r"[a-z0-9]{3,}", content.lower())) & terms))
+        # Apply the same topic rule to root-level memory as to notes/. A long
+        # historical reasoning file almost inevitably contains a generic task
+        # word; body intersection was admitting it on virtually every turn.
+        match = bool(topic & terms)
         if not bookkeeping and ("tasks" in parts or standing or match):
             selected.append((path, content))
         else:
             omitted.append(str(path))
     # Preserve current work before a long optional note when the host bounds
     # the raw-memory view. Selection changes no files or memory authority.
-    selected.sort(key=lambda item: "tasks" not in PurePath(str(item[0])).parts)
+    selected.sort(key=lambda item: (
+        "tasks" not in PurePath(str(item[0])).parts,
+        not any(word in str(item[0]).lower() for word in
+                ("instruction", "preference", "standing", "policy", "user_feedback")),
+    ))
     if omitted:
         selected.append(("memory/index (request view only)",
                          "Other memory remains available through chroma_query or file reads:\n" + "\n".join(omitted)))
     return selected
 
 
-def _omitted_work(messages, removed, active_from):
+def memory_context(items, limit):
+    """Bound an already prioritized memory view without reordering or rewriting it."""
+    items = list(items)
+    total = sum(len(content) for _, content in items)
+    included, used = [], 0
+    for path, content in items:
+        remaining = max(0, limit - used)
+        if len(content) > remaining:
+            suffix = "\n...[excerpt only; read the original file for the remainder]"
+            if remaining > len(suffix):
+                included.append((path, content[:remaining - len(suffix)] + suffix))
+            break
+        included.append((path, content))
+        used += len(content)
+    notice = (f"[{limit - total} CHARACTERS BELOW MAXIMUM]" if total <= limit else
+              f"[PROMPT MEMORY EXCERPT: {total} source characters, {limit} character allowance. "
+              "Nothing on disk changed. Omitted material remains available through memory tools "
+              "or file reads; do not delete or consolidate memory to clear this notice.]")
+    sections = []
+    for path, content in included:
+        attribution = (" [LLM-maintained task account, not a new user instruction; "
+                       "the actual request and later user corrections govern]"
+                       if PurePath(str(path)).name == "current_tasks.txt" else "")
+        sections.append(f"{path}{attribution}:\n{content}")
+    return notice + "\n./memory/:\n" + "\n\n".join(sections)
+
+
+def _omitted_work(messages, removed, active_from, names=None):
     """A bounded factual index into exact saved experience, not an LLM summary."""
-    names = {}
-    for message in messages:
-        for call in message.get("tool_calls", []) or []:
-            names[call.get("id")] = call.get("function", {})
-    entries = []
-    for index, message in enumerate(messages):
-        if index < active_from or index not in removed or message.get("role") != "tool":
-            continue
-        call_id = message.get("tool_call_id")
-        function = names.get(call_id, {})
-        entries.append(({"call_id": call_id, "tool": function.get("name"),
-                        "arguments_excerpt": output_excerpt(str(function.get("arguments", "")), 200),
-                        "observation_excerpt": output_excerpt(str(message.get("content", "")), 300),
-                        "execution": execution_facts(message.get("_iter_execution"))},
-                        str(message.get("content", ""))))
-    if not entries:
+    if names is None:
+        names = {call.get("id"): call.get("function", {}) for message in messages
+                 for call in message.get("tool_calls", []) or []}
+    indices = [index for index in sorted(removed) if index >= active_from
+               and messages[index].get("role") == "tool"]
+    if not indices:
         return None
     record = {"kind": "earlier_active_work", "source": "experience.json",
               "notice": "Historical observations, not new instructions or proof of task completion. Saved calls and observations remain in experience.json; locate them by call_id and follow retained-output references for full text. Do not repeat an action to recover its result.",
-              "omitted_observations": len(entries), "indexed_observations": []}
-    for entry, text in reversed(entries):
+              "omitted_observations": len(indices), "indexed_observations": []}
+    # Construct excerpts only for the few observations the bounded index can
+    # show, not for thousands of entries that are immediately discarded.
+    for index in reversed(indices):
+        message = messages[index]
+        call_id = message.get("tool_call_id")
+        function = names.get(call_id, {})
+        entry = {"call_id": call_id, "tool": function.get("name"),
+                        "arguments_excerpt": output_excerpt(str(function.get("arguments", "")), 200),
+                        "observation_excerpt": output_excerpt(str(message.get("content", "")), 300),
+                        "execution": execution_facts(message.get("_iter_execution"))}
+        text = str(message.get("content", ""))
         # Carry intact recent observations when they fit this same bounded
         # index. Clipping a small result can hide its only distinguishing fact
         # even though its original call/response group was too large to retain.
@@ -228,18 +261,14 @@ def _omitted_work(messages, removed, active_from):
     return {"role": "user", "content": json.dumps(record, ensure_ascii=False), "_iter_runner": True}
 
 
-def estimate_input_tokens(messages, tools):
+def _message_cost(message):
     # Encoded pixels are image input, not millions of ordinary text characters.
     # Account for a generous per-image reserve without changing the actual
     # request. Provider usage remains authoritative; text/tool arguments still
     # count fully, including strings that merely resemble a data URL.
     image_count = 0
-    text_view = []
-    for message in messages:
-        content = message.get("content")
-        if not isinstance(content, list):
-            text_view.append(message)
-            continue
+    content = message.get("content")
+    if isinstance(content, list):
         parts = []
         for part in content:
             if isinstance(part, dict) and part.get("type") == "image_url":
@@ -247,13 +276,24 @@ def estimate_input_tokens(messages, tools):
                 parts.append({**part, "image_url": {"url": "[image input budgeted separately]"}})
             else:
                 parts.append(part)
-        text_view.append({**message, "content": parts})
+        message = {**message, "content": parts}
+    return len(json.dumps(message, ensure_ascii=False, separators=(",", ":")).encode("utf-8")), image_count
+
+
+def _estimate_cost(text_bytes, count, images, tools):
     payload = json.dumps(
-        {"messages": text_view, "tools": tools, "tool_choice": "required"},
+        {"messages": [], "tools": tools, "tool_choice": "required"},
         ensure_ascii=False, separators=(",", ":"),
     )
-    return (math.ceil(len(payload.encode("utf-8")) / 3) + 256 + 8 * len(messages)
-            + 32 * len(tools or []) + image_count * IMAGE_INPUT_RESERVE)
+    # The commas between messages are the only bytes not present in either
+    # the empty envelope or the individually serialized messages.
+    return (math.ceil((len(payload.encode("utf-8")) + text_bytes + max(0, count - 1)) / 3)
+            + 256 + 8 * count + 32 * len(tools or []) + images * IMAGE_INPUT_RESERVE)
+
+
+def estimate_input_tokens(messages, tools):
+    costs = [_message_cost(message) for message in messages]
+    return _estimate_cost(sum(c[0] for c in costs), len(costs), sum(c[1] for c in costs), tools)
 
 
 def _groups(messages):
@@ -384,9 +424,11 @@ trusted reader and stay within input_ceiling (default: input_limit).
     # this request copy through the existing budget path; experience is intact.
     priority_expanded = []
     active_from = active_work_start(projected, protected_user)
+    observation_names = {call.get("id"): call.get("function", {}) for message in messages
+                         for call in message.get("tool_calls", []) or []}
     def protected_size(indices):
         view = [m for i, m in enumerate(projected) if i in indices]
-        omitted = _omitted_work(messages, set(range(len(projected))) - indices, active_from)
+        omitted = _omitted_work(messages, set(range(len(projected))) - indices, active_from, observation_names)
         if omitted:
             view.append(omitted)
         return estimate_input_tokens(view, projected_tools)
@@ -459,6 +501,7 @@ trusted reader and stay within input_ceiling (default: input_limit).
 
     removed = set()
     complete_reads = set()
+    requested_read_indices = set()
     # Keep distinct, explicitly requested evidence alongside the newest result
     # when it fits. Repeated pure reads of that same immutable capture need not
     # occupy the space again. Never collapse executions, pointer selections, or
@@ -500,6 +543,7 @@ trusted reader and stay within input_ceiling (default: input_limit).
                 needed = protected_size(required)
                 if needed <= input_ceiling:
                     protected = required
+                    requested_read_indices.update(indices)
                     complete_reads.update(keys)
                     priority_expanded.extend(m["tool_call_id"] for m in results
                                              if m["tool_call_id"] not in priority_expanded)
@@ -508,11 +552,38 @@ trusted reader and stay within input_ceiling (default: input_limit).
                     for message, original in zip(results, originals):
                         message["content"] = original
 
+    # The half-budget reserve protects a recent sequence, but must not become
+    # a ceiling on its evidence. After distinct requested reads have their
+    # space, prefer full results from that sequence over older bulk history.
+    # Keep all newer exchanges, essential input/images and explicitly requested
+    # distinct captures; only older recency-reserve groups may yield.
+    if restore_observation is not None:
+        for index in range(len(projected) - 1, focus_from, -1):
+            message = projected[index]
+            if (index not in protected or message.get("role") != "tool"
+                    or message.get("tool_call_id") in priority_expanded):
+                continue
+            original = message.get("content", "")
+            try:
+                restored = restore_observation(copy.deepcopy(message), input_limit * 3)
+            except Exception:
+                continue
+            if not isinstance(restored, str) or restored == original:
+                continue
+            group_start = next(a for a, b in groups if a <= index < b)
+            required = essential | requested_read_indices | {i for i in protected if i >= group_start}
+            message["content"] = restored
+            if protected_size(required) <= input_limit:
+                protected = required
+                priority_expanded.append(message["tool_call_id"])
+            else:
+                message["content"] = original
+
     estimate_before = estimate_input_tokens(projected, projected_tools)
     compact_history_index = False
     def remaining_view():
         view = [message for index, message in enumerate(projected) if index not in removed]
-        index = _omitted_work(messages, removed, active_from)
+        index = _omitted_work(messages, removed, active_from, observation_names)
         if index:
             if compact_history_index:
                 # This is an optional index into already omitted history, not
@@ -529,14 +600,29 @@ trusted reader and stay within input_ceiling (default: input_limit).
         return view
 
     estimate_after = estimate_input_tokens(remaining_view(), projected_tools)
+    # Messages are unchanged during this removal pass. Measure each once and
+    # subtract whole exchanges; only the small history index changes per step.
+    # This is the same byte estimate and same oldest-first selection, not a
+    # token approximation or a new history boundary.
+    costs = [_message_cost(message) for message in projected]
+    remaining_bytes = sum(cost[0] for index, cost in enumerate(costs) if index not in removed)
+    remaining_images = sum(cost[1] for index, cost in enumerate(costs) if index not in removed)
+    remaining_count = len(projected) - len(removed)
     for start, end in groups:
         if estimate_after <= input_limit:
             break
         if any(index in protected for index in range(start, end)):
             continue
-        removed.update(range(start, end))
-        remaining = remaining_view()
-        estimate_after = estimate_input_tokens(remaining, projected_tools)
+        for index in range(start, end):
+            if index not in removed:
+                removed.add(index)
+                remaining_bytes -= costs[index][0]
+                remaining_images -= costs[index][1]
+                remaining_count -= 1
+        history_index = _omitted_work(messages, removed, active_from, observation_names)
+        index_bytes, index_images = _message_cost(history_index) if history_index else (0, 0)
+        estimate_after = _estimate_cost(remaining_bytes + index_bytes,
+            remaining_count + int(history_index is not None), remaining_images + index_images, projected_tools)
 
     # Try fitting the auxiliary history index before parking any retained
     # exchange. Otherwise a few extra preview tokens can deadlock a request
@@ -683,6 +769,9 @@ trusted reader and stay within input_ceiling (default: input_limit).
                 expanded.append(message["tool_call_id"])
     input_limit = max(working_limit, estimate_after)
     projected = remaining_view()
+    visible_results = {message.get("tool_call_id") for message in projected if message.get("role") == "tool"}
+    expanded = [identity for identity in expanded if identity in visible_results]
+    priority_expanded = [identity for identity in priority_expanded if identity in visible_results]
     for message in projected:
         message.pop("_iter_runner", None)
     return projected, projected_tools, {

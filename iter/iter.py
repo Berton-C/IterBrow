@@ -15,7 +15,7 @@ from pathlib import Path
 
 from iterbrow_runtime.hotload_manager import HotloadManager, IterHeartbeat
 # PORT: Independently bound complete input projection and model output.
-from iterbrow_runtime.request_budget import RequestBudgetExceeded, project_request, working_input_limit, relevant_memory, rotate_experience
+from iterbrow_runtime.request_budget import RequestBudgetExceeded, project_request, working_input_limit, relevant_memory, memory_context, rotate_experience
 from iterbrow_runtime.episodic_history import archive_text
 from iterbrow_runtime.atomspace_store import _atomic_json
 # PORT: Retain oversized observations for reading without repeating tool effects.
@@ -530,12 +530,13 @@ def load_transformation_descriptions():
 TRANSFORMATION_HEALTH_FAILURE = False
 
 
-def apply_transformation(messages, tools):
+def apply_transformation(messages, tools, timings=None):
     global TRANSFORMATION_HEALTH_FAILURE
     TRANSFORMATION_HEALTH_FAILURE = False
     errors = []
     paths = _component_paths("transformations")
     for path in paths:
+        started = time.monotonic()
         try:
             result = invoke_dynamic(path, "transform", messages, tools)
             if not result["ok"]:
@@ -550,6 +551,9 @@ def apply_transformation(messages, tools):
             changed = (ACTIVE_COMPONENT_SNAPSHOT or {}).get("changed_paths", [])
             if "TIMEOUT after " not in str(error) or relative in changed:
                 TRANSFORMATION_HEALTH_FAILURE = True
+        finally:
+            if timings is not None:
+                timings[path.name] = round(time.monotonic() - started, 4)
     return messages, tools, "\n".join(errors)
 
 # --------------------------------------------------------------------
@@ -648,6 +652,8 @@ while True:
         history_checkpoint = len(experience) #as we want not to loose user input even when exception
         retry_message = None
         while True:
+            preparation_started = time.monotonic()
+            preparation = {}
             temporary_message = list(base_temporary_message)
             if retry_message:
                 temporary_message += retry_message
@@ -666,6 +672,8 @@ while True:
                 hard_floor_ok=cycle_hard_floor_ok,
                 detail="; ".join(cycle_health_details),
             )
+            preparation["components_seconds"] = round(time.monotonic() - preparation_started, 4)
+            stage_started = time.monotonic()
             # Prompt-projection vs on-disk storage split (Headlong-inspired fix):
             # recap/, tiers/, and the append-only journal/log files already have
             # their own bounded, budget-fitted injections (transformations/recap.py,
@@ -681,44 +689,15 @@ while True:
             memory_paths = [Path(p) for p in _memory_projection.projection_files("memory")]
             memory_contents = [(path, path.read_text(encoding="utf-8", errors="replace").strip()) for path in memory_paths]
             memory_contents = relevant_memory(memory_contents, experience)
-            memory_len = sum(len(content) for _, content in memory_contents)
-            if memory_len <= MAX_MEMORY_CHARS:
-                MARGIN = MAX_MEMORY_CHARS - memory_len
-                MEMORY = f"[{MARGIN} CHARACTERS BELOW MAXIMUM]\n./memory/:\n"
-                MEMORY += "\n\n".join(f"{path}:\n{content}" for path, content in memory_contents)
-            else:
-                # Graceful degrade of the PROMPT PROJECTION ONLY: drop/truncate the
-                # smallest-first so the most substantial state files still show up
-                # in full where possible; nothing here writes to any file. This
-                # deliberately replaces the old "FIX THIS FIRST" imperative (which
-                # read as an instruction to go delete/shrink files) with a calm,
-                # factual note. Tiers already have their own injection; rebuilding
-                # them cannot shrink this separate raw-file projection.
-                DIFF = memory_len - MAX_MEMORY_CHARS
-                ordered = sorted(memory_contents, key=lambda pc: len(pc[1]))
-                included = []
-                used = 0
-                for path, content in ordered:
-                    if used + len(content) <= MAX_MEMORY_CHARS:
-                        included.append((path, content))
-                        used += len(content)
-                    else:
-                        remaining = MAX_MEMORY_CHARS - used
-                        if remaining > 200:
-                            included.append((path, content[:remaining - 60] + "\n...[truncated for THIS PROMPT ONLY; the file on disk is untouched]"))
-                            used = MAX_MEMORY_CHARS
-                        break
-                MEMORY = (
-                    f"[PROMPT PROJECTION TRUNCATED BY {DIFF} CHARS FOR THIS TURN ONLY - nothing on disk was "
-                    "changed. This is a bounded view, not a memory failure. Read an original file when its "
-                    "omitted details are relevant. Tiers are projected separately; rebuilding them will not "
-                    "reduce this raw-file view. Do not consolidate or delete memory just to clear this notice.]\n./memory/:\n"
-                )
-                MEMORY += "\n\n".join(f"{path}:\n{content}" for path, content in included)
+            MEMORY = memory_context(memory_contents, MAX_MEMORY_CHARS)
             request_messages = [{"role": "system", "content": "prompt.txt:\n" + open("prompt.txt", encoding="utf-8", errors="replace").read().strip() + "\n\n./transformations/:\n" + TRANSFORMATIONS + "\n\n" + MEMORY}] + experience + temporary_message
             for directive in temporary_message:
                 directive["_iter_runner"] = True
-            request_messages, request_tools, transformation_error = apply_transformation(request_messages, TOOLS)
+            preparation["memory_seconds"] = round(time.monotonic() - stage_started, 4)
+            preparation["transformations_seconds"] = {}
+            request_messages, request_tools, transformation_error = apply_transformation(
+                request_messages, TOOLS, timings=preparation["transformations_seconds"])
+            stage_started = time.monotonic()
             request_tools = ensure_observation_reader(request_tools, INOPS)
             # Question-first PoC: use this ordinary turn, its real context and
             # existing memory/tools. No new model call or native policy engine.
@@ -756,6 +735,8 @@ while True:
             # semantic/episodic stores remain untouched. Retain the actual user,
             # latest complete exchange and directives, not an unbounded turn.
             current_user = next((m for m in reversed(experience) if m.get("role") == "user"), None)
+            preparation["handoff_seconds"] = round(time.monotonic() - stage_started, 4)
+            stage_started = time.monotonic()
             request_messages = request_view(request_messages, PROVIDER, MODEL)
             request_messages, request_tools, request_budget = project_request(
                 request_messages, request_tools,
@@ -766,6 +747,9 @@ while True:
                     ITER_ROOT, message, allowance),
                 input_ceiling=MAX_INPUT_TOKENS,
             )
+            preparation["projection_seconds"] = round(time.monotonic() - stage_started, 4)
+            preparation["total_seconds"] = round(time.monotonic() - preparation_started, 4)
+            print("[request preparation] " + json.dumps(preparation, sort_keys=True))
             print("[request budget] " + json.dumps(request_budget, sort_keys=True))
             # AUDIT 2026-09-17: persist the exact prompt sent to the model so any claim
             # of "an injected instruction in my context" can be checked against the real
@@ -784,6 +768,7 @@ while True:
                     "provider": PROVIDER,
                     "reasoning_effort": REASONING_EFFORT if PROVIDER == "openai" else None,
                     "request_budget": request_budget,
+                    "preparation": preparation,
                     "max_output_tokens": MAX_TOKENS,
                     "tool_names": [t.get("function", {}).get("name") for t in (request_tools or []) if isinstance(t, dict)],
                     "messages": request_messages,

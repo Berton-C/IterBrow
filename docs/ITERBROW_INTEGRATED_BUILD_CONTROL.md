@@ -1,6 +1,54 @@
 # IterBrow: integrated build control
 
-## Current checkpoint — request-budget retry repair, September 29
+## Current checkpoint — working-context selection and preparation cost, September 29
+
+**Tracking: 4/4 installed and verified.** Sequence: shared-path diagnosis,
+offline reproduction, bounded repair, installed verification. Iter owns app work;
+this pass changes only iter.py and request_budget.py, plus this existing document.
+
+**Active claim / evidence:** Haley's supplied app_contract.py already accepts
+arbitrary valid collections; isolated journal reopen passed. Her model request
+preserved an uncorrected storage-expansion plan while relevant source was abbreviated.
+The shared runtime selected root-level memory by any body-word overlap, lost task-first
+ordering at the memory limit, and let older context occupy room needed to expand
+already-recent evidence. The repair uses topic selection consistently, preserves
+task/standing-context order, labels the LLM task record as revisable, and prefers
+full recent evidence over older recency-reserve groups while retaining newer actions,
+explicitly requested distinct captures, user instructions and images. Exact originals
+and retrieval remain available; no new store, model call, approval rule or governor.
+
+Budget removal also repeatedly serialized and excerpted the entire history. Exact
+incremental byte accounting and bounded index construction reduce a 1,700-exchange
+synthetic replay from 25.64s to 0.43s without changing selected messages or estimates.
+The user's actual last-request replay retains identical evidence/44,743-token estimate,
+with budgeting 0.118s -> 0.035s. These are projection timings, not total-turn or billing
+savings. Content-free component/memory/transformation/handoff/projection timings now
+accompany the existing log and last_prompt.json to locate other preparation delays.
+
+**Verification:** 279 installed-source checks pass: 183 repository, 13 targeted,
+35 continuity/source/image replays, 20 budget-rejection, 10 restart, 18 recovery.
+The new complementary-source fixture changes from newest-only to both full results;
+its tighter-budget counterexample retains latest evidence plus the earlier preview.
+During installation the user launched an idle child; maintenance Stop/Start loaded
+the repair as PID 36342, restored the same stable generation/event wait and issued
+no model request. Final Stop leaves the loop off. 16,151 protected files match the
+pre-install snapshot; the expected heartbeat is the sole change. Unrelated
+dashboard_atomspace.py edits are preserved. All harnesses/logs/before-images are in
+/tmp/iterbrow-context-repair.73kT1c, not the repository.
+
+**Unresolved / counterexamples:** This does not prove Haley's complete live recovery
+or autonomous CRM completion. Necessary evidence can exceed the window; missing
+captures still require retrieval/reinspection. Topic selection can omit a useful
+poorly named memory; search and an omission index remain available. A wrong LLM
+account remains wrong until revised. Provider/tool/transform delays are not cured
+by projection optimization. The separate Electron log has navigation deprecations,
+network resets and media errors, not an established AtomSpace/Python crash cause.
+
+**Next dependency:** A real user-directed work trial with the installed runtime;
+compare actual actions/outcomes and preparation timings. Keep Iter stopped until
+requested. No scheduled tasks or automatic model-driven monitoring.
+
+## Previous checkpoint — request-budget retry repair, September 29
 
 **Tracking: 1/3 diagnosis complete; 2/3 offline repair complete; 3/3 installed
 and verified locally.** Publication targets are main and TheWholeEnchilada;
