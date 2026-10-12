@@ -39,5 +39,39 @@ class SearchTranscriptNearestTests(EpisodicCase):
                           "[2026-10-01 09:06:00][user] LINE-6"])
 
 
+class ArchivedExperienceRecallTests(EpisodicCase):
+    def _rotate_codewords(self):
+        from iterbrow_runtime.request_budget import rotate_experience
+        from iterbrow_runtime.episodic_history import archive_text
+        experience = []
+        for c in range(60):
+            experience = rotate_experience(experience, 100, 80, archive=lambda m: archive_text(
+                "experience.json", json.dumps(m, ensure_ascii=False)))
+            ts = "2026-10-01 09:%02d:00" % c
+            experience.append(user(ts, "secret codeword PELICAN-%d" % c))
+            experience += send_exchange("c%d" % c, ts, "noted %d" % c)
+        self.assertNotIn("PELICAN-3\"", json.dumps(experience))   # rotated out of experience.json
+        return experience
+
+    def test_bug13_search_transcript_reaches_rotated_experience(self):
+        self._rotate_codewords()
+        result = load("tools/search_transcript.py").run("2026-10-01 09:03:00", 0)
+        self.assertIn("PELICAN-3", result)
+        self.assertIn("archive", result)
+
+    def test_bug13_episodes_tool_reaches_rotated_experience(self):
+        self._rotate_codewords()
+        result = load("tools/episodes.py").run("2026-10-01 09:03:00", 1)
+        self.assertIn("PELICAN-3", result)
+
+    def test_bug13_omission_notice_does_not_claim_rotated_calls_remain_in_experience(self):
+        from iterbrow_runtime.request_budget import _omitted_work
+        messages = [user("2026-10-01 09:00:00", "go")] + send_exchange("c1", "2026-10-01 09:00:01", "x")
+        notice = json.loads(_omitted_work(messages, {2}, 0)["content"])["notice"]
+        self.assertNotIn("remain in experience.json", notice)
+        self.assertIn("memory/archive/experience.json", notice)
+        self.assertIn("search_transcript", notice)
+
+
 if __name__ == "__main__":
     unittest.main()

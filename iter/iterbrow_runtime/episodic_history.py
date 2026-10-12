@@ -100,6 +100,58 @@ def history_line_count(path):
     return sum(1 for _ in history_lines(path))
 
 
+EXPERIENCE_ARCHIVE = Path("memory/archive") / "experience.json"
+_STEP = re.compile(r"^Step (\d{4}-\d\d-\d\d \d\d:\d\d:\d\d): ")
+
+
+def _one_line(text, limit=600):
+    text = " ".join(str(text).split())
+    return text if len(text) <= limit else text[:limit - 3] + "..."
+
+
+def archived_experience_lines(folder=EXPERIENCE_ARCHIVE):
+    """Messages rotated out of experience.json, as timestamped read-only lines
+    "[YYYY-MM-DD HH:MM:SS][role] text" in archive (chronological) order.
+    User/tool messages carry their Step time; a tool call the time of its result."""
+    try:
+        archives = sorted(Path(folder).glob("*.txt"))
+    except OSError:
+        return
+    for archive in archives:
+        try:
+            messages = json.loads(archive.read_text(encoding="utf-8"))
+        except (OSError, ValueError, UnicodeDecodeError):
+            continue
+        if not isinstance(messages, list):
+            continue
+        times = {}
+        for message in messages:
+            if isinstance(message, dict) and message.get("role") == "tool":
+                match = _STEP.match(str(message.get("content", "")))
+                if match:
+                    times[message.get("tool_call_id")] = match.group(1)
+        for message in messages:
+            if not isinstance(message, dict):
+                continue
+            role, content = message.get("role"), message.get("content")
+            if role == "user" and isinstance(content, str):
+                match = _STEP.match(content)
+                if match:
+                    yield "[%s][user, archived] %s\n" % (match.group(1), _one_line(content))
+            elif role == "assistant":
+                for call in message.get("tool_calls") or []:
+                    stamp = times.get(call.get("id"))
+                    function = call.get("function", {})
+                    if stamp:
+                        yield "[%s][call %s, archived] %s\n" % (
+                            stamp, function.get("name", ""), _one_line(function.get("arguments", "")))
+            elif role == "tool" and isinstance(content, str):
+                match = _STEP.match(content)
+                if match:
+                    yield "[%s][result %s, archived] %s\n" % (
+                        match.group(1), message.get("tool_call_id", ""), _one_line(content))
+
+
 RECAP_DIR = "memory/recap"
 _EPISODE_NAME = re.compile(r"^episode_(\d+)\.json$")
 

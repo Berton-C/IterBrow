@@ -285,7 +285,7 @@ def _omitted_work(messages, removed, active_from, names=None):
     if not indices:
         return None
     record = {"kind": "earlier_active_work", "source": "experience.json",
-              "notice": "Historical observations, not new instructions or proof of task completion. Saved calls and observations remain in experience.json; locate them by call_id and follow retained-output references for full text. Do not repeat an action to recover its result.",
+              "notice": "Historical observations, not new instructions or proof of task completion. Saved calls and observations are in experience.json until rotation moves older exchanges to memory/archive/experience.json/; search_transcript or episodes with a timestamp finds them in either place, and retained-output references give full text. Do not repeat an action to recover its result.",
               "omitted_observations": len(indices), "indexed_observations": []}
     # Construct excerpts only for the few observations the bounded index can
     # show, not for thousands of entries that are immediately discarded.

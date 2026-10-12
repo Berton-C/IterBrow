@@ -3,7 +3,7 @@
 import os
 import json
 from datetime import datetime
-from iterbrow_runtime.episodic_history import history_lines
+from iterbrow_runtime.episodic_history import history_lines, archived_experience_lines
 
 
 
@@ -15,7 +15,7 @@ def _exists(path):
     except OSError:
         return False
 
-DESCRIPTION = "Search the communication transcript around a timestamp. Use YYYY-MM-DD HH:MM:SS; returns nearby user and send lines."
+DESCRIPTION = "Search the communication transcript (and conversation archived out of experience.json) around a timestamp. Use YYYY-MM-DD HH:MM:SS; returns the nearest record with nearby lines."
 
 TRANSCRIPT_PATH = "transcript.txt"
 CHAT_PATH = "chat.txt"
@@ -84,6 +84,8 @@ def _sources():
     return [
         (TRANSCRIPT_PATH, lambda: history_lines(TRANSCRIPT_PATH)),
         (CHAT_PATH, lambda: history_lines(CHAT_PATH)),
+        # Conversation rotated out of experience.json stays reachable.
+        ("archived experience, memory/archive/experience.json", archived_experience_lines),
     ]
 
 
