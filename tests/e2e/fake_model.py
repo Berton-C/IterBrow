@@ -8,10 +8,15 @@ SCRIPT.json is a list of turns; each turn is a list of tool calls
 the script runs out the model idles with nop(wait_seconds=5).  Every request
 is appended to REQUESTS.jsonl (message count, system prompt) so tests can
 assert on what the agent was actually shown.
+
+String arguments may contain {{memory_id}}: it is replaced with the id from
+the most recent "REMEMBER-SUCCESS: stored <id>" tool result the agent has
+seen, so a script can act on a memory whose id is minted at run time.
 """
 import hashlib
 import itertools
 import json
+import re
 import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -19,6 +24,31 @@ PORT, SCRIPT, LOG = int(sys.argv[1]), sys.argv[2], sys.argv[3]
 TURNS = json.load(open(SCRIPT))
 COUNTER = itertools.count()
 IDLE = [{"name": "nop", "arguments": {"wait_seconds": 5}}]
+
+
+MEMORY_ID = re.compile(r"REMEMBER-SUCCESS: stored (\S+)")
+
+
+def _last_memory_id(messages):
+    found = None
+    for message in messages:
+        content = message.get("content")
+        if isinstance(content, list):
+            content = " ".join(str(part.get("text", part)) if isinstance(part, dict) else str(part)
+                               for part in content)
+        for match in MEMORY_ID.finditer(str(content or "")):
+            found = match.group(1)
+    return found
+
+
+def _fill(value, memory_id):
+    if isinstance(value, str) and "{{memory_id}}" in value:
+        return value.replace("{{memory_id}}", memory_id or "NO-MEMORY-ID-YET")
+    if isinstance(value, dict):
+        return {key: _fill(item, memory_id) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_fill(item, memory_id) for item in value]
+    return value
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -57,8 +87,10 @@ class Handler(BaseHTTPRequestHandler):
                 "tools": sorted(t["function"]["name"] for t in body.get("tools", [])),
             }) + "\n")
         turn = TURNS[n] if n < len(TURNS) else IDLE
+        memory_id = _last_memory_id(body["messages"])
         calls = [{"id": "call_%d_%d" % (n, i), "type": "function",
-                  "function": {"name": c["name"], "arguments": json.dumps(c.get("arguments", {}))}}
+                  "function": {"name": c["name"],
+                               "arguments": json.dumps(_fill(c.get("arguments", {}), memory_id))}}
                  for i, c in enumerate(turn)]
         response = {"id": "fake-%d" % n, "object": "chat.completion", "created": 0, "model": "fake",
                     "choices": [{"index": 0, "finish_reason": "tool_calls",

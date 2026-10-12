@@ -27,7 +27,10 @@ DESCRIPTION = (
     "entries."
 )
 
-JOURNAL_PATH = "memory/journal.jsonl"
+# The journal is application state: it lives under the canonical ITER_DIR even
+# when a worker runs from another cwd or a hot-load generation directory.
+JOURNAL_PATH = os.path.join(os.path.realpath(os.environ.get("ITER_DIR") or os.getcwd()),
+                            "memory", "journal.jsonl")
 
 
 def _ts():

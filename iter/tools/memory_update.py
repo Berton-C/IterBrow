@@ -1,5 +1,6 @@
 import sys
-TOOLS_DIR = "tools"
+from pathlib import Path
+TOOLS_DIR = str(Path(__file__).resolve().parent)
 if TOOLS_DIR not in sys.path:
     sys.path.insert(0, TOOLS_DIR)
 import _petta_db as petta_db
@@ -8,19 +9,14 @@ DESCRIPTION = "Update the text content and embedding of a specific memory in chr
 
 def run(item_id, text):
     chroma_client = petta_db.PersistentClient()
-    collection = chroma_client.get_or_create_collection(name="memories")
+    chroma_client.get_or_create_collection(name="memories")
 
-    res = collection.get(ids=[item_id], include=["metadatas"])
-    if not res.get("ids"):
+    if petta_db.read_memory(item_id) is None:
         return f"ERROR: memory not found: {item_id}"
-
-    metadata = dict(res["metadatas"][0] or {})
     embedding = petta_db.get_embedding(text, "search_document")
 
-    collection.update(
-        ids=[item_id],
-        documents=[text],
-        embeddings=[embedding],
-        metadatas=[metadata]
-    )
-    return f"MEMORY-UPDATE-SUCCESS: item {item_id} content updated, embedding refreshed, metadata preserved"
+    def replace_text(document, metadata):
+        return text, metadata, f"MEMORY-UPDATE-SUCCESS: item {item_id} content updated, embedding refreshed, metadata preserved"
+
+    result = petta_db.modify_memory(item_id, replace_text, embedding=embedding)
+    return result if result is not None else f"ERROR: memory not found: {item_id}"

@@ -20,7 +20,9 @@ import binascii
 import sys
 import uuid
 import fcntl
+import shutil
 import urllib.request
+from contextlib import contextmanager
 from pathlib import Path
 
 
@@ -43,11 +45,18 @@ _id_counter = 0
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from iterbrow_runtime.cognitive_events import commit_batch, metta_string, _call_atomspace
+from iterbrow_runtime.cognitive_events import (
+    commit_batch, metta_string, parse_semantic_atom, _call_atomspace, SEMANTIC_PREFIX)
 
 
 class MemoryCommitUncertain(RuntimeError):
     execution_outcome = {"success": None, "state": "uncertain", "scope": "invocation",
+                         "task_fulfillment": "unverified"}
+
+
+class MemoryAuthorityUnavailable(RuntimeError):
+    """The AtomSpace could not be reached; nothing was sent, nothing changed."""
+    execution_outcome = {"success": False, "state": "not_executed", "scope": "invocation",
                          "task_fulfillment": "unverified"}
 
 
@@ -56,15 +65,198 @@ class MemoryProjectionPending(RuntimeError):
                          "task_fulfillment": "unverified"}
 
 
-def pending_remember(text):
-    """Reuse the original identity after an interrupted write, not a new fact."""
-    wanted = " ".join(text.split())
-    for path in sorted((Path(ROOT) / ".runtime" / "memory_pending").glob("*.json")):
-        entry = json.loads(path.read_text())
-        kind, records, _ = entry["request"]
-        if kind == "remembered" and len(records) == 1 and " ".join(records[0]["document"].split()) == wanted:
-            return records[0]
+def _pending_dir():
+    return Path(ROOT) / ".runtime" / "memory_pending"
+
+
+def _normal(text):
+    return " ".join(str(text or "").split())
+
+
+def pending_remember(text, mem_type=None, provenance_type=None):
+    """Resume the identity of an interrupted (uncertain) remember of the same request.
+
+    Entries only survive an uncertain outcome (sent without a reply, or a worker
+    killed mid-write); every definite outcome removes its entry.  An entry is
+    reused only when text, mem_type and provenance_type all match, so a later,
+    different request never inherits an old identity or type.
+    """
+    wanted = _normal(text)
+    for path in sorted(_pending_dir().glob("*.json")):
+        try:
+            entry = json.loads(path.read_text())
+            kind, records, _ = entry["request"]
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+        if kind != "remembered" or len(records) != 1:
+            continue
+        record = records[0]
+        metadata = record.get("metadata") or {}
+        if (_normal(record.get("document")) == wanted
+                and (mem_type is None or metadata.get("mem_type") == mem_type)
+                and (provenance_type is None or metadata.get("provenance_type") == provenance_type)):
+            return record
     return None
+
+
+def discard_pending_remember(text, keep_path=None):
+    """Drop remember entries for `text` superseded by a definite outcome."""
+    wanted = _normal(text)
+    for path in sorted(_pending_dir().glob("*.json")):
+        if keep_path and str(path) == str(keep_path):
+            continue
+        try:
+            kind, records, _ = json.loads(path.read_text())["request"]
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+        if kind == "remembered" and len(records) == 1 and _normal(records[0].get("document")) == wanted:
+            _remove_if_present(str(path))
+
+
+class MemoryConflict(RuntimeError):
+    """The memory changed between read and commit; nothing was written."""
+    execution_outcome = {"success": False, "state": "not_executed", "scope": "invocation",
+                         "task_fulfillment": "unverified"}
+
+
+def _read_authority(prefix):
+    try:
+        return _call_atomspace("read_atoms", timeout=10, prefix=prefix)
+    except OSError as error:
+        if getattr(error, "atomspace_not_sent", False):
+            raise MemoryAuthorityUnavailable(
+                "The AtomSpace authority is unreachable (%s); semantic memory cannot be read "
+                "or changed until the AtomSpace service is running." % error) from error
+        raise
+
+
+def authority_memories():
+    """(snapshot, {id: (document, metadata, atom)}) for every semantic-memory atom."""
+    snapshot = _read_authority(SEMANTIC_PREFIX)
+    memories = {}
+    for key, atom in snapshot["atoms"].items():
+        try:
+            item_id, document, metadata = parse_semantic_atom(key, atom)
+        except ValueError:
+            continue
+        memories[item_id] = (document, metadata, atom)
+    return snapshot, memories
+
+
+def read_memory(item_id):
+    """The authority's current (document, metadata, atom) for item_id, or None."""
+    key = SEMANTIC_PREFIX + str(item_id)
+    atom = _read_authority(key)["atoms"].get(key)
+    if atom is None:
+        return None
+    _, document, metadata = parse_semantic_atom(key, atom)
+    return document, metadata, atom
+
+
+DEFAULT_STV = (1.0, 0.5)
+
+
+def counted_evidence(metadata):
+    """Episodes already counted in this memory's truth value: {episode: "+"|"-"}.
+
+    linkedEpisodes are pure links; evidenceEpisodes records what truth revision
+    has counted, so each episode contributes evidence at most once and
+    link/unlink never change it.  Memories written before evidenceEpisodes
+    existed used linkedEpisodes for both.  Rule for those (migrate on read):
+    if the memory's stv was ever revised away from the default (1.0, 0.5), every
+    pre-existing linked episode counts as already-counted positive evidence;
+    if it never was, none of its links were counted.
+    """
+    evidence = metadata.get("evidenceEpisodes")
+    if isinstance(evidence, dict):
+        return {str(k): v for k, v in evidence.items()}
+    try:
+        stv = (float(metadata.get("strength", 1.0)), float(metadata.get("confidence", 0.5)))
+    except (TypeError, ValueError):
+        stv = None
+    linked = metadata.get("linkedEpisodes") or []
+    if stv == DEFAULT_STV or not isinstance(linked, list):
+        return {}
+    return {str(episode): "+" for episode in linked}
+
+
+def with_counted_evidence(metadata):
+    """Materialise counted evidence before linkedEpisodes is edited (legacy memories)."""
+    if "evidenceEpisodes" not in metadata:
+        evidence = counted_evidence(metadata)
+        if evidence:
+            metadata["evidenceEpisodes"] = evidence
+    return metadata
+
+
+def _index_put(db, item_id, document, metadata, embedding=None):
+    """Mirror one authoritative memory into the index (vector kept if text unchanged)."""
+    if item_id in db["ids"]:
+        index = db["ids"].index(item_id)
+        if embedding is None and db["documents"][index] != document:
+            _index_drop(db, [item_id])  # stale vector: reconcile re-embeds it
+            return
+        db["documents"][index] = document
+        db["metadatas"][index] = metadata
+        if embedding is not None:
+            db["embeddings"][index] = embedding
+    elif embedding is not None:
+        db["ids"].append(item_id)
+        db["documents"].append(document)
+        db["metadatas"].append(metadata)
+        db["embeddings"].append(embedding)
+
+
+def _index_drop(db, ids):
+    for item_id in ids:
+        while item_id in db["ids"]:
+            index = db["ids"].index(item_id)
+            for field in ("ids", "documents", "metadatas", "embeddings"):
+                del db[field][index]
+
+
+def _conflict_guard(error):
+    if "TransactionConflict" in str(error):
+        return MemoryConflict(
+            "The memory changed while this edit was being made; nothing was written. "
+            "Re-read it and retry.")
+    return None
+
+
+def modify_memory(item_id, mutate, embedding=None):
+    """Read-modify-write one memory against the AUTHORITY.
+
+    mutate(document, metadata) returns a refusal string (nothing written) or
+    (new_document, new_metadata, message).  The commit carries the atom that
+    was read as expected_atoms, so a stale base raises a conflict instead of
+    overwriting committed evidence.  Returns the message, or None when the
+    authority has no such memory.
+    """
+    key = SEMANTIC_PREFIX + str(item_id)
+    with writer_lock():
+        current = read_memory(item_id)
+        if current is None:
+            return None
+        document, metadata, atom = current
+        outcome = mutate(document, json.loads(json.dumps(metadata)))
+        if isinstance(outcome, str):
+            return outcome
+        new_document, new_metadata, message = outcome
+        if new_document == document and new_metadata == metadata:
+            return message
+        try:
+            committed = _commit_memory_change(
+                "memory_updated", [{"id": item_id, "document": new_document, "metadata": new_metadata}],
+                expected_atoms={key: atom})
+        except RuntimeError as error:
+            conflict = _conflict_guard(error)
+            if conflict:
+                raise conflict from error
+            raise
+        db = _load(write=True)
+        _index_put(db, item_id, new_document, new_metadata, embedding)
+        _save_committed_projection(db, committed)
+        return message
 
 
 def memory_status(item_id):
@@ -79,24 +271,31 @@ def memory_status(item_id):
 
 
 def _finish_memory_projection(result):
+    """Kept for callers of the old two-step API; pending entries now end at commit."""
     if isinstance(result, dict) and result.get("_pending_path"):
-        path = Path(result["_pending_path"])
-        if path.exists() and json.loads(path.read_text())["operation_id"] == result["_operation_id"]:
+        _settle_pending(result["_pending_path"], result["_operation_id"])
+
+
+def _settle_pending(path, operation_id):
+    path = Path(path)
+    try:
+        if json.loads(path.read_text())["operation_id"] == operation_id:
             path.unlink()
+    except (OSError, ValueError, KeyError):
+        pass
 
 
 def _save_committed_projection(db, committed):
     try:
         _save(db)
     except Exception as error:
-        if isinstance(committed, dict) and not committed.get("deferred"):
+        if isinstance(committed, dict):
             raise MemoryProjectionPending(
-                "Durable memory commit %s is confirmed, but its search projection could not be saved. "
-                "Retry the original text/IDs to finish the projection; do not create a replacement."
-                % committed.get("commit")
+                "Durable memory commit %s is confirmed (the memory IS stored), but the search index "
+                "could not be saved (%s). Do not retry or create a replacement: the index is rebuilt "
+                "from the AtomSpace authority automatically." % (committed.get("commit"), error)
             ) from error
         raise
-    _finish_memory_projection(committed)
 
 
 def _memory_atom(item_id, document, metadata):
@@ -106,44 +305,87 @@ def _memory_atom(item_id, document, metadata):
     )
 
 
-def _commit_memory_change(kind, records, remove_ids=None):
-    # Keep uncertain retries stable, but never confuse a later A->B->A edit
-    # with an earlier completed operation. Reuse the existing runtime directory.
+def _commit_memory_change(kind, records, remove_ids=None, expected_atoms=None):
+    """Commit one semantic-memory change to the AtomSpace authority.
+
+    A pending entry (.runtime/memory_pending/<request digest>.json) holds the
+    transaction id while the outcome is unknown, so an uncertain write can be
+    retried without minting a second identity.  It is removed on every definite
+    outcome; after a commit it is kept until the index is saved too.  A reused
+    transaction id that the AtomSpace reports as an earlier duplicate is only
+    accepted when the expected state is actually present (remember -> forget
+    -> remember must not be swallowed by the first transaction).
+    """
     canonical = json.dumps([kind, records, remove_ids or []], sort_keys=True, ensure_ascii=False)
-    pending_dir = Path(ROOT) / ".runtime" / "memory_pending"
+    pending_dir = _pending_dir()
     pending_dir.mkdir(parents=True, exist_ok=True)
     pending = pending_dir / (hashlib.sha256(canonical.encode()).hexdigest() + ".json")
     from iterbrow_runtime.atomspace_store import _atomic_json
-    with (pending_dir / "writer.lock").open("a") as lock:
-        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
-        if pending.exists():
-            operation_id = json.loads(pending.read_text())["operation_id"]
-        else:
+    with writer_lock():
+        created = not pending.exists()
+        operation_id = None
+        if not created:
+            try:
+                operation_id = json.loads(pending.read_text())["operation_id"]
+            except (OSError, ValueError, KeyError):
+                created = True
+        if created:
             operation_id = uuid.uuid4().hex
             _atomic_json(pending, {"operation_id": operation_id, "request": json.loads(canonical)})
+        ids = ",".join(str(record["id"]) for record in records)
         try:
-            result = _commit_memory_operation(kind, records, remove_ids, operation_id)
+            result = _commit_memory_operation(kind, records, remove_ids, operation_id, expected_atoms)
+            if not created and result.get("duplicate") and not _expected_state_present(kind, records, remove_ids):
+                # The old transaction committed long ago and the memory changed
+                # since; re-sending its id is a no-op.  This is a new operation.
+                operation_id = uuid.uuid4().hex
+                _atomic_json(pending, {"operation_id": operation_id, "request": json.loads(canonical)})
+                result = _commit_memory_operation(kind, records, remove_ids, operation_id, expected_atoms)
         except (OSError, json.JSONDecodeError) as error:
-            ids = ",".join(str(record["id"]) for record in records)
+            if getattr(error, "atomspace_not_sent", False):
+                # Definite: nothing reached the AtomSpace.  An entry left by an
+                # earlier uncertain attempt stays; one made just now goes.
+                if created:
+                    _remove_if_present(str(pending))
+                raise MemoryAuthorityUnavailable(
+                    "Memory NOT stored: the AtomSpace authority is unreachable (%s); nothing was "
+                    "changed for memory ID(s) %s. Retry once the AtomSpace service is running."
+                    % (error, ids)
+                ) from error
             raise MemoryCommitUncertain(
                 "No confirmed reply for memory ID(s) %s, transaction %s. The write may commit later. "
                 "Use remember(status_id=ID) to inspect it; retry the exact same text/IDs, not a reworded replacement."
                 % (ids, "cognitive:memory:" + operation_id)
             ) from error
-        # Keep the existing recovery entry until the local search projection is
-        # saved too. An acknowledged commit followed by a crash is recoverable.
-        return {**result, **({"_pending_path": str(pending), "_operation_id": operation_id}
-                            if not result.get("deferred") else {})}
+        except Exception:
+            # The AtomSpace answered with a rejection: a definite outcome.
+            _remove_if_present(str(pending))
+            raise
+        # A confirmed commit is a definite outcome.  The index may still lag;
+        # reconcile_index() repairs it from the authority, so no entry is kept.
+        _settle_pending(pending, operation_id)
+        return {**result, "_pending_path": str(pending), "_operation_id": operation_id}
 
 
-def _commit_memory_operation(kind, records, remove_ids, operation_id):
-    canonical = json.dumps(
-        {"kind": kind, "records": records, "remove_ids": remove_ids or []},
-        sort_keys=True, ensure_ascii=False,
-    )
+def _memory_state(kind, records, remove_ids):
+    state_atoms = {}
+    if kind != "forgotten":
+        for record in records:
+            state_atoms["semantic_memory:%s" % record["id"]] = _memory_atom(
+                record["id"], record.get("document", ""), record.get("metadata", {}))
+    return state_atoms, ["semantic_memory:%s" % item_id for item_id in (remove_ids or [])]
+
+
+def _expected_state_present(kind, records, remove_ids):
+    state_atoms, removed = _memory_state(kind, records, remove_ids)
+    snapshot = _call_atomspace("read_atoms", timeout=10, prefix=SEMANTIC_PREFIX)["atoms"]
+    return (all(snapshot.get("state:" + key) == atom for key, atom in state_atoms.items())
+            and all(("state:" + key) not in snapshot for key in removed))
+
+
+def _commit_memory_operation(kind, records, remove_ids, operation_id, expected_atoms=None):
     digest = operation_id
     events = []
-    state_atoms = {}
     for record in records:
         item_id = record["id"]
         events.append({
@@ -153,17 +395,16 @@ def _commit_memory_operation(kind, records, remove_ids, operation_id):
             "event_type": kind,
             "payload": record,
         })
-        if kind != "forgotten":
-            state_atoms["semantic_memory:%s" % item_id] = _memory_atom(
-                item_id, record.get("document", ""), record.get("metadata", {})
-            )
+    state_atoms, removed = _memory_state(kind, records, remove_ids)
     return commit_batch(
         events,
+        require=True,  # semantic memory always fails closed (never "deferred")
         state_atoms=state_atoms,
-        remove_state_keys=["semantic_memory:%s" % item_id for item_id in (remove_ids or [])],
+        remove_state_keys=removed,
         actor="iter",
         source="tools._petta_db",
         transaction_id="cognitive:memory:%s" % digest,
+        expected_atoms=expected_atoms,
     )
 
 
@@ -179,6 +420,8 @@ def _mkdirs(path):
 
 
 def _empty():
+    # "authority_index" (written by reconcile_index) records which authority
+    # state the index was last aligned with; older files simply lack it.
     return {
         "ids": [],
         "documents": [],
@@ -216,9 +459,9 @@ def _read(path):
         db = json.loads(raw)
     except Exception as error:
         raise RuntimeError("Memory database JSON is corrupt at " + path + ": " + str(error))
-    db = _validate(db, path)
-    db["embeddings"] = [_dequantize_embedding(e) for e in db["embeddings"]]
-    return db
+    # Vectors stay in their stored (packed) form; they are decoded only for
+    # scoring, so a load->save cycle writes back exactly the bytes it read.
+    return _validate(db, path)
 
 
 def _remove_if_present(path):
@@ -238,6 +481,8 @@ def _write_new_file(path, db):
         "embedding_dimensions": db.get("embedding_dimensions", EMBEDDING_DIMENSIONS),
         "embedding_schema": EMBEDDING_SCHEMA,
     }
+    if "authority_index" in db:
+        storage_db["authority_index"] = db["authority_index"]
     with open(path, "w", encoding="utf-8") as file:
         file.write(json.dumps(storage_db))
         file.flush()
@@ -255,60 +500,96 @@ def _fsync_db_dir():
         pass
 
 
+_writer_depth = 0
+_writer_handle = None
+
+
+@contextmanager
+def writer_lock():
+    """One exclusive writer for the index: load -> authority commit -> save.
+
+    flock on chroma_db/.writer.lock; re-entrant within a process.  Readers never
+    take it and never write.
+    """
+    global _writer_depth, _writer_handle
+    if _writer_depth:
+        _writer_depth += 1
+        try:
+            yield
+        finally:
+            _writer_depth -= 1
+        return
+    _ensure_dir()
+    handle = open(os.path.join(DB_DIR, ".writer.lock"), "a")
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        _writer_depth, _writer_handle = 1, handle
+        try:
+            yield
+        finally:
+            _writer_depth, _writer_handle = 0, None
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    finally:
+        handle.close()
+
+
 def _save(db):
-    """Write through a temporary file while retaining the previous valid file."""
+    """Replace the index atomically; memories.json exists at every instant.
+
+    tmp is written and fsynced, the current file is hard-linked (or copied) to
+    .bak, then os.replace(tmp, DB_FILE).  A concurrent reader sees either the
+    previous or the new complete file, never a gap.
+    """
     _ensure_dir()
     _validate(db, "in-memory database")
-    tmp = DB_FILE + ".tmp"
-    backup = DB_FILE + ".bak"
-    _remove_if_present(tmp)
-    _write_new_file(tmp, db)
-
-    moved_old = False
-    try:
-        if _exists(DB_FILE):
-            _remove_if_present(backup)
-            os.replace(DB_FILE, backup)
-            moved_old = True
-        os.replace(tmp, DB_FILE)
-        _fsync_db_dir()
-    except Exception:
+    with writer_lock():
+        tmp = "%s.tmp.%d" % (DB_FILE, os.getpid())
+        backup = DB_FILE + ".bak"
         _remove_if_present(tmp)
-        if moved_old and not _exists(DB_FILE) and _exists(backup):
-            try:
-                os.replace(backup, DB_FILE)
-                _fsync_db_dir()
-            except Exception:
-                pass
-        raise
+        try:
+            _write_new_file(tmp, db)
+            if _exists(DB_FILE):
+                staged = backup + ".tmp"
+                _remove_if_present(staged)
+                try:
+                    os.link(DB_FILE, staged)
+                except OSError:
+                    shutil.copy2(DB_FILE, staged)
+                os.replace(staged, backup)
+            os.replace(tmp, DB_FILE)
+            _fsync_db_dir()
+        finally:
+            _remove_if_present(tmp)
 
 
 def _restore_backup(backup):
-    db = _read(backup)
-    recover = DB_FILE + ".recover"
-    _remove_if_present(recover)
-    _write_new_file(recover, db)
-    _remove_if_present(DB_FILE)
-    os.replace(recover, DB_FILE)
-    _fsync_db_dir()
-    return db
+    """Writer-only: put the last good index back in place (under writer_lock)."""
+    with writer_lock():
+        db = _read(backup)
+        recover = DB_FILE + ".recover"
+        _remove_if_present(recover)
+        _write_new_file(recover, db)
+        os.replace(recover, DB_FILE)
+        _fsync_db_dir()
+        return db
 
 
-def _load():
+def _load(write=False):
+    """Read the index.  Readers fall back to .bak in memory and never write;
+    only a writer (write=True, under writer_lock) restores .bak on disk."""
     _ensure_dir()
     backup = DB_FILE + ".bak"
     if _exists(DB_FILE):
         try:
             return _read(DB_FILE)
         except Exception:
-            if _exists(backup):
-                return _restore_backup(backup)
-            raise
-
-    if _exists(backup):
+            if not _exists(backup):
+                raise
+    elif not _exists(backup):
+        return _empty()
+    if write:
         return _restore_backup(backup)
-
-    return _empty()
+    return _read(backup)
 
 
 def _hex(data):
@@ -317,7 +598,7 @@ def _hex(data):
 
 def _quantize_embedding(vec):
     """Convert a float list to int8-packed dict for compact storage."""
-    if not isinstance(vec, list) or not vec:
+    if not isinstance(vec, list) or not vec:  # already packed (or empty): unchanged
         return vec
     mn = min(vec)
     mx = max(vec)
@@ -328,7 +609,7 @@ def _quantize_embedding(vec):
     offset = mn
     packed = bytearray(len(vec))
     for i, v in enumerate(vec):
-        q = int((v - offset) / scale)
+        q = int(round((v - offset) / scale))
         if q < 0:
             q = 0
         if q > 255:
@@ -338,7 +619,11 @@ def _quantize_embedding(vec):
 
 
 def _dequantize_embedding(emb):
-    """Convert int8-packed dict back to float list. Pass-through for float lists."""
+    """Convert int8-packed dict back to float list. Pass-through for float lists.
+
+    Packed vectors are kept as they were stored (see _read) and _quantize_embedding
+    passes them through, so re-saving never re-quantizes an already stored vector.
+    """
     if isinstance(emb, dict) and "q" in emb:
         raw = binascii.unhexlify(emb["q"])
         scale = emb["s"]
@@ -453,19 +738,130 @@ def _index_is_current(db):
     if schema < 2:
         return False
     for vector in db.get("embeddings", []):
-        if not isinstance(vector, list) or len(vector) != EMBEDDING_DIMENSIONS:
+        if _vector_dimensions(vector) != EMBEDDING_DIMENSIONS:
             return False
     return True
 
 
+def _vector_dimensions(vector):
+    if isinstance(vector, dict) and isinstance(vector.get("q"), str):
+        return len(vector["q"]) // 2
+    return len(vector) if isinstance(vector, list) else 0
+
+
+RECONCILE_RETRY_S = 60
+TRUSTED_MIGRATION_STATES = ("migrated", "already_migrated", "not_needed")
+
+
+def _authority_digest(atoms):
+    pairs = sorted((key, atom) for key, atom in atoms.items() if key.startswith(SEMANTIC_PREFIX))
+    return hashlib.sha256(json.dumps(pairs, ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
+def _authority_complete():
+    """Orphans may only be removed when the authority holds every legacy memory:
+    a failed legacy migration means the authority is missing what the index has."""
+    try:
+        status = _call_atomspace("status", timeout=10)
+    except Exception:
+        return False
+    return (status.get("legacy_migration") or {}).get("status") in TRUSTED_MIGRATION_STATES
+
+
+def index_gap(db=None):
+    """Authority memories not yet searchable (embedding pending), per the last reconcile."""
+    state = (db or _load()).get("authority_index") or {}
+    return list(state.get("unindexed") or []), state.get("last_error")
+
+
+def reconcile_index(force=False):
+    """Align chroma_db (a rebuildable index) with the AtomSpace authority.
+
+    Missing in the index -> embedded (batched) and added; index-only ids ->
+    removed; differing document -> re-embedded; differing metadata -> the
+    authority's.  Without embeddings, removals and metadata fixes still apply
+    and the missing ids are recorded as unindexed (retried after a back-off).
+    The authority's semantic-atom digest is stored in the index, so an aligned
+    index costs one read_atoms and no writes.  Returns a summary dict.
+    """
+    try:
+        snapshot, memories = authority_memories()
+    except Exception as error:
+        return {"status": "authority_unavailable", "error": str(error)}
+    db = _load()
+    state = db.get("authority_index") or {}
+    if (not force and state.get("digest") == _authority_digest(snapshot["atoms"])
+            and not state.get("unindexed") and _index_is_current(db)):
+        return {"status": "current"}
+    with writer_lock():
+        snapshot, memories = authority_memories()
+        digest = _authority_digest(snapshot["atoms"])
+        db = _load(write=True)
+        state = db.get("authority_index") or {}
+        before = json.dumps(db, sort_keys=True, default=str)
+        rebuilt = not _index_is_current(db)
+        if rebuilt:
+            # Old model/dimensions/hash vectors: drop the vectors, rebuild every
+            # entry from the authority (never "delete chroma_db and start over").
+            db = _empty()
+        orphans = [item_id for item_id in db["ids"] if item_id not in memories]
+        trusted = not orphans or _authority_complete()
+        if trusted:
+            _index_drop(db, orphans)
+        missing = []
+        for item_id, (document, metadata, _atom) in sorted(memories.items()):
+            if item_id in db["ids"]:
+                index = db["ids"].index(item_id)
+                if db["documents"][index] != document:
+                    _index_drop(db, [item_id])
+                    missing.append(item_id)
+                elif db["metadatas"][index] != metadata:
+                    db["metadatas"][index] = metadata
+            else:
+                missing.append(item_id)
+        error_text = None
+        retry_after = float(state.get("retry_after") or 0)
+        if missing and (force or time.time() >= retry_after):
+            try:
+                vectors = get_embeddings([memories[item_id][0] for item_id in missing], "search_document")
+            except Exception as error:
+                error_text = str(error)
+                retry_after = time.time() + RECONCILE_RETRY_S
+            else:
+                for item_id, vector in zip(missing, vectors):
+                    document, metadata, _atom = memories[item_id]
+                    _index_put(db, item_id, document, metadata, vector)
+                missing, retry_after = [], 0
+        elif missing:
+            error_text = state.get("last_error")
+        db["embedding_model"] = EMBEDDING_MODEL
+        db["embedding_dimensions"] = EMBEDDING_DIMENSIONS
+        db["embedding_schema"] = EMBEDDING_SCHEMA
+        db["authority_index"] = {
+            "digest": digest if trusted and not missing else None,
+            "epoch": snapshot.get("epoch"), "commit": snapshot.get("commit"),
+            "count": len(memories), "unindexed": missing,
+            "retry_after": retry_after if missing else 0,
+            "last_error": error_text if missing else None,
+        }
+        changed = json.dumps(db, sort_keys=True, default=str) != before
+        if changed:
+            _save(db)
+        return {"status": "reconciled" if changed else "current", "rebuilt": rebuilt,
+                "removed": orphans if trusted else [], "orphans_kept": [] if trusted else orphans,
+                "unindexed": missing, "error": error_text}
+
+
 def require_current_index():
-    """Reject old/hash vectors instead of silently re-embedding them."""
+    """The index must use the current embedding model; otherwise it is rebuilt
+    from the authority (reconcile_index) rather than deleted by hand."""
     db = _load()
     if not _index_is_current(db):
         raise RuntimeError(
-            "Incompatible legacy/hash-vector memory database at " + DB_FILE
-            + ". Automatic re-embedding is disabled. Remove " + DB_DIR
-            + " and retry to create a fresh OpenRouter index."
+            "The semantic-memory index at " + DB_FILE + " uses an old embedding format and could "
+            "not be rebuilt yet: the AtomSpace authority (the source of every memory) is not "
+            "reachable. Nothing is lost; it is rebuilt automatically once the AtomSpace service "
+            "runs. Do not delete chroma_db."
         )
     return True
 
@@ -481,9 +877,20 @@ def status():
     }
 
 
+def _exclusive(method):
+    """Hold the writer lock across load-index -> authority commit -> save-index."""
+    def locked(*args, **kwargs):
+        with writer_lock():
+            return method(*args, **kwargs)
+    locked.__name__ = method.__name__
+    locked.__doc__ = method.__doc__
+    return locked
+
+
 class Collection:
+    @_exclusive
     def add(self, ids, embeddings, documents, metadatas):
-        db = _load()
+        db = _load(write=True)
         for i in range(len(ids)):
             item_id = ids[i]
             if item_id in db["ids"]:
@@ -529,7 +936,7 @@ class Collection:
             result["ids"].append(db["ids"][i])
             result["documents"].append(document if "documents" in inc else None)
             result["metadatas"].append(db["metadatas"][i] if "metadatas" in inc else None)
-            result["embeddings"].append(db["embeddings"][i] if "embeddings" in inc else None)
+            result["embeddings"].append(_dequantize_embedding(db["embeddings"][i]) if "embeddings" in inc else None)
             if limit and len(result["ids"]) >= int(limit):
                 break
         return result
@@ -539,7 +946,7 @@ class Collection:
         query_embedding = query_embeddings[0]
         scored = []
         for i in range(len(db["ids"])):
-            similarity = _cosine(query_embedding, db["embeddings"][i])
+            similarity = _cosine(query_embedding, _dequantize_embedding(db["embeddings"][i]))
             if similarity is not None:
                 scored.append((1.0 - similarity, i))
         scored.sort(key=lambda item: item[0])
@@ -554,48 +961,56 @@ class Collection:
             result["distances"][0].append(distance if "distances" in inc else None)
         return result
 
+    @_exclusive
     def update(self, ids, documents=None, metadatas=None, embeddings=None):
-        db = _load()
-        for target_index in range(len(ids)):
-            item_id = ids[target_index]
-            if item_id not in db["ids"]:
+        """Replace fields of existing memories; unspecified fields keep the AUTHORITY's
+        current value, and the commit expects the atoms it read (no stale base)."""
+        _, memories = authority_memories()
+        records, expected = [], {}
+        for position, item_id in enumerate(ids):
+            if item_id not in memories:
                 continue
-            index = db["ids"].index(item_id)
-            if documents is not None:
-                db["documents"][index] = documents[target_index]
-            if metadatas is not None:
-                db["metadatas"][index] = metadatas[target_index]
-            if embeddings is not None:
-                db["embeddings"][index] = embeddings[target_index]
-        records = []
-        for item_id in ids:
-            if item_id in db["ids"]:
-                index = db["ids"].index(item_id)
-                records.append({
-                    "id": item_id,
-                    "document": db["documents"][index],
-                    "metadata": db["metadatas"][index],
-                })
-        committed = _commit_memory_change("memory_updated", records) if records else None
+            document, metadata, atom = memories[item_id]
+            records.append({
+                "id": item_id,
+                "document": documents[position] if documents is not None else document,
+                "metadata": metadatas[position] if metadatas is not None else metadata,
+            })
+            expected[SEMANTIC_PREFIX + item_id] = atom
+        if not records:
+            return
+        try:
+            committed = _commit_memory_change("memory_updated", records, expected_atoms=expected)
+        except RuntimeError as error:
+            conflict = _conflict_guard(error)
+            if conflict:
+                raise conflict from error
+            raise
+        db = _load(write=True)
+        for record in records:
+            vector = embeddings[ids.index(record["id"])] if embeddings is not None else None
+            _index_put(db, record["id"], record["document"], record["metadata"], vector)
         _save_committed_projection(db, committed)
 
+    @_exclusive
     def delete(self, ids):
-        db = _load()
-        removed = []
-        for item_id in ids:
-            if item_id in db["ids"]:
-                index = db["ids"].index(item_id)
-                removed.append({
-                    "id": item_id,
-                    "document": db["documents"][index],
-                    "metadata": db["metadatas"][index],
-                })
-                del db["ids"][index]
-                del db["documents"][index]
-                del db["metadatas"][index]
-                del db["embeddings"][index]
-        committed = _commit_memory_change("forgotten", removed, remove_ids=[item["id"] for item in removed]) if removed else None
-        _save_committed_projection(db, committed)
+        """Forget memories in the authority; ids the authority lacks are index orphans
+        and are only dropped from the index."""
+        _, memories = authority_memories()
+        removed = [{"id": item_id, "document": memories[item_id][0], "metadata": memories[item_id][1]}
+                   for item_id in ids if item_id in memories]
+        db = _load(write=True)
+        before = len(db["ids"])
+        committed = None
+        if removed:
+            committed = _commit_memory_change(
+                "forgotten", removed, remove_ids=[item["id"] for item in removed],
+                expected_atoms={SEMANTIC_PREFIX + item["id"]: memories[item["id"]][2] for item in removed})
+        _index_drop(db, ids)
+        if committed is not None:
+            _save_committed_projection(db, committed)
+        elif len(db["ids"]) != before:
+            _save(db)
 
 
 class PersistentClient:
@@ -603,5 +1018,9 @@ class PersistentClient:
         pass
 
     def get_or_create_collection(self, name="memories", embedding_function=None):
+        try:
+            reconcile_index()
+        except Exception:
+            pass  # index upkeep is best effort; the authority stays correct
         require_current_index()
         return Collection()

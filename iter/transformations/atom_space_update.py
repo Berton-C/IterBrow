@@ -1,5 +1,5 @@
-import re
 import os
+import sys
 
 
 
@@ -29,9 +29,16 @@ def _mkdirs(path):
         except OSError:
             pass
 
-DESCRIPTION = "Auto-update space.metta with formalizations from chroma_query results"
+DESCRIPTION = "Regenerate space.metta from the formalizations of current semantic memories (AtomSpace authority)"
 
-SPACE_PATH = "transformations/.runtime/space.metta"
+ROOT = os.path.realpath(os.environ.get("ITER_DIR") or os.getcwd())
+SPACE_PATH = ROOT + "/transformations/.runtime/space.metta"
+HEADER = ";; === Formalizations (auto-updated) ===\n"
+MAX_LINES = 500
+
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
+
 
 def check_parens(s):
     depth = 0
@@ -71,123 +78,65 @@ def wrap_default_stv(line):
         return s
     return "(" + s + " (stv 1.0 0.5))"
 
-def transform(messages, tools):
 
-    runtime_dir = _dirname(SPACE_PATH)
+def _number(value, default):
     try:
-        _mkdirs(runtime_dir)
-    except OSError:
-        pass
-    if not _exists(SPACE_PATH):
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def current_formalizations():
+    """Formalization lines of the semantic memories the authority holds now.
+
+    space.metta is a projection: regenerating it from current atoms (instead of
+    merging what chroma_query happened to print) makes forgotten memories'
+    formalizations disappear and keeps stv values current.  Returns None when
+    the authority is unreachable.
+    """
+    try:
+        from iterbrow_runtime.cognitive_events import (
+            _call_atomspace, parse_semantic_atom, SEMANTIC_PREFIX)
+        atoms = _call_atomspace("read_atoms", timeout=10, prefix=SEMANTIC_PREFIX)["atoms"]
+    except Exception:
+        return None
+    best = {}
+    for key in sorted(atoms):
         try:
-            with open(SPACE_PATH, "w") as file:
-                file.write(";; === Formalizations (auto-updated) ===\n")
-        except Exception:
-            return messages, tools
-
-    formalizations = []
-    for msg in messages:
-        if not isinstance(msg, dict):
+            _, _, metadata = parse_semantic_atom(key, atoms[key])
+        except ValueError:
             continue
-        role = msg.get("role", "")
-        content = msg.get("content", "")
-        if isinstance(content, list):
-            parts = []
-            for p in content:
-                if isinstance(p, dict):
-                    parts.append(str(p.get("text", "")))
-                else:
-                    parts.append(str(p))
-            content = "\n".join(parts)
-        if not isinstance(content, str):
-            content = str(content)
-        if "Formalization:" not in content:
+        formalization = str(metadata.get("formalization") or "").strip()
+        if not is_valid_metta(formalization):
             continue
-        lines = content.split("\n")
-        i = 0
-        while i < len(lines):
-            line = lines[i]
-            if "Formalization:" in line:
-                idx = line.index("Formalization:")
-                formalization = line[idx + len("Formalization:"):].strip()
-                if not is_valid_metta(formalization):
-                    i += 1
-                    continue
-                stv_str = None
-                for j in range(i - 1, max(i - 10, -1), -1):
-                    if j >= 0 and "STV:" in lines[j]:
-                        stv_str = lines[j].strip()
-                        break
-                if stv_str:
-                    stv_match = re.search(r'STV:\s*\(([^,]+),\s*([^)]+)\)', stv_str)
-                    if stv_match:
-                        strength = stv_match.group(1).strip()
-                        confidence = stv_match.group(2).strip()
-                        wrapped = "(" + formalization + " (stv " + strength + " " + confidence + "))"
-                    else:
-                        wrapped = wrap_default_stv(formalization)
-                else:
-                    wrapped = wrap_default_stv(formalization)
-                if check_parens(wrapped) and '"' not in wrapped:
-                    formalizations.append(wrapped)
-            i += 1
+        strength = _number(metadata.get("strength", 1.0), 1.0)
+        confidence = _number(metadata.get("confidence", 0.5), 0.5)
+        line = "(%s (stv %s %s))" % (formalization, strength, confidence)
+        if not check_parens(line):
+            continue
+        # One line per formalization: keep the most confident memory's stv.
+        if formalization not in best or confidence > best[formalization][0]:
+            best[formalization] = (confidence, line)
+    return [best[key][1] for key in sorted(best)][:MAX_LINES]
 
+
+def transform(messages, tools):
+    lines = current_formalizations()
+    if lines is None:
+        return messages, tools  # authority unreachable: leave the projection as it is
+    content = HEADER + "".join(line + "\n" for line in lines)
     try:
         with open(SPACE_PATH, "r") as f:
-            existing_lines = f.readlines()
-    except Exception:
-        existing_lines = []
-
-    header = ";; === Formalizations (auto-updated) ===\n"
-    formalization_lines = [fl + "\n" for fl in formalizations]
-
-    existing_non_header = []
-    for l in existing_lines:
-        stripped = l.strip()
-        if stripped.startswith(";;"):
-            continue
-        if not stripped:
-            continue
-        if not check_parens(stripped):
-            continue
-        if '"' in stripped:
-            continue
-        if not stripped.startswith('('):
-            continue
-        if '(stv ' not in stripped:
-            stripped = wrap_default_stv(stripped)
-        existing_non_header.append(stripped + "\n")
-
-    all_lines = [header] + formalization_lines + existing_non_header
-
-    seen = {}
-    deduped = []
-    for l in all_lines:
-        stripped = l.strip()
-        if not stripped:
-            continue
-        # Dedup by formalization without STV, keep highest confidence
-        key = re.sub(r'\s*\(stv\s+[^)]+\)\s*\)', ')', stripped).strip()
-        stv_match = re.search(r'stv\s+([\d.]+)\s+([\d.]+)', stripped)
-        conf = float(stv_match.group(2)) if stv_match else 0.0
-        if key not in seen or conf > seen[key]:
-            seen[key] = conf
-            # Replace any previous entry for this key
-            deduped = [d for d in deduped if re.sub(r'\s*\(stv\s+[^)]+\)\s*\)', ')', d.strip()).strip() != key]
-            deduped.append(l)
-
-    if len(deduped) > 500:
-        deduped = deduped[:500]
-
-    try:
-        try:
-            _mkdirs(_dirname(SPACE_PATH))
-        except OSError:
-            pass
-        with open(SPACE_PATH, "w") as f:
-            for l in deduped:
-                f.write(l)
+            if f.read() == content:
+                return messages, tools
     except Exception:
         pass
-
+    try:
+        _mkdirs(_dirname(SPACE_PATH))
+        tmp = SPACE_PATH + ".tmp"
+        with open(tmp, "w") as f:
+            f.write(content)
+        os.replace(tmp, SPACE_PATH)
+    except Exception:
+        pass
     return messages, tools
