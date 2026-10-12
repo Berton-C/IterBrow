@@ -76,28 +76,93 @@ def archive_text(path, text):
     return target
 
 
-def history_lines(path):
-    """Chronological archive + working tail, including interrupted rotation."""
+def _segments(path):
+    """The archives (in order) and working tail that make up a log's logical
+    history, applying the interrupted-rotation and legacy-archive skip rules."""
     current = Path(path).read_text(encoding="utf-8") if Path(path).exists() else ""
     archives = sorted((Path("memory/archive") / Path(path).name).glob("*.txt"))
     marker = _rotation_path(path)
     pending = json.loads(marker.read_text(encoding='utf-8')) if marker.exists() else {}
+    kept = []
     for index, archive in enumerate(archives):
-        text = archive.read_text(encoding="utf-8")
         # A crash after archiving but before replacing the tail must not make
         # these records appear twice or move recap's logical position twice.
         if (archive.name == pending.get('archive')
                 and current != pending['after'] and current.startswith(pending['before'])):
             continue
-        if '-rotation-' not in archive.name and index == len(archives) - 1 and current.startswith(text):
+        if ('-rotation-' not in archive.name and index == len(archives) - 1
+                and current.startswith(archive.read_text(encoding="utf-8"))):
             continue
-        yield from text.splitlines(keepends=True)
+        kept.append(archive)
+    return kept, current
+
+
+def history_lines(path):
+    """Chronological archive + working tail, including interrupted rotation."""
+    archives, current = _segments(path)
+    for archive in archives:
+        yield from archive.read_text(encoding="utf-8").splitlines(keepends=True)
     yield from current.splitlines(keepends=True)
 
 
+def history_lines_from(path, start):
+    """(position, line) for logical records at 1-based position >= start;
+    whole archives before `start` are skipped via cached line counts."""
+    archives, current = _segments(path)
+    counts = _archive_line_counts(archives[0].parent, archives) if archives else {}
+    position = 1
+    for archive in archives:
+        if position + counts[archive.name] <= start:
+            position += counts[archive.name]
+            continue
+        for line in archive.read_text(encoding="utf-8").splitlines(keepends=True):
+            if position >= start:
+                yield position, line
+            position += 1
+    for line in current.splitlines(keepends=True):
+        if position >= start:
+            yield position, line
+        position += 1
+
+
+_COUNT_CACHE = ".line_counts.json"
+
+
+def _archive_line_counts(folder, archives):
+    """Line count of each (immutable) archive file, cached by name and size in
+    <folder>/.line_counts.json so a cycle does not re-read every archive."""
+    cache_path = folder / _COUNT_CACHE
+    try:
+        cache = json.loads(cache_path.read_bytes().decode("utf-8"))
+        if not isinstance(cache, dict):
+            cache = {}
+    except (OSError, ValueError, UnicodeDecodeError):
+        cache = {}
+    counts, changed = {}, False
+    for archive in archives:
+        size = archive.stat().st_size
+        entry = cache.get(archive.name)
+        if isinstance(entry, list) and len(entry) == 2 and entry[0] == size:
+            counts[archive.name] = entry[1]
+            continue
+        with open(archive, "r", encoding="utf-8") as handle:
+            counts[archive.name] = sum(1 for _ in handle)
+        changed = True
+    if changed or set(cache) != set(counts):
+        try:
+            _atomic_json(cache_path, {name: [archive.stat().st_size, counts[archive.name]]
+                                      for archive in archives for name in [archive.name]})
+        except OSError:
+            pass  # a cache only; the count itself is exact either way
+    return counts
+
+
 def history_line_count(path):
-    """Number of logical records history_lines(path) yields."""
-    return sum(1 for _ in history_lines(path))
+    """Number of logical records history_lines(path) yields, using cached
+    per-archive line counts instead of re-reading every archive each cycle."""
+    archives, current = _segments(path)
+    counts = _archive_line_counts(archives[0].parent, archives) if archives else {}
+    return sum(counts[a.name] for a in archives) + len(current.splitlines(keepends=True))
 
 
 EXPERIENCE_ARCHIVE = Path("memory/archive") / "experience.json"

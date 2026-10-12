@@ -19,7 +19,7 @@ import os
 import re
 
 from .atomspace_store import _atomic_text
-from .episodic_history import history_lines, history_line_count, list_episodes, RECAP_DIR
+from .episodic_history import history_lines, history_lines_from, history_line_count, list_episodes, RECAP_DIR
 
 HISTORY_PATH = "history.metta"
 STATE_PATH = os.path.join(RECAP_DIR, ".recap_state")
@@ -90,9 +90,7 @@ def advanced_cursor(cursor, episodes, request):
 def span_times(start, end, path=HISTORY_PATH):
     """(first, last) record timestamps within logical records start..end."""
     first = last = None
-    for position, raw in enumerate(history_lines(path), 1):
-        if position < start:
-            continue
+    for position, raw in history_lines_from(path, start):
         if position > end:
             break
         stamp = record_timestamp(raw)
