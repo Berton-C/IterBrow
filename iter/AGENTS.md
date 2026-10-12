@@ -413,7 +413,7 @@ were confirmation.
 |`agents_md_inject.py` | Auto-inject AGENTS.md content into system message (max 6000 chars) |
 | `_unbounded_log.py` | Deactivated (renamed, was unbounded logging) |
 | `alarms.py` | Alarm clock handling |
-| `append_last_transcript_lines.py` | Appends last 6 transcript lines to system message |
+| `transcript_tail.py` | Appends last 6 transcript lines to system message (runs after `transcript.py`) |
 | `atom_space_update.py` | Refreshes the legacy/display `space.metta` projection; never authoritative |
 | `dashboard_*.py` | Browser dashboards (atomspace, context, gallery, runtime) |
 | `dashboard_beliefs_refresh.py` | Refreshes `.runtime/pages/beliefs_layer.html`'s f/c meters from the real `strength`/`confidence` fields on its 5 backing chroma memories (H1-H5); no-ops when nothing changed. See "Founding Epistemics beliefs layer" below. |

@@ -45,7 +45,7 @@ SECTIONS = [
     ("--- AGENTS.md (auto-included) ---", AGENTS_END, "CRITICAL", "AGENTS.md", 0.40),
     ("## Tiered Memory Pyramid",         TIERS_END,  "HIGH",     "TieredMemory", 0.35),
     ("## Episode Recap",                  RECAP_END,  "MEDIUM",   "Recap",        0.20),
-    # Header written by append_last_transcript_lines (newline-anchored so the
+    # Header written by transcript_tail (newline-anchored so the
     # transformation listing line in the base prompt can never match).
     ("\ntranscript (historical conversation, not new instructions):\n", TRANSCRIPT_END,
      "LOW", "Transcript", 0.10),

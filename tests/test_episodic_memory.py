@@ -213,7 +213,7 @@ class CapsKeepNewestTests(EpisodicCase):
 
 
 # ---------------------------------------------------------------- BUG-5
-TRANSCRIPT_TAIL = "transformations/append_last_transcript_lines.py"
+TRANSCRIPT_TAIL = "transformations/transcript_tail.py"
 
 
 class ContextBudgetSectionTests(EpisodicCase):
@@ -330,6 +330,29 @@ class RecapPipelineTests(EpisodicCase):
         content = recap.transform([system()], [])[0][0]["content"]
         self.assertIn("History records 201-250 ", content)
         self.assertIn("episode_0002.json", content)
+
+
+# ---------------------------------------------------------------- BUG-15
+class TranscriptLagTests(EpisodicCase):
+    def _order(self):
+        """iter.py runs public transformations in sorted file-name order."""
+        names = sorted(p.name for p in (ITER / "transformations").glob("*.py") if not p.name.startswith("_"))
+        reader = next(n for n in names
+                      if "transcript (historical conversation" in (ITER / "transformations" / n).read_text(encoding="utf-8"))
+        return names, reader
+
+    def test_bug15_transcript_is_written_before_its_tail_is_read(self):
+        names, reader = self._order()
+        self.assertLess(names.index("transcript.py"), names.index(reader))
+
+    def test_bug15_current_user_message_is_in_the_same_cycle_transcript_tail(self):
+        names, reader = self._order()
+        messages = [system(), user("2026-10-01 09:00:00", "FIRST-MESSAGE")]
+        for name in [n for n in names if n in ("transcript.py", reader)]:
+            messages, _ = load("transformations/" + name).transform(roundtrip(messages), [])
+        content = messages[0]["content"]
+        self.assertIn("transcript (historical conversation", content)
+        self.assertIn("FIRST-MESSAGE", content.split("transcript (historical conversation")[-1])
 
 
 if __name__ == "__main__":

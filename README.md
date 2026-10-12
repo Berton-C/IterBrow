@@ -265,7 +265,7 @@ transformations exist but are deactivated.)
 | Name | What it does |
 |---|---|
 | `agents_md_inject` | Auto-inject AGENTS.md reference into system message. |
-| `append_last_transcript_lines` | Append last 6 transcript lines to system message. |
+| `transcript_tail` | Append last 6 transcript lines to system message. |
 | `browser_vision` | Attach browser_screenshot tool results as one-shot multimodal image input. |
 | `recap` | Episode recap: asks the agent to record an episode (record_episode) when enough history is unsummarized, and injects the newest episodes. |
 | `tiered_memory` | Tiered memory pyramid: rolls episode summaries up into era and life summaries and injects the pyramid. |

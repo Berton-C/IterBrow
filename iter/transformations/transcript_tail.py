@@ -1,7 +1,10 @@
 """
-Append last 6 transcript lines to the system message.
-Reads transcript.txt, takes last 6 lines, appends them
-after a "transcript:" header to the first message (system message) content.
+Append the last 6 transcript lines to the system message.
+
+Named transcript_tail.py (formerly append_last_transcript_lines.py) so it
+sorts AFTER transcript.py: transformations run in file-name order, and the
+transcript must be written before its tail is read in the same cycle,
+otherwise the current user message only appears one cycle later.
 """
 import os
 from iterbrow_runtime.conversation_view import conversation_lines
