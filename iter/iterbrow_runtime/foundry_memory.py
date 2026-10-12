@@ -19,6 +19,7 @@ import os
 from pathlib import Path, PurePosixPath
 import re
 
+from .cognitive_events import parse_semantic_atom
 from .cognitive_fabric import digest
 
 
@@ -44,21 +45,10 @@ def _semantic(key, atom):
     """Parse the existing _petta_db._memory_atom shape without eval/MeTTa execution."""
     if not isinstance(atom, str) or len(atom) > MAX_FILE_BYTES or not atom.startswith('(semantic-memory '):
         raise ValueError('invalid or oversized semantic memory atom')
-    decoder = json.JSONDecoder()
-    rest = atom[len('(semantic-memory '):]
-    parts = []
-    for _ in range(3):
-        value, end = decoder.raw_decode(rest.lstrip())
-        if not isinstance(value, str):
-            raise ValueError('semantic memory fields must be strings')
-        parts.append(value)
-        rest = rest.lstrip()[end:].lstrip()
-    if rest != ')' or parts[0] != key[len(SEMANTIC_PREFIX):] or len(parts[0]) > 256:
+    identity, document, metadata = parse_semantic_atom(key, atom)
+    if len(identity) > 256:
         raise ValueError('semantic memory identity differs from authority key')
-    metadata = json.loads(parts[2])
-    if not isinstance(metadata, dict):
-        raise ValueError('semantic memory metadata is not an object')
-    return parts[0], parts[1], metadata
+    return identity, document, metadata
 
 
 class FoundryMemory:

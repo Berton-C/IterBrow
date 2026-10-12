@@ -32,7 +32,10 @@ def _canonical(value):
 
 
 def _metta_string(value):
-    return json.dumps(str(value), ensure_ascii=False)
+    # One encoder for every writer: Hyperon-valid escapes for control
+    # characters, byte-identical JSON quoting for everything else.
+    from .cognitive_events import metta_string
+    return metta_string(value)
 
 
 def _source_hash(path):

@@ -59,5 +59,96 @@ class ToolImportPathTests(ServiceTestCase):
         self.assertFalse((elsewhere / "memory" / "journal.jsonl").exists())
 
 
+CONTROL_SAMPLES = {
+    "ansi colour": "shell said \x1b[32mOK\x1b[0m",
+    "backspace": "a\bb",
+    "form feed": "page\fbreak",
+    "unit separator": "a\x1fb",
+    "windows line ending": "line one\r\nline two",
+    "tab and newline": "col\tcol\nrow",
+    "quote and backslash": 'say "hi" \\ bye',
+    "unicode": "caf\u00e9 \u4e2d\u6587 \U0001f600 \u2028",
+}
+
+
+class MettaStringEscapingTests(unittest.TestCase):
+    """B5: metta_string emitted JSON escapes (\\u001b, \\b, \\f) that Hyperon rejects."""
+
+    @classmethod
+    def setUpClass(cls):
+        sys.path.insert(0, str(ITER_SRC))
+        from iterbrow_runtime import cognitive_events, legacy_migration
+        cls.ce = cognitive_events
+        cls.lm = legacy_migration
+
+    def test_ordinary_strings_are_byte_identical_to_the_old_encoding(self):
+        for value in ["plain", 'say "hi"', "back\\slash", "multi\nline\ttab\rcr", "caf\u00e9 \U0001f600",
+                      "\u2028 \x7f", "{\"json\": [1, 2]}"]:
+            old = json.dumps(value, ensure_ascii=False)
+            self.assertEqual(self.ce.metta_string(value), old)
+            self.assertEqual(self.lm._metta_string(value), old)
+
+    def test_hyperon_parses_every_control_character_back_to_the_same_value(self):
+        from hyperon import MeTTa
+        engine = MeTTa()
+        for code in list(range(1, 32)) + [0x7f]:
+            value = "x" + chr(code) + "y"
+            for encode in (self.ce.metta_string, self.lm._metta_string):
+                literal = encode(value)
+                atom = engine.parse_all("(probe %s)" % literal)[0]
+                parsed = atom.get_children()[1].get_object().value
+                self.assertEqual(parsed, value, "U+%04X via %r" % (code, literal))
+                self.assertEqual(self.ce.parse_metta_string(literal), value)
+
+    def test_nul_never_reaches_hyperon(self):
+        # Hyperon aborts the whole process when it serialises a string holding
+        # NUL, so it is stored as U+FFFD (the only lossy character).
+        literal = self.ce.metta_string("a\x00b")
+        self.assertNotIn("\x00", literal)
+        self.assertEqual(self.ce.parse_metta_string(literal), "a\ufffdb")
+
+    def test_semantic_atom_round_trips_through_the_parser(self):
+        for name, document in CONTROL_SAMPLES.items():
+            metadata = {"note": document, "linkedEpisodes": ["2026-01-01 00:00:00"]}
+            atom = "(semantic-memory %s %s %s)" % (
+                self.ce.metta_string("m1"), self.ce.metta_string(document),
+                self.ce.metta_string(json.dumps(metadata, sort_keys=True, ensure_ascii=False)))
+            self.assertEqual(self.ce.parse_semantic_atom("state:semantic_memory:m1", atom),
+                             ("m1", document, metadata), name)
+
+
+class ControlCharacterServiceTests(ServiceTestCase):
+    """B5 through the real service: remember and legacy migration with control characters."""
+
+    def test_remember_accepts_control_characters_and_commits_them_exactly(self):
+        for name, text in CONTROL_SAMPLES.items():
+            out = self.r.text("remember", text=text)
+            self.assertTrue(out.startswith("REMEMBER-SUCCESS"), "%s: %s" % (name, out))
+            item_id = out.split()[2]
+            self.assertEqual(self.r.memories()[item_id][0], text, name)
+        self.assertEqual(self.r.pending_files(), [])
+        self.assertEqual(self.r.index_ids(), set(self.r.memories()))
+
+
+class LegacyControlCharacterMigrationTests(unittest.TestCase):
+    """B5: one legacy document with an ANSI escape failed the one-time migration,
+    leaving the AtomSpace service without an engine (every cognitive write failed)."""
+
+    def test_legacy_index_with_ansi_document_migrates_and_service_is_ready(self):
+        r = SemanticRoot("legacy-ansi")
+        self.addCleanup(r.close)
+        (r.root / "chroma_db").mkdir()
+        (r.root / "chroma_db" / "memories.json").write_text(json.dumps({
+            "ids": ["legacy-1", "legacy-2"],
+            "documents": ["normal fact", "shell said \x1b[32mOK\x1b[0m and \b\f"],
+            "metadatas": [{"mem_type": "fact"}, {"mem_type": "fact"}],
+            "embeddings": [[0.1] * 4, [0.2] * 4],
+        }))
+        status = r.start()
+        self.assertEqual(status["legacy_migration"]["status"], "migrated", status)
+        self.assertTrue(status.get("engine_available", status.get("ready")), status)
+        self.assertEqual(r.memories()["legacy-2"][0], "shell said \x1b[32mOK\x1b[0m and \b\f")
+
+
 if __name__ == "__main__":
     unittest.main()
