@@ -14,18 +14,20 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from harness import IterRun, send, tool
 
-RECORD_TURN = 12   # request 10 is the first with >= 20 unsummarized records (1 + 2 per send turn)
+# Each scripted turn makes three sends (6 history records), so request 4 is the
+# first with >= 20 unsummarized records (1 user message + 6 per turn).
+RECORD_TURN = 5
 
 
 class EpisodicRecapPipelineTests(unittest.TestCase):
     def test_recap_request_reaches_model_and_recorded_episode_reaches_tier_pyramid(self):
-        script = [[send("tick-%d" % i)] for i in range(RECORD_TURN)]
+        script = [[send("tick-%d-%s" % (i, part)) for part in "abc"] for i in range(RECORD_TURN)]
         script.append([tool("record_episode", summary="E2E-EPISODE-SUMMARY of the tick conversation")])
         script.append([send("after-episode")])
         with IterRun(script, name="recap") as run:
             run.say("count ticks for me")
-            requests = run.wait_for_requests(RECORD_TURN + 2)
-            run.wait_for_reply("after-episode")
+            requests = run.wait_for_requests(RECORD_TURN + 2, timeout=420)
+            run.wait_for_reply("after-episode", timeout=120)
             run.stop()
             log = run.read_log("iter.log")
 
