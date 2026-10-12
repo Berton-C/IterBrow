@@ -33,8 +33,13 @@ Three protection classes:
    tools/rebuild_tiers.py may write them, via the `allow_protected_write()`
    bypass below.
 
-Deletion (os.remove/os.unlink/shutil.rmtree), and renaming or replacing
-another file ONTO a protected path, are blocked for all three classes.
+Deletion (os.remove/os.unlink, dir_fd-relative names included, and
+shutil.rmtree of any tree that contains protected content - refused before
+anything is deleted), removing the protected memory folders (os.rmdir), and
+renaming or replacing another file ONTO a protected path, are blocked for
+all three classes. Paths are resolved and anchored at the iter root, so
+files that merely share a name elsewhere (apps/demo/chat.txt) are not
+protected.
 
 Enforcement: tools/python.py installs guard_process() for the duration of
 the agent's code: builtins.open, io.open, os.open, os.remove/unlink/
@@ -49,64 +54,112 @@ import fnmatch
 import os
 import threading
 
+# Patterns are paths RELATIVE TO THE ITER ROOT (ITER_DIR, else the cwd), matched
+# segment by segment against the fully resolved target: apps/demo/chat.txt is
+# not the agent's chat log, and ../iter/memory/recap/... is still an episode.
 APPEND_ONLY_PATTERNS = [
     "history.metta",
     "space.metta",
+    "transformations/.runtime/space.metta",
     "nace_*.metta",
     "chat.txt",
     "transcript.txt",
-    "*/history.metta",
-    "*/space.metta",
-    "*/nace_*.metta",
-    "*/chat.txt",
-    "*/transcript.txt",
 ]
 
 CREATE_ONLY_PATTERNS = [
     "memory/recap/episode_*.json",
-    "*/memory/recap/episode_*.json",
 ]
 
 REGEN_ONLY_PATTERNS = [
     "memory/tiers/tier*.txt",
-    "*/memory/tiers/tier*.txt",
     # Frozen pre-episode summaries, written once by rebuild_tiers.
     "memory/tiers/legacy_summary.txt",
-    "*/memory/tiers/legacy_summary.txt",
 ]
 
 ALL_PROTECTED_PATTERNS = APPEND_ONLY_PATTERNS + CREATE_ONLY_PATTERNS + REGEN_ONLY_PATTERNS
 
+# Folders that hold protected content: never removed (os.rmdir/removedirs).
+PROTECTED_DIRS = ["memory", "memory/recap", "memory/tiers"]
+
 _bypass = threading.local()
 
 
-def _candidates(path):
+def _root():
+    return os.path.realpath(os.environ.get("ITER_DIR") or os.getcwd())
+
+
+def _fd_path(fd):
+    """The directory path an open descriptor refers to, or None."""
+    try:
+        if os.path.isdir("/proc/self/fd"):
+            return os.readlink("/proc/self/fd/%d" % fd)
+        import fcntl
+        if hasattr(fcntl, "F_GETPATH"):  # macOS
+            raw = fcntl.fcntl(fd, fcntl.F_GETPATH, bytes(1024))
+            return os.fsdecode(raw.split(b"\0", 1)[0])
+    except (OSError, ValueError, TypeError):
+        pass
+    return None
+
+
+class _Unresolvable(object):
+    """A dir_fd-relative name whose directory could not be resolved."""
+
+    def __init__(self, name):
+        self.name = name
+
+
+def _resolve(path, dir_fd=None):
+    """Absolute, symlink-resolved target of `path` (relative to dir_fd when given)."""
     try:
         raw = os.fspath(path)
     except TypeError:
-        return []
+        return None
     if isinstance(raw, bytes):
         raw = os.fsdecode(raw)
-    out = [os.path.normpath(raw).replace(os.sep, "/")]
-    try:
-        out.append(os.path.abspath(raw).replace(os.sep, "/"))
-    except Exception:
-        pass
-    return out
+    if dir_fd is not None and not os.path.isabs(raw):
+        base = _fd_path(dir_fd)
+        if base is None:
+            return _Unresolvable(raw)
+        raw = os.path.join(base, raw)
+    return os.path.realpath(raw)
 
 
-def _norm(path):
-    found = _candidates(path)
-    return found[0] if found else str(path)
+def _relative(path, dir_fd=None):
+    """Root-relative '/'-separated path, None when outside the root, or _Unresolvable."""
+    resolved = _resolve(path, dir_fd)
+    if resolved is None or isinstance(resolved, _Unresolvable):
+        return resolved
+    root = _root()
+    if resolved == root:
+        return ""
+    if not resolved.startswith(root.rstrip(os.sep) + os.sep):
+        return None
+    return os.path.relpath(resolved, root).replace(os.sep, "/")
 
 
-def _matches(path, patterns):
-    for norm in _candidates(path):
-        base = os.path.basename(norm)
-        for pat in patterns:
-            if fnmatch.fnmatch(norm, pat) or fnmatch.fnmatch(base, pat):
-                return True
-    return False
+def _pattern_match(relative, pattern):
+    parts, pattern_parts = relative.split("/"), pattern.split("/")
+    return len(parts) == len(pattern_parts) and all(
+        fnmatch.fnmatchcase(part, pat) for part, pat in zip(parts, pattern_parts))
+
+
+def _matches(path, patterns, dir_fd=None):
+    relative = _relative(path, dir_fd)
+    if isinstance(relative, _Unresolvable):
+        # Cannot tell where it is: refuse when the bare name is a protected name.
+        name = os.path.basename(relative.name.rstrip("/"))
+        return any(fnmatch.fnmatchcase(name, pattern.split("/")[-1]) for pattern in patterns)
+    if not relative:
+        return False
+    return any(_pattern_match(relative, pattern) for pattern in patterns)
+
+
+def _exists(path, dir_fd=None):
+    resolved = _resolve(path, dir_fd)
+    if isinstance(resolved, _Unresolvable):
+        return True  # assume the worst
+    return bool(resolved) and os.path.exists(resolved)
 
 
 def _bypassed():
@@ -139,7 +192,7 @@ def _journal_block(kind, path, reason):
         pass  # never let journaling itself break the guard
 
 
-def check_open(path, mode):
+def check_open(path, mode, dir_fd=None):
     """Raise PermissionError if this open() call would violate a memory
     protection rule. Returns silently (None) if the call is fine. Any of
     'w', 'x', 'a', '+' in the mode is a write."""
@@ -150,7 +203,7 @@ def check_open(path, mode):
         return  # read-only
     appending = "a" in mode and not any(c in mode for c in "wx")
 
-    if _matches(path, REGEN_ONLY_PATTERNS):
+    if _matches(path, REGEN_ONLY_PATTERNS, dir_fd):
         _journal_block("open", path, "regenerable tier file, use rebuild_tiers")
         raise PermissionError(
             "BLOCKED: %r is a regenerable memory-tier file. Direct writes are "
@@ -159,7 +212,7 @@ def check_open(path, mode):
             "truth)." % (path,)
         )
 
-    if _matches(path, APPEND_ONLY_PATTERNS) and not appending:
+    if _matches(path, APPEND_ONLY_PATTERNS, dir_fd) and not appending:
         _journal_block("open", path, "append-only log opened in mode %r" % (mode,))
         raise PermissionError(
             "BLOCKED: %r is an append-only memory log. Opening it in a "
@@ -167,8 +220,8 @@ def check_open(path, mode):
             "'a' to append instead." % (path, mode)
         )
 
-    if _matches(path, CREATE_ONLY_PATTERNS):
-        if os.path.exists(path):
+    if _matches(path, CREATE_ONLY_PATTERNS, dir_fd):
+        if _exists(path, dir_fd):
             _journal_block("open", path, "attempted write to existing episode")
             raise PermissionError(
                 "BLOCKED: %r is an existing recap episode. Episodes are "
@@ -178,7 +231,7 @@ def check_open(path, mode):
         return  # creating a brand-new episode file is fine
 
 
-def check_os_open(path, flags):
+def check_os_open(path, flags, dir_fd=None):
     """os.open() flags expressed as an open() mode for check_open."""
     if flags & getattr(os, "O_TRUNC", 0):
         mode = "w"
@@ -190,15 +243,15 @@ def check_os_open(path, flags):
         mode = "x"
     else:
         mode = "r"
-    check_open(path, mode)
+    check_open(path, mode, dir_fd)
 
 
-def check_replace_target(dst):
+def check_replace_target(dst, dir_fd=None):
     """Renaming/replacing a file ONTO a protected path overwrites it."""
     if _bypassed():
         return
-    if _matches(dst, REGEN_ONLY_PATTERNS) or _matches(dst, APPEND_ONLY_PATTERNS) or (
-            _matches(dst, CREATE_ONLY_PATTERNS) and os.path.exists(dst)):
+    if _matches(dst, REGEN_ONLY_PATTERNS, dir_fd) or _matches(dst, APPEND_ONLY_PATTERNS, dir_fd) or (
+            _matches(dst, CREATE_ONLY_PATTERNS, dir_fd) and _exists(dst, dir_fd)):
         _journal_block("replace", dst, "rename/replace onto protected memory content")
         raise PermissionError(
             "BLOCKED: %r is protected memory content; renaming or replacing "
@@ -206,15 +259,44 @@ def check_replace_target(dst):
         )
 
 
-def check_remove(path):
+def check_remove(path, dir_fd=None):
     if _bypassed():
         return
-    if _matches(path, ALL_PROTECTED_PATTERNS):
+    if _matches(path, ALL_PROTECTED_PATTERNS, dir_fd):
         _journal_block("remove", path, "delete attempt on protected memory content")
         raise PermissionError(
             "BLOCKED: %r is protected memory content and may never be "
             "deleted." % (path,)
         )
+
+
+def check_rmdir(path, dir_fd=None):
+    if _bypassed():
+        return
+    if _matches(path, PROTECTED_DIRS, dir_fd):
+        _journal_block("rmdir", path, "remove attempt on a protected memory folder")
+        raise PermissionError("BLOCKED: %r is a protected memory folder and may never be removed." % (path,))
+
+
+def check_rmtree(path, dir_fd=None):
+    """Refuse a recursive delete whose tree contains protected content, BEFORE
+    anything is deleted (so nothing is half-removed)."""
+    if _bypassed():
+        return
+    resolved = _resolve(path, dir_fd)
+    if isinstance(resolved, _Unresolvable):
+        raise PermissionError("BLOCKED: cannot tell where %r is; recursive delete refused." % (path,))
+    if not resolved:
+        return
+    check_rmdir(resolved)
+    if os.path.islink(resolved) or not os.path.isdir(resolved):
+        check_remove(resolved)
+        return
+    for folder, dirs, files in os.walk(resolved):
+        for name in dirs:
+            check_rmdir(os.path.join(folder, name))
+        for name in files:
+            check_remove(os.path.join(folder, name))
 
 
 def guarded_open_factory(real_open):
@@ -234,25 +316,30 @@ class GuardedOS:
         object.__setattr__(self, "_real_os", real_os)
 
     def remove(self, path, *a, **kw):
-        check_remove(path)
+        check_remove(path, kw.get("dir_fd"))
         return self._real_os.remove(path, *a, **kw)
 
     def unlink(self, path, *a, **kw):
-        check_remove(path)
+        check_remove(path, kw.get("dir_fd"))
         return self._real_os.unlink(path, *a, **kw)
 
+    def rmdir(self, path, *a, **kw):
+        check_rmdir(path, kw.get("dir_fd"))
+        return self._real_os.rmdir(path, *a, **kw)
+
     def rename(self, src, dst, *a, **kw):
-        check_remove(src)
-        check_replace_target(dst)
+        check_remove(src, kw.get("src_dir_fd"))
+        check_replace_target(dst, kw.get("dst_dir_fd"))
         return self._real_os.rename(src, dst, *a, **kw)
 
     def replace(self, src, dst, *a, **kw):
-        check_remove(src)
-        check_replace_target(dst)
+        check_remove(src, kw.get("src_dir_fd"))
+        check_replace_target(dst, kw.get("dst_dir_fd"))
         return self._real_os.replace(src, dst, *a, **kw)
 
     def truncate(self, path, *a, **kw):
-        check_remove(path)
+        if not isinstance(path, int):
+            check_remove(path)
         return self._real_os.truncate(path, *a, **kw)
 
     def __getattr__(self, name):
@@ -271,10 +358,11 @@ def guard_process():
     restored on exit."""
     import builtins
     import io
+    import shutil
 
     real = {"open": builtins.open, "io_open": io.open, "os_open": os.open,
-            "remove": os.remove, "unlink": os.unlink, "rename": os.rename,
-            "replace": os.replace, "truncate": os.truncate}
+            "remove": os.remove, "unlink": os.unlink, "rmdir": os.rmdir, "rename": os.rename,
+            "replace": os.replace, "truncate": os.truncate, "rmtree": shutil.rmtree}
 
     def g_open(file, mode="r", *a, **kw):
         check_open(file, mode)
@@ -285,25 +373,29 @@ def guard_process():
         return real["io_open"](file, mode, *a, **kw)
 
     def g_os_open(path, flags, *a, **kw):
-        check_os_open(path, flags)
+        check_os_open(path, flags, kw.get("dir_fd"))
         return real["os_open"](path, flags, *a, **kw)
 
     def g_remove(path, *a, **kw):
-        check_remove(path)
+        check_remove(path, kw.get("dir_fd"))
         return real["remove"](path, *a, **kw)
 
     def g_unlink(path, *a, **kw):
-        check_remove(path)
+        check_remove(path, kw.get("dir_fd"))
         return real["unlink"](path, *a, **kw)
 
+    def g_rmdir(path, *a, **kw):
+        check_rmdir(path, kw.get("dir_fd"))
+        return real["rmdir"](path, *a, **kw)
+
     def g_rename(src, dst, *a, **kw):
-        check_remove(src)
-        check_replace_target(dst)
+        check_remove(src, kw.get("src_dir_fd"))
+        check_replace_target(dst, kw.get("dst_dir_fd"))
         return real["rename"](src, dst, *a, **kw)
 
     def g_replace(src, dst, *a, **kw):
-        check_remove(src)
-        check_replace_target(dst)
+        check_remove(src, kw.get("src_dir_fd"))
+        check_replace_target(dst, kw.get("dst_dir_fd"))
         return real["replace"](src, dst, *a, **kw)
 
     def g_truncate(path, *a, **kw):
@@ -311,14 +403,21 @@ def guard_process():
             check_remove(path)
         return real["truncate"](path, *a, **kw)
 
+    def g_rmtree(path, *a, **kw):
+        check_rmtree(path, kw.get("dir_fd"))
+        return real["rmtree"](path, *a, **kw)
+
     builtins.open, io.open, os.open = g_open, g_io_open, g_os_open
-    os.remove, os.unlink, os.rename, os.replace, os.truncate = g_remove, g_unlink, g_rename, g_replace, g_truncate
+    os.remove, os.unlink, os.rmdir = g_remove, g_unlink, g_rmdir
+    os.rename, os.replace, os.truncate = g_rename, g_replace, g_truncate
+    shutil.rmtree = g_rmtree
     try:
         yield
     finally:
         builtins.open, io.open, os.open = real["open"], real["io_open"], real["os_open"]
-        os.remove, os.unlink, os.rename = real["remove"], real["unlink"], real["rename"]
-        os.replace, os.truncate = real["replace"], real["truncate"]
+        os.remove, os.unlink, os.rmdir = real["remove"], real["unlink"], real["rmdir"]
+        os.rename, os.replace, os.truncate = real["rename"], real["replace"], real["truncate"]
+        shutil.rmtree = real["rmtree"]
 
 
 _PROTECTED_FILE = r"(tiers?/tier\d\.txt|recap/episode_\d+\.json)"
