@@ -640,5 +640,39 @@ class DuplicateDetectionTests(ServiceTestCase):
         self.assertEqual(len(self.r.memories()), 2)
 
 
+class SpaceMettaTests(ServiceTestCase):
+    """B15: atom_space_update merged formalizations from chroma_query output into
+    space.metta and never removed any, so forgotten memories' formalizations stayed."""
+
+    TRANSFORM = r"""
+import sys, json, importlib.util
+spec = importlib.util.spec_from_file_location("asu", sys.argv[1])
+module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+module.transform(json.loads(sys.argv[2]), [])
+"""
+
+    def _transform(self, messages):
+        import subprocess
+        subprocess.run([sys.executable, "-c", self.TRANSFORM,
+                        str(self.r.root / "transformations" / "atom_space_update.py"), json.dumps(messages)],
+                       cwd=str(self.r.root), env=self.r.env(), check=True)
+        path = self.r.root / "transformations" / ".runtime" / "space.metta"
+        return path.read_text() if path.exists() else ""
+
+    def test_space_metta_follows_current_formalizations(self):
+        raven = self.r.remember("ravens are birds", mem_type="todo")
+        swan = self.r.remember("swans are white", mem_type="todo")
+        self.assertIn("SUCCESS", self.r.text("formalize_metta", LTM_item=raven, formalization="(--> raven bird)"))
+        self.assertIn("SUCCESS", self.r.text("formalize_metta", LTM_item=swan, formalization="(--> swan ([] white))"))
+        query = self.r.text("chroma_query", query="ravens are birds")
+        space = self._transform([{"role": "tool", "content": query}])
+        self.assertIn("((--> raven bird) (stv 1.0 0.5))", space)
+        self.assertIn("((--> swan ([] white)) (stv 1.0 0.5))", space)
+        self.assertTrue(self.r.text("forget", item_id=raven).startswith("FORGET-SUCCESS"))
+        space = self._transform([{"role": "user", "content": "hi"}])
+        self.assertNotIn("raven", space)
+        self.assertIn("((--> swan ([] white)) (stv 1.0 0.5))", space)
+
+
 if __name__ == "__main__":
     unittest.main()
