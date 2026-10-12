@@ -619,5 +619,13 @@ class HotloadSourceUpgradeTests(HotloadFixture, unittest.TestCase):
         self.assertEqual(result["probation_rollback"]["action"], "rolled_back")
 
 
+    def test_broken_underscore_fixture_does_not_block_source_upgrade(self):
+        # tools/_fixture_*_broken_syntax.py exists in the real tree on purpose
+        (self.iter_root / "tools" / "_fixture_broken.py").write_text("def run(:\n", encoding="utf-8")
+        (self.iter_root / "tools" / "sample.py").write_text(BASE_TOOL + "# UPGRADE\n", encoding="utf-8")
+        result = self.manager.recover_on_startup()
+        self.assertEqual(result["action"], "source_upgraded")
+
+
 if __name__ == "__main__":
     unittest.main()

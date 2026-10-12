@@ -364,8 +364,14 @@ class HotloadManager:
 
     @staticmethod
     def _compile_check(tree):
-        """Every component in the tree must at least parse; returns the first error or None."""
+        """Every ACTIVE component must at least parse; returns the first error or None.
+
+        Underscore-prefixed files are deactivated components, helpers and test
+        fixtures (some deliberately broken); iter.py never loads them as
+        components, so they are not checked."""
         for path in sorted(Path(tree).rglob("*.py")):
+            if path.name.startswith("_"):
+                continue
             try:
                 ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
             except (SyntaxError, UnicodeDecodeError, OSError) as error:
