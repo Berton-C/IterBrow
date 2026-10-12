@@ -331,16 +331,16 @@ class HotloadManager:
     def _write_candidate(self, candidate):
         _atomic_json(self._candidate_path(candidate["candidate_id"]), candidate)
 
-    def _bootstrap_locked(self):
-        active = _read_json(self.active_path)
-        if active:
-            self._generation_path(active["generation_id"])
-            return active
+    def _stage_source_copy(self):
+        """Copy the managed source roots into a temporary generation directory."""
         temporary = self.generations_dir / (".bootstrap-" + uuid.uuid4().hex)
         temporary.mkdir(parents=True)
         for root_name in MANAGED_ROOTS:
             self._copy_tree(self.iter_root / root_name, temporary / root_name)
-        tree_hash = self._tree_hash(temporary)
+        return temporary, self._tree_hash(temporary)
+
+    def _materialise_baseline(self, temporary, tree_hash):
+        """Turn a staged source copy into a (possibly pre-existing) baseline generation."""
         generation_id = "base-" + tree_hash[:16]
         destination = self.generations_dir / generation_id
         if destination.exists():
@@ -358,6 +358,15 @@ class HotloadManager:
             "changed_paths": [],
         }
         _atomic_json(destination / "generation.json", manifest)
+        return generation_id
+
+    def _bootstrap_locked(self):
+        active = _read_json(self.active_path)
+        if active:
+            self._generation_path(active["generation_id"])
+            return active
+        temporary, tree_hash = self._stage_source_copy()
+        generation_id = self._materialise_baseline(temporary, tree_hash)
         active = {
             "schema_version": SCHEMA_VERSION,
             "generation_id": generation_id,
@@ -369,6 +378,72 @@ class HotloadManager:
         _atomic_json(self.active_path, active)
         self._append_event("baseline_created", {"generation_id": generation_id, "tree_hash": tree_hash})
         return active
+
+    def _lineage_source_hash(self, generation_id):
+        """Return the tree hash of the source baseline this generation descends from.
+
+        None means the lineage cannot be resolved; callers treat that as "not
+        derived from the current source" so the source tree wins."""
+        seen = set()
+        while generation_id and generation_id not in seen:
+            seen.add(generation_id)
+            try:
+                manifest = _read_json(self._generation_path(generation_id) / "generation.json")
+            except HotloadError:
+                return None
+            if not manifest:
+                return None
+            if manifest.get("origin") == "source_tree_baseline":
+                return manifest.get("tree_hash")
+            generation_id = manifest.get("parent_generation_id")
+        return None
+
+    def _apply_source_upgrade_locked(self, active):
+        """Re-derive the baseline when the managed source roots changed since the
+        active generation's lineage was taken from them.
+
+        Policy (milestone 1): the source tree always wins.  A promoted
+        self-revision built on the old source is kept on disk and marked
+        superseded, never deleted, and the decision is written to the ledger so
+        a later startup log can show it."""
+        if active["status"] != "stable":
+            return None
+        temporary, source_hash = self._stage_source_copy()
+        lineage_hash = self._lineage_source_hash(active["generation_id"])
+        if lineage_hash == source_hash:
+            shutil.rmtree(temporary)
+            return None
+        generation_id = self._materialise_baseline(temporary, source_hash)
+        superseded = active["generation_id"]
+        candidate = None
+        if active.get("candidate_id"):
+            candidate = self._read_candidate(active["candidate_id"])
+            candidate["status"] = "superseded_by_source"
+            candidate["superseded_at"] = time.time()
+            candidate["superseded_by_generation_id"] = generation_id
+            self._write_candidate(candidate)
+        pointer = {
+            "schema_version": SCHEMA_VERSION,
+            "generation_id": generation_id,
+            "previous_generation_id": superseded,
+            "status": "stable",
+            "candidate_id": None,
+            "activated_at": time.time(),
+        }
+        _atomic_json(self.active_path, pointer)
+        self._append_event("source_upgrade_applied", {
+            "generation_id": generation_id,
+            "tree_hash": source_hash,
+            "superseded_generation_id": superseded,
+            "superseded_lineage_hash": lineage_hash,
+            "superseded_candidate_id": active.get("candidate_id"),
+        })
+        return {
+            "action": "source_upgraded",
+            "active": pointer,
+            "superseded_generation_id": superseded,
+            "candidate": candidate,
+        }
 
     def ensure_baseline(self):
         with self._locked():
@@ -1067,6 +1142,9 @@ class HotloadManager:
                 if active.get("previous_generation_id"):
                     return self._rollback_stable_locked(str(exc))
                 raise
+            upgraded = self._apply_source_upgrade_locked(active)
+            if upgraded:
+                return upgraded
             return {"action": "none", "active": active}
 
     def supervisor_check(self, iter_running, now=None, iter_pid=None,

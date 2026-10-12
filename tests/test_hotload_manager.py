@@ -502,3 +502,62 @@ class HotloadManagerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HotloadSourceUpgradeTests(HotloadManagerTests):
+    """Milestone 1: a source-tree change (git pull, installer update, manual edit)
+    must reach the running generation on the next startup.  Policy: the source
+    tree wins; a promoted self-revision built on older source is archived, never
+    deleted, and the decision is recorded in the event ledger."""
+
+    def _promote_candidate(self):
+        candidate = self._validated_candidate()
+        proposal_id, token = self._approved()
+        self.manager.activate(
+            candidate["candidate_id"], proposal_id, token,
+            required_heartbeats=1, heartbeat_timeout=60,
+        )
+        IterHeartbeat(self.iter_root, "promote").write(candidate["generation_id"], "cycle_complete", 1)
+        self.assertEqual(self.manager.supervisor_check(True)["action"], "promoted")
+        return candidate
+
+    def test_source_upgrade_rederives_untouched_baseline(self):
+        upgraded = BASE_TOOL + "# UPGRADE\n"
+        (self.iter_root / "tools" / "sample.py").write_text(upgraded, encoding="utf-8")
+        result = self.manager.recover_on_startup()
+        self.assertEqual(result["action"], "source_upgraded")
+        self.assertNotEqual(result["active"]["generation_id"], self.base)
+        snapshot = self.manager.component_snapshot()
+        self.assertEqual((snapshot["roots"]["tools"] / "sample.py").read_text(encoding="utf-8"), upgraded)
+        # the old baseline is still on disk for rollback / audit
+        self.assertTrue(self.manager._generation_path(self.base).is_dir())
+        kinds = [event["kind"] for event in self.manager._events()]
+        self.assertIn("source_upgrade_applied", kinds)
+
+    def test_unchanged_source_leaves_promoted_revision_alone(self):
+        candidate = self._promote_candidate()
+        result = self.manager.recover_on_startup()
+        self.assertEqual(result["action"], "none")
+        self.assertEqual(result["active"]["generation_id"], candidate["generation_id"])
+
+    def test_source_upgrade_supersedes_promoted_revision_and_archives_it(self):
+        candidate = self._promote_candidate()
+        upgraded = BASE_TOOL + "# UPGRADE\n"
+        (self.iter_root / "tools" / "sample.py").write_text(upgraded, encoding="utf-8")
+        result = self.manager.recover_on_startup()
+        self.assertEqual(result["action"], "source_upgraded")
+        self.assertEqual(result["superseded_generation_id"], candidate["generation_id"])
+        snapshot = self.manager.component_snapshot()
+        self.assertEqual((snapshot["roots"]["tools"] / "sample.py").read_text(encoding="utf-8"), upgraded)
+        self.assertTrue(self.manager._generation_path(candidate["generation_id"]).is_dir())
+        record = self.manager._read_candidate(candidate["candidate_id"])
+        self.assertEqual(record["status"], "superseded_by_source")
+        self.assertEqual(result["active"]["previous_generation_id"], candidate["generation_id"])
+
+    def test_source_upgrade_is_idempotent(self):
+        (self.iter_root / "tools" / "sample.py").write_text(BASE_TOOL + "# UPGRADE\n", encoding="utf-8")
+        first = self.manager.recover_on_startup()
+        second = self.manager.recover_on_startup()
+        self.assertEqual(first["action"], "source_upgraded")
+        self.assertEqual(second["action"], "none")
+        self.assertEqual(second["active"]["generation_id"], first["active"]["generation_id"])
