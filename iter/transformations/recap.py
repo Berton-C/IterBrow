@@ -37,6 +37,10 @@ RECAP_THRESHOLD = 20
 # One episode covers at most this many history records (a large backlog is
 # summarized span by span instead of in one unreadable request).
 RECAP_MAX_SPAN = 200
+# At most this many spans are ever pending: an older backlog is skipped (it
+# stays searchable via search_transcript/episodes) instead of costing the
+# agent hundreds of recap requests.
+RECAP_MAX_PENDING_SPANS = 3
 # Only the NEWEST episodes are injected; older ones live on in the tier pyramid.
 RECAP_INJECT_EPISODES = 10
 RECAP_END = "(end of episode recap)"  # must match zz_context_budget.RECAP_END
@@ -63,6 +67,10 @@ def _request_text(request, remaining):
     first, last = request.get("start_time") or "?", request.get("end_time") or "?"
     more = (" %d more unsummarized records follow; they get their own request afterwards." % remaining
             if remaining > 0 else "")
+    skipped = request.get("skipped")
+    if skipped:
+        more += (" Older history records %d-%d were not summarized into episodes (too large a backlog); "
+                 "they are still available via search_transcript and episodes." % tuple(skipped))
     return "\n".join([
         REQUEST_HEADING,
         "History records {a}-{b} ({t0} to {t1}) are not yet summarized into an episode.{more}".format(
@@ -84,9 +92,16 @@ def _check_recap_needed(episodes):
     """Advance the cursor over recorded episodes; return the request text to
     show the agent, or "" when no recap is due (flag files cleared)."""
     total = recap_state.total_records(HISTORY_PATH)
+    recap_state.migrate_cursor(episodes, HISTORY_PATH)
     stored = recap_state.read_cursor()
-    request = recap_state.read_request()
+    previous = request = recap_state.read_request()
     cursor = recap_state.advanced_cursor(stored, episodes, request)
+    skipped = None
+    if total - cursor > RECAP_MAX_PENDING_SPANS * RECAP_MAX_SPAN:
+        skipped = [cursor + 1, total - RECAP_MAX_PENDING_SPANS * RECAP_MAX_SPAN]
+        cursor = skipped[1]
+    elif previous and previous.get("skipped") and previous["start"] == cursor + 1:
+        skipped = previous["skipped"]  # still the request that follows the skip
     if cursor != stored:
         recap_state.write_cursor(cursor)
 
@@ -99,6 +114,8 @@ def _check_recap_needed(episodes):
     start_time, end_time = recap_state.span_times(start, end, HISTORY_PATH)
     request = {"next_e": recap_state.next_episode_number(episodes), "start": start, "end": end,
                "start_time": start_time, "end_time": end_time}
+    if skipped:
+        request["skipped"] = skipped
     text = _request_text(request, total - end)
     if recap_state.read_request() != request:
         _atomic_text(REQUEST_PATH, json.dumps(request))

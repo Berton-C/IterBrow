@@ -17,6 +17,7 @@ numbered >= the requested next_e appears, which completes the request.
 import json
 import os
 import re
+import time
 
 from .atomspace_store import _atomic_text
 from .episodic_history import history_lines, history_lines_from, history_line_count, list_episodes, RECAP_DIR
@@ -25,8 +26,10 @@ HISTORY_PATH = "history.metta"
 STATE_PATH = os.path.join(RECAP_DIR, ".recap_state")
 FLAG_PATH = os.path.join(RECAP_DIR, ".recap_needed")
 REQUEST_PATH = os.path.join(RECAP_DIR, ".recap_request.json")
+MIGRATION_PATH = os.path.join(RECAP_DIR, ".recap_cursor_migrated")
 
 _TIMESTAMP = re.compile(r'^\("(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)"')
+_PLAIN_TIME = re.compile(r'^\d{4}-\d\d-\d\d[ T]\d\d:\d\d:\d\d')
 
 
 def record_timestamp(line):
@@ -109,3 +112,49 @@ def span_for_times(start_time, end_time, path=HISTORY_PATH):
             first = first or position
             last = position
     return first, last
+
+
+def _episode_time(episode, recap_dir=RECAP_DIR):
+    """When an episode's span ended: end_time, else a timestamp in "t"/"time"
+    ("t" is normally the mem_type), else the episode file's modification time."""
+    for key in ("end_time", "t", "time"):
+        value = episode.get(key)
+        if isinstance(value, str) and _PLAIN_TIME.match(value.strip()):
+            return value.strip().replace("T", " ")[:19]
+    try:
+        mtime = os.stat(os.path.join(recap_dir, episode["_file"])).st_mtime
+    except (OSError, KeyError):
+        return None
+    return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(mtime))
+
+
+def migrate_cursor(episodes, path=HISTORY_PATH):
+    """One-time cursor migration for episodes written before episodes carried
+    "lines" (the owner's .recap_state counted something else).
+
+    If episodes exist and none says which history records it covers, the
+    cursor becomes the logical position of the last history record at or
+    before the newest episode's end time (never moved backwards), and the
+    decision is persisted in .recap_cursor_migrated so it runs once.
+    Returns the new cursor, or None when nothing was migrated.
+    """
+    if not episodes or os.path.exists(MIGRATION_PATH):
+        return None
+    if any(covered_end(episode) is not None for episode in episodes):
+        return None
+    newest = episodes[-1]
+    when = _episode_time(newest)
+    position = 0
+    if when:
+        for index, raw in enumerate(history_lines(path), 1):
+            stamp = record_timestamp(raw)
+            if stamp and stamp <= when:
+                position = index
+    stored = read_cursor()
+    cursor = max(stored, position)
+    if cursor != stored:
+        write_cursor(cursor)
+    os.makedirs(RECAP_DIR, exist_ok=True)
+    _atomic_text(MIGRATION_PATH, json.dumps({
+        "from_episode": newest.get("_n"), "episode_time": when, "previous_cursor": stored, "cursor": cursor}))
+    return cursor

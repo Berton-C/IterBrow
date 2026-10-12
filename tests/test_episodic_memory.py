@@ -303,6 +303,9 @@ class RecapPipelineTests(EpisodicCase):
     def test_bug1_owner_cursor_and_episode_gaps_stay_compatible(self):
         self.write_episodes(range(26, 75))
         recap_dir = self.dir / "memory/recap"
+        old = 1759190400  # 2026-09-30: the episodes predate all of this history
+        for i in range(26, 75):
+            os.utime(recap_dir / ("episode_%04d.json" % i), (old, old))
         (recap_dir / ".recap_state").write_text("181")
         (recap_dir / ".recap_needed").write_text("New lines: 40 (lines 182-221 of 221 total)\nlegacy text\n")
         log_history(60, minute="10:00")
@@ -330,6 +333,87 @@ class RecapPipelineTests(EpisodicCase):
         content = recap.transform([system()], [])[0][0]["content"]
         self.assertIn("History records 201-250 ", content)
         self.assertIn("episode_0002.json", content)
+
+
+def history_record(i, base="2026-09-01 00:00:00"):
+    import datetime
+    when = datetime.datetime.strptime(base, "%Y-%m-%d %H:%M:%S") + datetime.timedelta(seconds=i)
+    return '("%s" "TOOL_RESULT: record %d")\n' % (when.strftime("%Y-%m-%d %H:%M:%S"), i)
+
+
+def stamp_of(i, base="2026-09-01 00:00:00"):
+    return history_record(i, base)[2:21]
+
+
+class RecapCursorMigrationTests(EpisodicCase):
+    """Review 3 B2: the owner's .recap_state (181) predates the logical-history
+    cursor and episodes 26-74 carry no "lines", so the agent was asked to
+    re-summarize everything from record 182 in 200-record spans (hundreds of
+    requests on real data), and those new episodes would rank as newest."""
+
+    def owner_shape(self, archived=3000, tail=1500):
+        recap = self.dir / "memory" / "recap"
+        self.write_episodes(range(26, 75), text=lambda i: "Episode %d: worked on thing %d" % (i, i))
+        (recap / ".recap_state").write_text("181")
+        (recap / ".recap_needed").write_text("New lines: 999 (old flag text)\n")
+        archive = self.dir / "memory" / "archive" / "history.metta"
+        archive.mkdir(parents=True)
+        (archive / "1758000000000000000-rotation-aaaa.txt").write_text(
+            "".join(history_record(i) for i in range(archived)))
+        (self.dir / "history.metta").write_text("".join(history_record(i) for i in range(archived, archived + tail)))
+        return recap
+
+    def set_mtime(self, path, stamp):
+        import datetime
+        when = datetime.datetime.strptime(stamp, "%Y-%m-%d %H:%M:%S").timestamp()
+        os.utime(path, (when, when))
+
+    def test_cursor_is_inferred_from_the_newest_episode_file_time(self):
+        recap = self.owner_shape()
+        for i in range(26, 75):  # episodes written as history went by; the newest covers record 4199
+            self.set_mtime(recap / ("episode_%04d.json" % i), stamp_of(4199 - (74 - i) * 10))
+        content = load("transformations/recap.py").transform([system()], [])[0][0]["content"]
+        # logical position of record 4199 is 4200
+        self.assertEqual((recap / ".recap_state").read_text(), "4200")
+        self.assertIn("History records 4201-4400 ", content)
+        self.assertIn("episode_0075.json", content)
+        self.assertNotIn("not summarized", content)
+
+    def test_episode_end_time_wins_over_file_time_and_is_persisted_once(self):
+        recap = self.owner_shape()
+        (recap / "episode_0074.json").write_text(json.dumps({"e": 74, "s": "last", "end_time": stamp_of(3999)}))
+        load("transformations/recap.py").transform([system()], [])
+        self.assertEqual((recap / ".recap_state").read_text(), "4000")
+        # One-time: the episode file changing later does not move the cursor again.
+        (recap / "episode_0074.json").write_text(json.dumps({"e": 74, "s": "last", "end_time": stamp_of(4400)}))
+        load("transformations/recap.py").transform([system()], [])
+        self.assertEqual((recap / ".recap_state").read_text(), "4000")
+
+    def test_mem_type_t_field_is_not_mistaken_for_a_time(self):
+        recap = self.owner_shape()
+        (recap / "episode_0074.json").write_text(json.dumps({"e": 74, "s": "last", "t": "fact",
+                                                             "time": stamp_of(4299)}))
+        load("transformations/recap.py").transform([system()], [])
+        self.assertEqual((recap / ".recap_state").read_text(), "4300")
+
+    def test_backlog_is_capped_to_the_most_recent_spans_and_said_once(self):
+        recap = self.owner_shape()
+        for i in range(26, 75):  # episodes much older than the history
+            self.set_mtime(recap / ("episode_%04d.json" % i), "2026-08-01 00:00:00")
+        recap_t = load("transformations/recap.py")
+        content = recap_t.transform([system()], [])[0][0]["content"]
+        # 4500 records pending, more than 3 spans of 200: skip to the newest 600.
+        self.assertEqual((recap / ".recap_state").read_text(), "3900")
+        self.assertIn("History records 3901-4100 ", content)
+        self.assertIn("records 182-3900", content)
+        self.assertIn("not summarized", content)
+        self.assertIn("search_transcript", content)
+        again = recap_t.transform([system()], [])[0][0]["content"]
+        self.assertIn("records 182-3900", again, "the pending request keeps its note")
+        load("tools/record_episode.py").run("first span")
+        content = recap_t.transform([system()], [])[0][0]["content"]
+        self.assertIn("History records 4101-4300 ", content)
+        self.assertNotIn("not summarized", content)
 
 
 # ---------------------------------------------------------------- BUG-15
