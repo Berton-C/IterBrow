@@ -1,0 +1,62 @@
+"""Run one tool the way iter.py's dynamic worker does and print a JSON outcome.
+
+usage: semantic_tool_runner.py TOOL_PATH KWARGS_JSON
+
+Test hooks (environment):
+  CRASH_AFTER_SAVE=1   die (exit 137) right after the index save, before the
+                       pending entry is cleared -- a worker SIGKILLed at 75s.
+  NO_REPLY_AFTER_SEND=1  make the AtomSpace call send its request and then
+                       report a lost reply (uncertain outcome) without waiting.
+"""
+import importlib.util
+import json
+import os
+import sys
+from pathlib import Path
+
+tool_path = Path(sys.argv[1]).resolve()
+kwargs = json.loads(sys.argv[2])
+component_dir = str(tool_path.parent)
+if component_dir not in sys.path:
+    sys.path.insert(0, component_dir)
+
+petta = None
+
+
+def _petta():
+    return sys.modules.get("_petta_db")
+
+
+try:
+    if os.environ.get("CRASH_AFTER_SAVE") == "1" or os.environ.get("NO_REPLY_AFTER_SEND") == "1":
+        import _petta_db as petta  # noqa: F811
+        if os.environ.get("CRASH_AFTER_SAVE") == "1":
+            original_save = petta._save
+
+            def crash_after_save(db, *args, **kw):
+                original_save(db, *args, **kw)
+                os._exit(137)
+            petta._save = crash_after_save
+        if os.environ.get("NO_REPLY_AFTER_SEND") == "1":
+            from iterbrow_runtime import cognitive_events
+            original_call = cognitive_events._call_atomspace
+
+            def lost_reply(method, timeout=30, **params):
+                if method == "transact":
+                    original_call(method, timeout=timeout, **params)
+                    raise ConnectionError("AtomSpace closed without a full response")
+                return original_call(method, timeout=timeout, **params)
+            cognitive_events._call_atomspace = lost_reply
+            petta._call_atomspace = lost_reply
+    spec = importlib.util.spec_from_file_location("_dynamic_" + tool_path.stem, tool_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    result = module.run(**kwargs)
+    loaded = _petta()
+    print(json.dumps({"ok": True, "result": str(result),
+                      "petta_file": getattr(loaded, "__file__", None)}))
+except BaseException as error:  # noqa: BLE001 - report everything like dynamic_worker
+    loaded = _petta()
+    print(json.dumps({"ok": False, "error": "%s: %s" % (type(error).__name__, error),
+                      "execution": getattr(error, "execution_outcome", None),
+                      "petta_file": getattr(loaded, "__file__", None)}))

@@ -1,5 +1,6 @@
 import sys
-TOOLS_DIR = "tools"
+from pathlib import Path
+TOOLS_DIR = str(Path(__file__).resolve().parent)
 if TOOLS_DIR not in sys.path:
     sys.path.insert(0, TOOLS_DIR)
 import _petta_db as petta_db
