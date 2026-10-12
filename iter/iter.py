@@ -23,7 +23,7 @@ from iterbrow_runtime import tool_results as retained_text
 from iterbrow_runtime.tool_results import capture_tool_output
 from iterbrow_runtime.work_inquiry import question_context
 from iterbrow_runtime.working_handoff import working_context, working_record, runtime_context
-from iterbrow_runtime.loop_continuity import resume_event_wait
+from iterbrow_runtime.loop_continuity import resume_event_wait, complete_interrupted_turn
 
 # Shared rule for "which memory/ files are prompt memory" (tools/_memory_projection.py).
 # iter.py is the authority on the projection; self_improve.py and auto_improve.py
@@ -64,7 +64,7 @@ DEFAULT_DELAY = 0 #default delay added irregard of whether in slow mode
 # PORT: User-authorized per-request allowances; input uses a labeled estimate.
 MAX_INPUT_TOKENS = 45000
 MAX_TOKENS = 45000
-INIT_WAIT = 10
+INIT_WAIT = float(os.getenv("ITER_INIT_WAIT", "10"))  # tests set 0
 MAX_TOOLS = 80  # raised from 30: the tools/ directory has grown to 55+ public tools across past
                 # feature work, and this cap silently truncated the ALPHABETICALLY SORTED tool list -
                 # `send.py` (and 20+ other tools including remember, self_improve, support, websearch,
@@ -401,6 +401,13 @@ def wait_for_request_change(error):
 
 def save_experience(experience):
     _atomic_json("experience.json", experience)
+
+def persist_partial_turn(reason):
+    """Write the current turn to disk with placeholders for calls not yet run."""
+    try:
+        save_experience(complete_interrupted_turn(experience, reason, get_current_time()))
+    except Exception as error:
+        print("[continuity] partial save failed: " + str(error))
 
 # --------------------------------------------------------------------
 # 3. Dynamic components:
@@ -817,6 +824,13 @@ while True:
         elif called_tools - {"nop"}:
             silent_streak += 1
         experience += [{key: value for key, value in message.model_dump(exclude_none=True).items() if KEEP_REASONING_IN_EPISODE or key not in ("reasoning", "reasoning_details", "reasoning_content")}]
+        # PORT: Work is durable as it happens. The assistant turn and every tool
+        # result are written to disk immediately, with explicit NOT EXECUTED
+        # placeholders for calls still pending, so Stop, a crash or a later error
+        # never discards a reply the user already received. The in-memory list
+        # keeps running normally; the next write replaces the placeholders.
+        history_checkpoint = len(experience)
+        persist_partial_turn("interrupted before the tool ran")
         tool_outputs = []
         nop_already_run = False  # NOP DEDUPE (2026-09-13): the model has been observed stacking several
         # redundant nop calls within a single turn (up to 7 of the 10 slots) instead of nop.py's intended
@@ -931,6 +945,8 @@ while True:
             experience += [{"role": "tool", "tool_call_id": tool_call.id,
                             "content": "Step " + get_current_time() + ": " + ret,
                             "_iter_execution": execution}]
+            history_checkpoint = len(experience)
+            persist_partial_turn("interrupted before the tool ran")
             tool_outputs += ["tool call: " + tool_name + " " + str(tool_arguments) + "\n" "tool return: " + ret]
             HEARTBEAT.write(
                 ACTIVE_COMPONENT_SNAPSHOT["generation_id"], "tool_progress",
@@ -997,5 +1013,9 @@ while True:
             )
         except Exception as heartbeat_error:
             print(f"[heartbeat error: {heartbeat_error}]")
-        experience = experience[:history_checkpoint]
+        experience = complete_interrupted_turn(
+            experience[:history_checkpoint],
+            "cycle aborted by %s: %s" % (type(error).__name__, str(error)[:200]),
+            get_current_time())
+        save_experience(experience)
         time.sleep(ERROR_RECOVERY_TIME)

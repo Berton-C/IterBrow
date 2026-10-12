@@ -51,3 +51,38 @@ path. A process restart alone is not a reason to wake the model.
                 and heartbeat.get("hard_floor_ok") is True
                 and snapshot.get("status") == "stable"
                 and heartbeat.get("generation_id") == snapshot.get("generation_id"))
+
+
+INTERRUPTED_EXECUTION = {"success": None, "state": "not_executed", "scope": "invocation",
+                         "task_fulfillment": "unverified"}
+
+
+def unanswered_tool_calls(messages):
+    """Tool calls of the trailing assistant turn that have no result yet."""
+    for index in range(len(messages) - 1, -1, -1):
+        message = messages[index]
+        if message.get("role") == "tool":
+            continue
+        if message.get("role") != "assistant":
+            return []
+        answered = {result.get("tool_call_id") for result in messages[index + 1:]
+                    if result.get("role") == "tool"}
+        return [call for call in (message.get("tool_calls") or [])
+                if call.get("id") and call.get("id") not in answered]
+    return []
+
+
+def complete_interrupted_turn(messages, reason, timestamp):
+    """Return messages plus placeholder results for calls that never ran.
+
+    Work that already happened in this turn (a reply the user received, a tool
+    that ran) is kept; the calls that were cut off by Stop, a crash or an error
+    get an explicit "not executed" result so the saved history stays a valid
+    request and the next cycle knows exactly what did not happen."""
+    placeholders = [{
+        "role": "tool",
+        "tool_call_id": call["id"],
+        "content": "Step " + timestamp + ": [NOT EXECUTED: " + reason + "]",
+        "_iter_execution": dict(INTERRUPTED_EXECUTION),
+    } for call in unanswered_tool_calls(messages)]
+    return list(messages) + placeholders
