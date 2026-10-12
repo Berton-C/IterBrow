@@ -85,10 +85,15 @@ def run(summary, start_time="", end_time="", mem_type=""):
     cursor = recap_state.advanced_cursor(recap_state.read_cursor(), episodes + [dict(episode, _n=number)], request)
     recap_state.write_cursor(cursor)
 
-    import rebuild_tiers
-    tiers = rebuild_tiers.rebuild(actor="record_episode")
     span = ("history records %s-%s (%s to %s)" % (start, end, first_time, last_time)
             if start is not None else "no new history records")
-    return ToolOutput("SUCCESS: wrote memory/recap/%s (E%d) covering %s; recap cursor now %d; tiers "
-                      "regenerated from %d episodes." % (name, number, span, cursor, tiers["episode_count"]),
-                      True)
+    stored = "SUCCESS: wrote memory/recap/%s (E%d) covering %s; recap cursor now %d; " % (name, number, span, cursor)
+    try:
+        import rebuild_tiers
+        tiers = rebuild_tiers.rebuild(actor="record_episode")
+    except Exception as error:
+        # The episode is stored and the cursor advanced: do not record it again.
+        return ToolOutput(stored + "WARNING: the tier pyramid could not be regenerated (%s: %s); the episode "
+                          "is stored and tiers will be rebuilt automatically next cycle."
+                          % (type(error).__name__, error), True)
+    return ToolOutput(stored + "tiers regenerated from %d episodes." % tiers["episode_count"], True)

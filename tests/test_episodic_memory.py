@@ -15,6 +15,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -360,6 +361,25 @@ class RecapPipelineTests(EpisodicCase):
         self.assertIn("episode_0075.json", content)
         for i in range(26, 75):                     # existing episodes never rewritten
             self.assertEqual(json.loads((recap_dir / ("episode_%04d.json" % i)).read_text()), {"e": i, "s": "ep %d" % i})
+
+    def test_record_episode_reports_success_when_only_the_tier_rebuild_fails(self):
+        # Review 3 LOW-a: the episode is stored and the cursor advanced; a failed
+        # rebuild_tiers must not make the agent think it has to record it again.
+        log_history(25)
+        load("transformations/recap.py").transform([system()], [])
+        broken = type(sys)("rebuild_tiers")
+
+        def fail(actor=None):
+            raise OSError(28, "No space left on device (test)")
+        broken.rebuild = fail
+        with unittest.mock.patch.dict(sys.modules, {"rebuild_tiers": broken}):
+            result = load("tools/record_episode.py").run("Answered 25 questions.")
+        self.assertIn("SUCCESS", str(result))
+        self.assertIn("tiers will be rebuilt", str(result))
+        self.assertIs(result.execution_outcome["success"], True)
+        self.assertTrue((self.dir / "memory/recap/episode_0001.json").exists())
+        self.assertEqual((self.dir / "memory/recap/.recap_state").read_text(), "25")
+
 
     def test_bug1_large_backlog_is_requested_span_by_span(self):
         log_history(50, minute="09:00"); log_history(50, minute="09:01"); log_history(50, minute="09:02")
