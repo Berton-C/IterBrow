@@ -3,7 +3,7 @@ Quota Guard â lightweight storage management transformation.
 Runs on every cycle (zz prefix = last), performs:
   1. Log rotation: trim transcript.txt and history.metta to max lines
   2. Screenshot sweep: delete oldest screenshots beyond a retention count
-  3. Storage warning: warn via pin/send when total ~/iter size exceeds quota
+  3. Storage note: report usage in the system message when ~/iter exceeds the quota
 """
 import os, gc, time, json
 from iterbrow_runtime.episodic_history import rotate_tail
@@ -110,16 +110,18 @@ def transform(messages, tools):
             total = _dir_size(HOME)
             from iterbrow_runtime.atomspace_store import _atomic_json
             _atomic_json(stamp, {"at": time.time(), "bytes": total})
-        if total > STORAGE_QUOTA_BYTES:
-            # Pin a note rather than send (avoid spamming user every cycle)
-            try:
-                import bridge
-                bridge.pin_note(
-                    "STORAGE WARNING: ~/iter is %.1f MB (quota %.1f MB). "
-                    "Consider cleanup." % (total / 1e6, STORAGE_QUOTA_BYTES / 1e6)
-                )
-            except Exception:
-                pass
+        if total > STORAGE_QUOTA_BYTES and messages and isinstance(messages[0], dict):
+            # A one-line fact in the system message (the agent's own context,
+            # never a message to the user). It reports usage only: archived
+            # history is memory, so it suggests no action at all.
+            note = ("STORAGE NOTE: the iter folder uses %.1f MB (soft quota %.1f MB), including "
+                    "memory/archive. For information only; no action is needed."
+                    % (total / 1e6, STORAGE_QUOTA_BYTES / 1e6))
+            content = messages[0].get("content", "")
+            if isinstance(content, str):
+                messages[0]["content"] = content.rstrip() + "\n\n" + note
+            elif isinstance(content, list):
+                messages[0]["content"] = content + [{"type": "text", "text": "\n\n" + note}]
 
         gc.collect()
     except Exception:

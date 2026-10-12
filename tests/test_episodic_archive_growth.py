@@ -37,6 +37,20 @@ class ArchiveGrowthTests(EpisodicCase):
         (folder / "1-rotation-a.txt").write_text("x" * 100000)
         self.assertGreaterEqual(quota._dir_size("."), 100000)
 
+    def test_storage_warning_reaches_the_prompt_and_suggests_nothing_destructive(self):
+        # Review 3 LOW-b: `import bridge` never exists, so the warning was never seen;
+        # and it must not nudge the agent into deleting archived history.
+        quota = load("transformations/zz_quota_guard.py")
+        quota.STORAGE_QUOTA_BYTES = 10
+        Path("notes.txt").write_text("x" * 1000)
+        messages, _ = quota.transform([system()], [])
+        content = messages[0]["content"]
+        self.assertIn("STORAGE", content)
+        self.assertIn("MB", content)
+        for word in ("clean", "delete", "remove", "free up", "prune", "trim"):
+            self.assertNotIn(word, content.lower())
+
+
     def test_bug16_line_count_matches_history_lines_without_rereading_archives(self):
         folder = Path("memory/archive/history.metta")
         folder.mkdir(parents=True)
