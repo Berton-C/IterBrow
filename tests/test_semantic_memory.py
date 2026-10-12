@@ -618,5 +618,27 @@ class LegacyIndexTests(unittest.TestCase):
         self.assertEqual(r.index_ids(), {"legacy-0", "legacy-1"})
 
 
+class DuplicateDetectionTests(ServiceTestCase):
+    """B11: duplicate detection anchored a regex on the raw stored text (so
+    surrounding whitespace defeated it) and consulted only the index."""
+
+    def test_whitespace_variants_are_duplicates(self):
+        cases = [("  padded fact", "padded fact"), ("fact with newline\n", "fact with newline"),
+                 ("line one\nline two", "line one   line two"), ("a.b*c (x) [y] $5 ^ | \\ + ?", " a.b*c (x) [y] $5 ^ | \\ + ?")]
+        for stored, again in cases:
+            self.r.remember(stored)
+            out = self.r.text("remember", text=again)
+            self.assertTrue(out.startswith("REMEMBER-DUPLICATE"), "%r vs %r: %s" % (stored, again, out))
+        self.assertEqual(len(self.r.memories()), len(cases))
+
+    def test_authority_documents_are_checked_not_only_the_index(self):
+        self.r.remember("anchor")
+        self.r.tool("remember", text="known only to the authority", env={"FAIL_SAVE": "1"})
+        self.r.embeddings.fail = True
+        out = self.r.text("remember", text="known only to the authority")
+        self.assertTrue(out.startswith("REMEMBER-DUPLICATE"), out)
+        self.assertEqual(len(self.r.memories()), 2)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -147,7 +147,12 @@ class SemanticRoot:
         self.proc = None
 
     def close(self):
-        self.stop()
+        # End of test: the journal is already durable, so skip the graceful
+        # shutdown (its server poll alone costs ~1s per test).
+        if self.proc and self.proc.poll() is None:
+            self.proc.kill()
+            self.proc.wait(5)
+        self.proc = None
         self.embeddings.close()
         if not os.environ.get("ITERBROW_TEST_KEEP"):
             shutil.rmtree(self.base, ignore_errors=True)
