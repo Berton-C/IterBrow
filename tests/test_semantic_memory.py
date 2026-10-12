@@ -384,5 +384,20 @@ class PendingIdentityTests(ServiceTestCase):
         self.assertTrue(entry["reset"])
 
 
+class ConcurrentWriterTests(ServiceTestCase):
+    """B7: each writer loaded the index before taking any lock, so parallel
+    remember processes each saved their own snapshot and the last one won
+    (8 parallel remembers -> index held 1)."""
+
+    def test_parallel_remembers_all_reach_authority_and_index(self):
+        from concurrent.futures import ThreadPoolExecutor
+        texts = ["parallel fact number %d" % i for i in range(8)]
+        with ThreadPoolExecutor(8) as pool:
+            outs = list(pool.map(lambda t: self.r.text("remember", text=t), texts))
+        self.assertTrue(all(o.startswith("REMEMBER-SUCCESS") for o in outs), outs)
+        self.assertEqual(len(self.r.memories()), 8)
+        self.assertEqual(self.r.index_ids(), set(self.r.memories()))
+
+
 if __name__ == "__main__":
     unittest.main()

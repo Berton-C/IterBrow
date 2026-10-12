@@ -614,7 +614,18 @@ def status():
     }
 
 
+def _exclusive(method):
+    """Hold the writer lock across load-index -> authority commit -> save-index."""
+    def locked(*args, **kwargs):
+        with writer_lock():
+            return method(*args, **kwargs)
+    locked.__name__ = method.__name__
+    locked.__doc__ = method.__doc__
+    return locked
+
+
 class Collection:
+    @_exclusive
     def add(self, ids, embeddings, documents, metadatas):
         db = _load(write=True)
         for i in range(len(ids)):
@@ -687,6 +698,7 @@ class Collection:
             result["distances"][0].append(distance if "distances" in inc else None)
         return result
 
+    @_exclusive
     def update(self, ids, documents=None, metadatas=None, embeddings=None):
         db = _load(write=True)
         for target_index in range(len(ids)):
@@ -712,6 +724,7 @@ class Collection:
         committed = _commit_memory_change("memory_updated", records) if records else None
         _save_committed_projection(db, committed)
 
+    @_exclusive
     def delete(self, ids):
         db = _load(write=True)
         removed = []
