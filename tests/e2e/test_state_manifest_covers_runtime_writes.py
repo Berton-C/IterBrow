@@ -6,6 +6,7 @@ Code roots and the virtualenv are not state.  Anything else that appears on
 disk after a short real run must match a manifest entry (exact path or a
 directory prefix)."""
 import json
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -36,6 +37,7 @@ class ManifestCoversRuntimeWritesTests(unittest.TestCase):
 
 
 
+    @unittest.skipUnless(os.environ.get("ITERBROW_E2E_ALL"), "known failure until milestone 2; set ITERBROW_E2E_ALL=1 to run")
     @unittest.expectedFailure  # milestone 2: declare every runtime path the agent writes
     def test_every_runtime_written_path_is_declared(self):
         script = [[send("hello-0")], [send("hello-1")], [nop(5)]]

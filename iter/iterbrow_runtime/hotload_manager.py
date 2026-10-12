@@ -273,16 +273,35 @@ class HotloadManager:
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(str(item), str(destination))
 
-    def _tree_hash(self, generation_dir):
+    @staticmethod
+    def _hash_entries(entries):
         digest = hashlib.sha256()
-        root = Path(generation_dir)
-        for path in sorted(root.rglob("*.py")):
+        for relative, path in sorted(entries, key=lambda item: item[0]):
             if path.is_symlink():
-                raise HotloadError("symlink is forbidden in generation")
-            relative = path.relative_to(root).as_posix()
-            digest.update(relative.encode("utf-8") + b"\0")
+                raise HotloadError("symlink is forbidden in generation: %s" % path)
+            digest.update(relative.as_posix().encode("utf-8") + b"\0")
             digest.update(path.read_bytes() + b"\0")
         return digest.hexdigest()
+
+    def _tree_hash(self, generation_dir):
+        root = Path(generation_dir)
+        return self._hash_entries((path.relative_to(root), path) for path in root.rglob("*.py"))
+
+    def _source_tree_hash(self):
+        """Hash the managed source roots exactly as a copied generation would hash."""
+        entries = []
+        for root_name in MANAGED_ROOTS:
+            source = self.iter_root / root_name
+            if not source.is_dir():
+                raise HotloadError("managed source root is missing: %s" % root_name)
+            for path in source.rglob("*.py"):
+                relative = path.relative_to(source)
+                if "__pycache__" in relative.parts or ".runtime" in relative.parts:
+                    continue
+                entries.append((Path(root_name) / relative, path))
+        if not entries:
+            raise HotloadError("managed source roots contain no components")
+        return self._hash_entries(entries)
 
     def _generation_path(self, generation_id):
         if not generation_id or "/" in generation_id or ".." in generation_id:
@@ -335,19 +354,44 @@ class HotloadManager:
         """Copy the managed source roots into a temporary generation directory."""
         temporary = self.generations_dir / (".bootstrap-" + uuid.uuid4().hex)
         temporary.mkdir(parents=True)
-        for root_name in MANAGED_ROOTS:
-            self._copy_tree(self.iter_root / root_name, temporary / root_name)
-        return temporary, self._tree_hash(temporary)
+        try:
+            for root_name in MANAGED_ROOTS:
+                self._copy_tree(self.iter_root / root_name, temporary / root_name)
+            return temporary, self._tree_hash(temporary)
+        except Exception:
+            shutil.rmtree(temporary, ignore_errors=True)
+            raise
+
+    @staticmethod
+    def _compile_check(tree):
+        """Every component in the tree must at least parse; returns the first error or None."""
+        for path in sorted(Path(tree).rglob("*.py")):
+            try:
+                ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            except (SyntaxError, UnicodeDecodeError, OSError) as error:
+                return "%s: %s" % (path.relative_to(tree).as_posix(), error)
+        return None
 
     def _materialise_baseline(self, temporary, tree_hash):
-        """Turn a staged source copy into a (possibly pre-existing) baseline generation."""
+        """Turn a staged source copy into a (possibly pre-existing) baseline generation.
+
+        An existing directory with the same id is trusted only if it verifies;
+        a damaged one is moved aside so the fresh copy takes its place."""
         generation_id = "base-" + tree_hash[:16]
         destination = self.generations_dir / generation_id
         if destination.exists():
-            shutil.rmtree(temporary)
-        else:
-            os.replace(str(temporary), str(destination))
-            _fsync_directory(self.generations_dir)
+            try:
+                self._verify_generation(generation_id, tree_hash)
+                shutil.rmtree(temporary)
+                return generation_id
+            except HotloadError as error:
+                aside = destination.with_name(generation_id + ".corrupt-" + uuid.uuid4().hex[:8])
+                os.replace(str(destination), str(aside))
+                self._append_event("baseline_replaced_corrupt_copy", {
+                    "generation_id": generation_id, "moved_to": aside.name, "reason": str(error),
+                })
+        os.replace(str(temporary), str(destination))
+        _fsync_directory(self.generations_dir)
         manifest = {
             "schema_version": SCHEMA_VERSION,
             "generation_id": generation_id,
@@ -389,7 +433,7 @@ class HotloadManager:
             seen.add(generation_id)
             try:
                 manifest = _read_json(self._generation_path(generation_id) / "generation.json")
-            except HotloadError:
+            except (HotloadError, ValueError, OSError):
                 return None
             if not manifest:
                 return None
@@ -408,20 +452,43 @@ class HotloadManager:
         a later startup log can show it."""
         if active["status"] != "stable":
             return None
-        temporary, source_hash = self._stage_source_copy()
+        try:
+            source_hash = self._source_tree_hash()
+        except HotloadError as error:
+            # A broken source tree never takes a verified running generation down.
+            self._append_event("source_upgrade_skipped", {"reason": str(error)})
+            return None
         lineage_hash = self._lineage_source_hash(active["generation_id"])
         if lineage_hash == source_hash:
-            shutil.rmtree(temporary)
+            return None
+        try:
+            temporary, staged_hash = self._stage_source_copy()
+        except HotloadError as error:
+            self._append_event("source_upgrade_skipped", {"reason": str(error)})
+            return None
+        if staged_hash != source_hash:
+            shutil.rmtree(temporary, ignore_errors=True)
+            self._append_event("source_upgrade_skipped", {"reason": "source tree changed while staging"})
+            return None
+        compile_error = self._compile_check(temporary)
+        if compile_error:
+            shutil.rmtree(temporary, ignore_errors=True)
+            self._append_event("source_upgrade_skipped", {
+                "reason": "component does not parse: " + compile_error, "tree_hash": source_hash,
+            })
             return None
         generation_id = self._materialise_baseline(temporary, source_hash)
         superseded = active["generation_id"]
         candidate = None
         if active.get("candidate_id"):
-            candidate = self._read_candidate(active["candidate_id"])
-            candidate["status"] = "superseded_by_source"
-            candidate["superseded_at"] = time.time()
-            candidate["superseded_by_generation_id"] = generation_id
-            self._write_candidate(candidate)
+            try:
+                candidate = self._read_candidate(active["candidate_id"])
+                candidate["status"] = "superseded_by_source"
+                candidate["superseded_at"] = time.time()
+                candidate["superseded_by_generation_id"] = generation_id
+                self._write_candidate(candidate)
+            except HotloadError:
+                candidate = {"candidate_id": active["candidate_id"], "status": "record_missing"}
         pointer = {
             "schema_version": SCHEMA_VERSION,
             "generation_id": generation_id,
@@ -1134,8 +1201,10 @@ class HotloadManager:
     def recover_on_startup(self):
         with self._locked():
             active = self._bootstrap_locked()
+            rollback = None
             if active["status"] == "probation":
-                return self._rollback_locked("abandoned probation recovered before Iter startup")
+                rollback = self._rollback_locked("abandoned probation recovered before Iter startup")
+                active = self._bootstrap_locked()
             try:
                 self._verify_generation(active["generation_id"])
             except HotloadError as exc:
@@ -1144,8 +1213,10 @@ class HotloadManager:
                 raise
             upgraded = self._apply_source_upgrade_locked(active)
             if upgraded:
+                if rollback:
+                    upgraded["probation_rollback"] = rollback
                 return upgraded
-            return {"action": "none", "active": active}
+            return rollback or {"action": "none", "active": active}
 
     def supervisor_check(self, iter_running, now=None, iter_pid=None,
                          iter_started_at=None):

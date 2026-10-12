@@ -107,8 +107,8 @@ def load_experience(path="experience.json", log=print):
         return []
     try:
         experience = json.loads(raw)
-        if not isinstance(experience, list):
-            raise ValueError("history is not a list")
+        if not isinstance(experience, list) or not all(isinstance(m, dict) for m in experience):
+            raise ValueError("history is not a list of messages")
         return experience
     except (ValueError, UnicodeDecodeError) as error:
         quarantine = target.with_name(target.name + ".corrupt-%d" % time.time_ns())

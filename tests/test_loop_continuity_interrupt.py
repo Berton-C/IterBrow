@@ -53,5 +53,15 @@ class InterruptedTurnTests(unittest.TestCase):
         self.assertEqual(self.history, before)
 
 
+    def test_in_flight_call_is_uncertain_not_not_executed(self):
+        completed = complete_interrupted_turn(self.history, "stop", "t2", in_flight_id="c2")
+        by_id = {m["tool_call_id"]: m for m in completed if m["role"] == "tool"}
+        self.assertIn("INTERRUPTED", by_id["c2"]["content"])
+        self.assertIn("outcome unknown", by_id["c2"]["content"])
+        self.assertEqual(by_id["c2"]["_iter_execution"]["state"], "uncertain")
+        self.assertIn("NOT EXECUTED", by_id["c3"]["content"])
+        self.assertEqual(by_id["c3"]["_iter_execution"]["state"], "not_executed")
+
+
 if __name__ == "__main__":
     unittest.main()

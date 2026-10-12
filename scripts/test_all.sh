@@ -16,10 +16,13 @@ if [[ ! -x "$PYTHON_BIN" ]]; then
   echo "iter/.venv is missing; run scripts/setup_python_env.sh first" >&2
   exit 2
 fi
-"$PYTHON_BIN" -c "import pytest" 2>/dev/null || "$PYTHON_BIN" -m pip install -q pytest
+if ! "$PYTHON_BIN" -c "import pytest" 2>/dev/null; then
+  echo "pytest is not installed in iter/.venv; run: iter/.venv/bin/python -m pip install pytest" >&2
+  exit 2
+fi
 
 export PYTHONDONTWRITEBYTECODE=1
-export PYTHONPYCACHEPREFIX="${TMPDIR:-/tmp}/iterbrow-test-pycache"
+export PYTHONPYCACHEPREFIX="${TMPDIR:-/tmp}/ib-test-pycache"
 
 echo "[test_all] syntax check of main process and preload"
 node -e "for (const f of ['main.js','preload.js']) new (require('vm').Script)(require('fs').readFileSync(f,'utf8'))"
@@ -32,6 +35,6 @@ if [[ "${1:-}" == "--fast" ]]; then
   exit 0
 fi
 
-echo "[test_all] end-to-end runs (real loop, real AtomSpace, fake model)"
+echo "[test_all] end-to-end runs (real loop, real AtomSpace, fake model; ITERBROW_E2E_ALL=1 adds known-failing invariants)"
 "$PYTHON_BIN" -m pytest tests/e2e -q -p no:cacheprovider -rx
 echo "[test_all] all checks passed"

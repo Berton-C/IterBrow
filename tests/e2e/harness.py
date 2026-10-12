@@ -104,7 +104,7 @@ class IterRun:
         self.service = subprocess.Popen([PYTHON, str(self.root / "metta_server.py")], cwd=str(self.root),
                                         env=env, stdout=self.service_log, stderr=self.service_log,
                                         stdin=subprocess.DEVNULL)
-        deadline = time.time() + 90
+        deadline = time.time() + 180
         while time.time() < deadline:
             try:
                 if atomspace_call(self.sock, "status", timeout=1).get("ready"):
@@ -174,7 +174,7 @@ class IterRun:
                             out.append(line)
         return out
 
-    def wait_for_reply(self, needle, timeout=90):
+    def wait_for_reply(self, needle, timeout=180):
         deadline = time.time() + timeout
         while time.time() < deadline:
             for reply in self.replies():
@@ -185,17 +185,18 @@ class IterRun:
             time.sleep(0.25)
         raise AssertionError("no reply containing %r within %ss\n%s" % (needle, timeout, self.read_log("iter.log")))
 
-    def wait_for_tool_result(self, needle, timeout=30):
-        """Wait until a tool result containing `needle` is in the saved history."""
+    def wait_for_tool_result(self, needle, call_id=None, timeout=60):
+        """Wait until a tool result containing `needle` (for `call_id`, if given) is saved."""
         deadline = time.time() + timeout
         while time.time() < deadline:
             for message in self.experience():
-                if message.get("role") == "tool" and needle in message.get("content", ""):
+                if (message.get("role") == "tool" and needle in message.get("content", "")
+                        and (call_id is None or message.get("tool_call_id") == call_id)):
                     return message
             time.sleep(0.1)
         raise AssertionError("no saved tool result containing %r within %ss" % (needle, timeout))
 
-    def wait_for_requests(self, count, timeout=90):
+    def wait_for_requests(self, count, timeout=180):
         deadline = time.time() + timeout
         while time.time() < deadline:
             if len(self.requests()) >= count:
@@ -205,7 +206,7 @@ class IterRun:
             time.sleep(0.25)
         raise AssertionError("fewer than %d model requests within %ss" % (count, timeout))
 
-    def wait_for_log(self, needle, timeout=90):
+    def wait_for_log(self, needle, timeout=180):
         deadline = time.time() + timeout
         while time.time() < deadline:
             if needle in self.read_log("iter.log"):

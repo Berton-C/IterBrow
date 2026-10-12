@@ -27,6 +27,7 @@ jobs:
         run: scripts/test_all.sh
         env:
           ITERBROW_E2E_KEEP: "1"
+          ITERBROW_E2E_ALL: "1"
       - name: Keep end-to-end logs on failure
         if: failure()
         uses: actions/upload-artifact@v4

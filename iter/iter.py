@@ -402,10 +402,13 @@ def wait_for_request_change(error):
 def save_experience(experience):
     _atomic_json("experience.json", experience)
 
+IN_FLIGHT_CALL_ID = None  # tool call dispatched but without a recorded result yet
+
 def persist_partial_turn(reason):
     """Write the current turn to disk with placeholders for calls not yet run."""
     try:
-        save_experience(complete_interrupted_turn(experience, reason, get_current_time()))
+        save_experience(complete_interrupted_turn(
+            experience, reason, get_current_time(), in_flight_id=IN_FLIGHT_CALL_ID))
     except Exception as error:
         print("[continuity] partial save failed: " + str(error))
 
@@ -840,6 +843,8 @@ while True:
         for tool_call in message.tool_calls:
             tool_name = tool_call.function.name
             tool_started = time.monotonic()
+            IN_FLIGHT_CALL_ID = tool_call.id
+            persist_partial_turn("interrupted while an earlier tool was running")
             gate_seconds = None
             # PORT: Keep each call's advisory separate from its original JSON body.
             raw_tool_result = None
@@ -946,6 +951,7 @@ while True:
                             "content": "Step " + get_current_time() + ": " + ret,
                             "_iter_execution": execution}]
             history_checkpoint = len(experience)
+            IN_FLIGHT_CALL_ID = None
             persist_partial_turn("interrupted before the tool ran")
             tool_outputs += ["tool call: " + tool_name + " " + str(tool_arguments) + "\n" "tool return: " + ret]
             HEARTBEAT.write(
@@ -1016,6 +1022,7 @@ while True:
         experience = complete_interrupted_turn(
             experience[:history_checkpoint],
             "cycle aborted by %s: %s" % (type(error).__name__, str(error)[:200]),
-            get_current_time())
+            get_current_time(), in_flight_id=IN_FLIGHT_CALL_ID)
+        IN_FLIGHT_CALL_ID = None
         save_experience(experience)
         time.sleep(ERROR_RECOVERY_TIME)

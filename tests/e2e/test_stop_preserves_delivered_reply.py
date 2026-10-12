@@ -15,7 +15,7 @@ class StopPreservesDeliveredReplyTests(unittest.TestCase):
         with IterRun(script, name="stop") as run:
             run.say("what is the codeword?")
             run.wait_for_reply("DELIVERED-REPLY-0")
-            run.wait_for_tool_result("SUCCESS")      # send has returned; shell is sleeping
+            run.wait_for_tool_result("SUCCESS", call_id="call_0_0")  # send returned; shell is sleeping
             # The shell tool is now sleeping: the Stop button arrives mid-cycle.
             run.stop("sigterm")
             history = run.experience()
@@ -27,9 +27,13 @@ class StopPreservesDeliveredReplyTests(unittest.TestCase):
             call_ids = [c["id"] for c in assistant["tool_calls"]]
             answered = [m["tool_call_id"] for m in tools]
             self.assertEqual(sorted(call_ids), sorted(answered), "every tool call has exactly one result")
-            interrupted = [m for m in tools if "NOT EXECUTED" in m["content"]]
-            self.assertEqual(len(interrupted), 2, "shell and nop should be marked not executed")
-            self.assertEqual([m["_iter_execution"]["state"] for m in interrupted], ["not_executed"] * 2)
+            by_id = {m["tool_call_id"]: m for m in tools}
+            # shell was running when Stop arrived: its outcome is unknown, never "did not run"
+            self.assertIn("INTERRUPTED", by_id["call_0_1"]["content"])
+            self.assertEqual(by_id["call_0_1"]["_iter_execution"]["state"], "uncertain")
+            # nop never started
+            self.assertIn("NOT EXECUTED", by_id["call_0_2"]["content"])
+            self.assertEqual(by_id["call_0_2"]["_iter_execution"]["state"], "not_executed")
 
 
 if __name__ == "__main__":

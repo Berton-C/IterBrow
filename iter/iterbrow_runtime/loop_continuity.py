@@ -72,17 +72,34 @@ def unanswered_tool_calls(messages):
     return []
 
 
-def complete_interrupted_turn(messages, reason, timestamp):
+UNCERTAIN_EXECUTION = {"success": None, "state": "uncertain", "scope": "invocation",
+                       "task_fulfillment": "unverified"}
+
+
+def complete_interrupted_turn(messages, reason, timestamp, in_flight_id=None):
     """Return messages plus placeholder results for calls that never ran.
 
     Work that already happened in this turn (a reply the user received, a tool
-    that ran) is kept; the calls that were cut off by Stop, a crash or an error
-    get an explicit "not executed" result so the saved history stays a valid
-    request and the next cycle knows exactly what did not happen."""
-    placeholders = [{
-        "role": "tool",
-        "tool_call_id": call["id"],
-        "content": "Step " + timestamp + ": [NOT EXECUTED: " + reason + "]",
-        "_iter_execution": dict(INTERRUPTED_EXECUTION),
-    } for call in unanswered_tool_calls(messages)]
+    that ran) is kept.  The call that was dispatched but has no result yet
+    (`in_flight_id`) is marked UNCERTAIN: its effects may have happened, so it
+    must not simply be repeated.  Calls after it get an explicit "not executed"
+    result.  The saved history stays a valid request and the next cycle knows
+    exactly what did and did not happen."""
+    placeholders = []
+    for call in unanswered_tool_calls(messages):
+        if call["id"] == in_flight_id:
+            placeholders.append({
+                "role": "tool",
+                "tool_call_id": call["id"],
+                "content": "Step " + timestamp + ": [INTERRUPTED: tool was dispatched; outcome unknown ("
+                           + reason + "). Check its effects before repeating it.]",
+                "_iter_execution": dict(UNCERTAIN_EXECUTION),
+            })
+        else:
+            placeholders.append({
+                "role": "tool",
+                "tool_call_id": call["id"],
+                "content": "Step " + timestamp + ": [NOT EXECUTED: " + reason + "]",
+                "_iter_execution": dict(INTERRUPTED_EXECUTION),
+            })
     return list(messages) + placeholders

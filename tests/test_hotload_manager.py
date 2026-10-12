@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import shutil
 import tempfile
 import json
 import os
@@ -19,7 +20,7 @@ BASE_TOOL = 'DESCRIPTION = "base"\n\ndef run():\n    return "base"\n'
 CANDIDATE_TOOL = 'DESCRIPTION = "candidate"\n\ndef run():\n    return "candidate"\n'
 
 
-class HotloadManagerTests(unittest.TestCase):
+class HotloadFixture:
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.iter_root = Path(self.temporary.name) / "iter"
@@ -80,6 +81,8 @@ class HotloadManagerTests(unittest.TestCase):
         self.assertFalse(candidate["validation"]["candidate_executed"])
         return candidate
 
+
+class HotloadManagerTests(HotloadFixture, unittest.TestCase):
     def test_candidate_is_inert_until_authorized_activation(self):
         candidate = self._validated_candidate()
         status = self.manager.status()
@@ -500,11 +503,8 @@ class HotloadManagerTests(unittest.TestCase):
         self.assertFalse(checked["validation"]["candidate_executed"])
 
 
-if __name__ == "__main__":
-    unittest.main()
 
-
-class HotloadSourceUpgradeTests(HotloadManagerTests):
+class HotloadSourceUpgradeTests(HotloadFixture, unittest.TestCase):
     """Milestone 1: a source-tree change (git pull, installer update, manual edit)
     must reach the running generation on the next startup.  Policy: the source
     tree wins; a promoted self-revision built on older source is archived, never
@@ -561,3 +561,63 @@ class HotloadSourceUpgradeTests(HotloadManagerTests):
         self.assertEqual(first["action"], "source_upgraded")
         self.assertEqual(second["action"], "none")
         self.assertEqual(second["active"]["generation_id"], first["active"]["generation_id"])
+
+    def test_corrupt_existing_baseline_dir_is_replaced_not_trusted(self):
+        upgraded = BASE_TOOL + "# UPGRADE\n"
+        (self.iter_root / "tools" / "sample.py").write_text(upgraded, encoding="utf-8")
+        first = self.manager.recover_on_startup()
+        new_id = first["active"]["generation_id"]
+        # damage the new baseline, then roll back to the old one as startup would
+        (self.manager._generation_path(new_id) / "tools" / "sample.py").write_text("broken = (", encoding="utf-8")
+        rolled = self.manager.recover_on_startup()
+        self.assertEqual(rolled["action"], "rolled_back")
+        # next startup must install a fresh, verified copy under the same id, not ping-pong
+        again = self.manager.recover_on_startup()
+        self.assertEqual(again["action"], "source_upgraded")
+        self.assertEqual(again["active"]["generation_id"], new_id)
+        self.manager._verify_generation(new_id)
+        self.assertEqual(self.manager.recover_on_startup()["action"], "none")
+        corrupt_copies = [p for p in self.manager.generations_dir.iterdir() if ".corrupt-" in p.name]
+        self.assertEqual(len(corrupt_copies), 1)
+
+    def test_unparseable_source_never_replaces_a_working_generation(self):
+        (self.iter_root / "tools" / "sample.py").write_text("def run(:\n", encoding="utf-8")
+        result = self.manager.recover_on_startup()
+        self.assertEqual(result["action"], "none")
+        self.assertEqual(result["active"]["generation_id"], self.base)
+        kinds = [event["kind"] for event in self.manager._events()]
+        self.assertIn("source_upgrade_skipped", kinds)
+        leftovers = [p for p in self.manager.generations_dir.iterdir() if p.name.startswith(".bootstrap-")]
+        self.assertEqual(leftovers, [])
+
+    def test_symlink_or_missing_source_root_never_blocks_startup(self):
+        (self.iter_root / "tools" / "link.py").symlink_to(self.iter_root / "tools" / "sample.py")
+        self.assertEqual(self.manager.recover_on_startup()["action"], "none")
+        (self.iter_root / "tools" / "link.py").unlink()
+        shutil.rmtree(self.iter_root / "channels")
+        self.assertEqual(self.manager.recover_on_startup()["action"], "none")
+        leftovers = [p for p in self.manager.generations_dir.iterdir() if p.name.startswith(".bootstrap-")]
+        self.assertEqual(leftovers, [])
+
+    def test_missing_candidate_record_does_not_wedge_startup(self):
+        candidate = self._promote_candidate()
+        self.manager._candidate_path(candidate["candidate_id"]).unlink()
+        (self.iter_root / "tools" / "sample.py").write_text(BASE_TOOL + "# UPGRADE\n", encoding="utf-8")
+        result = self.manager.recover_on_startup()
+        self.assertEqual(result["action"], "source_upgraded")
+        self.assertEqual(result["candidate"]["status"], "record_missing")
+        self.assertEqual(self.manager.recover_on_startup()["action"], "none")
+
+    def test_source_change_applies_in_the_same_startup_as_a_probation_rollback(self):
+        candidate = self._validated_candidate()
+        proposal_id, token = self._approved()
+        self.manager.activate(candidate["candidate_id"], proposal_id, token,
+                              required_heartbeats=2, heartbeat_timeout=60)
+        (self.iter_root / "tools" / "sample.py").write_text(BASE_TOOL + "# UPGRADE\n", encoding="utf-8")
+        result = self.manager.recover_on_startup()
+        self.assertEqual(result["action"], "source_upgraded")
+        self.assertEqual(result["probation_rollback"]["action"], "rolled_back")
+
+
+if __name__ == "__main__":
+    unittest.main()
