@@ -35,6 +35,12 @@ def _find_duplicate(collection, text):
     return None
 
 def run(text="", provenance_type="observed", mem_type="fact", status_id=""):
+    out = _remember(text, provenance_type, mem_type, status_id)
+    notice = petta_db.reconcile_notice()
+    return out + "\n" + notice if notice else out
+
+
+def _remember(text, provenance_type, mem_type, status_id):
     if status_id:
         return json.dumps(petta_db.memory_status(status_id), ensure_ascii=False)
     if not isinstance(text, str) or not text.strip():

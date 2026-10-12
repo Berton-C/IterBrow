@@ -751,6 +751,7 @@ def _vector_dimensions(vector):
 
 RECONCILE_RETRY_S = 60
 TRUSTED_MIGRATION_STATES = ("migrated", "already_migrated", "not_needed")
+FORGOTTEN_EVENT_PREFIX = "event:memory:forgotten:"
 
 
 def _authority_digest(atoms):
@@ -759,13 +760,77 @@ def _authority_digest(atoms):
 
 
 def _authority_complete():
-    """Orphans may only be removed when the authority holds every legacy memory:
-    a failed legacy migration means the authority is missing what the index has."""
+    """Orphans may only be adopted when the authority holds every legacy memory:
+    a failed legacy migration means the authority is missing what the index has
+    (the migration, not reconcile, must bring those in)."""
     try:
         status = _call_atomspace("status", timeout=10)
     except Exception:
         return False
     return (status.get("legacy_migration") or {}).get("status") in TRUSTED_MIGRATION_STATES
+
+
+def _forgotten_ids():
+    """Ids with a committed `forgotten` event: an index entry left behind by a
+    forget whose index save failed must not be adopted back."""
+    atoms = _read_authority(FORGOTTEN_EVENT_PREFIX)["atoms"]
+    return {key[len(FORGOTTEN_EVENT_PREFIX):].rsplit(":", 1)[0] for key in atoms}
+
+
+def _conflicts_file():
+    return os.path.join(DB_DIR, "reconcile_conflicts.jsonl")
+
+
+def _backup_index_once():
+    """Before the first reconcile changes an index it never aligned, keep the
+    exact file it found: memories.pre-reconcile-<timestamp>.json, created
+    exclusively (never overwritten) and never deleted by code."""
+    if not _exists(DB_FILE):
+        return None
+    existing = sorted(Path(DB_DIR).glob("memories.pre-reconcile-*.json"))
+    if existing:
+        return str(existing[0])
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    for attempt in range(1000):
+        path = os.path.join(DB_DIR, "memories.pre-reconcile-%s%s.json" % (stamp, "-%d" % attempt if attempt else ""))
+        try:
+            descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+        except FileExistsError:
+            continue
+        with os.fdopen(descriptor, "wb") as out, open(DB_FILE, "rb") as source:
+            shutil.copyfileobj(source, out)
+            out.flush()
+            os.fsync(out.fileno())
+        _fsync_db_dir()
+        return path
+    return None
+
+
+def _append_conflicts(entries):
+    if not entries:
+        return
+    _ensure_dir()
+    with open(_conflicts_file(), "a", encoding="utf-8") as out:
+        for entry in entries:
+            out.write(json.dumps(entry, ensure_ascii=False, sort_keys=True) + "\n")
+        out.flush()
+        os.fsync(out.fileno())
+
+
+def _leftover_pending_remembers():
+    """(path, records) of `remembered` pending entries.  Old code never removed
+    them after a deferred commit, so on the first reconcile they are a second
+    source of memories the agent was told were stored."""
+    out = []
+    for path in sorted(_pending_dir().glob("*.json")):
+        try:
+            kind, records, _ = json.loads(path.read_text())["request"]
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+        if kind == "remembered" and isinstance(records, list) and all(
+                isinstance(r, dict) and r.get("id") and isinstance(r.get("document"), str) for r in records):
+            out.append((path, records))
+    return out
 
 
 def index_gap(db=None):
@@ -777,10 +842,17 @@ def index_gap(db=None):
 def reconcile_index(force=False):
     """Align chroma_db (a rebuildable index) with the AtomSpace authority.
 
-    Missing in the index -> embedded (batched) and added; index-only ids ->
-    removed; differing document -> re-embedded; differing metadata -> the
-    authority's.  Without embeddings, removals and metadata fixes still apply
-    and the missing ids are recorded as unindexed (retried after a back-off).
+    Missing in the index -> embedded (batched) and added.  Index-only ids
+    ("orphans") are memories an older build reported as stored without reaching
+    the AtomSpace: they are committed to the authority as `remembered` (same id,
+    document and metadata plus reconciled_from_index=true), keeping their
+    vectors -- unless a committed `forgotten` event says they were deleted, or
+    the authority already holds the same text.  A differing index document or
+    metadata follows the authority, and the index version is appended to
+    chroma_db/reconcile_conflicts.jsonl first.  The first reconcile of an index
+    keeps a copy of it (memories.pre-reconcile-<ts>.json) and also commits
+    leftover pending `remembered` entries that reached neither side.
+
     The authority's semantic-atom digest is stored in the index, so an aligned
     index costs one read_atoms and no writes.  Returns a summary dict.
     """
@@ -791,23 +863,89 @@ def reconcile_index(force=False):
     db = _load()
     state = db.get("authority_index") or {}
     if (not force and state.get("digest") == _authority_digest(snapshot["atoms"])
-            and not state.get("unindexed") and _index_is_current(db)):
+            and state.get("legacy_reconciled") and not state.get("unindexed")
+            and set(db["ids"]) == set(memories) and _index_is_current(db)):
         return {"status": "current"}
     with writer_lock():
         snapshot, memories = authority_memories()
-        digest = _authority_digest(snapshot["atoms"])
         db = _load(write=True)
         state = db.get("authority_index") or {}
         before = json.dumps(db, sort_keys=True, default=str)
+        first = not state.get("legacy_reconciled")
+        backup = _backup_index_once() if first else None
         rebuilt = not _index_is_current(db)
+        now = time.strftime("%Y-%m-%d %H:%M:%S")
+
+        # 1. Index versions that differ from the authority are logged, not lost.
+        conflicts = []
+        for position, item_id in enumerate(db["ids"]):
+            if item_id not in memories:
+                continue
+            document, metadata, _atom = memories[item_id]
+            if db["documents"][position] != document or db["metadatas"][position] != metadata:
+                conflicts.append({"time": now, "id": item_id, "reason": "index_differs_from_authority",
+                                  "index_document": db["documents"][position],
+                                  "index_metadata": db["metadatas"][position],
+                                  "authority_document": document, "authority_metadata": metadata})
+
+        # 2. Orphans (and, on the first reconcile, leftover pending writes).
+        orphans = [item_id for item_id in db["ids"] if item_id not in memories]
+        leftovers = _leftover_pending_remembers() if first else []
+        trusted = True
+        if orphans or leftovers:
+            trusted = _authority_complete()
+        adopt, drop, settled_files = [], [], []
+        if trusted and (orphans or leftovers):
+            forgotten = _forgotten_ids()
+            seen = {_normal(document) for document, _m, _a in memories.values()}
+            for item_id in orphans:
+                position = db["ids"].index(item_id)
+                document, metadata = db["documents"][position], db["metadatas"][position]
+                if item_id in forgotten:
+                    drop.append(item_id)
+                elif _normal(document) in seen:
+                    drop.append(item_id)
+                    conflicts.append({"time": now, "id": item_id, "reason": "index_only_duplicate_text",
+                                      "index_document": document, "index_metadata": metadata})
+                else:
+                    seen.add(_normal(document))
+                    adopt.append({"id": item_id, "document": document,
+                                  "metadata": dict(metadata or {}, reconciled_from_index=True)})
+            adopting = {record["id"] for record in adopt}
+            for path, records in leftovers:
+                for record in records:
+                    item_id = record["id"]
+                    if item_id in memories or item_id in adopting or item_id in drop:
+                        continue
+                    if item_id in forgotten or _normal(record["document"]) in seen:
+                        continue
+                    seen.add(_normal(record["document"]))
+                    adopting.add(item_id)
+                    adopt.append({"id": item_id, "document": record["document"],
+                                  "metadata": dict(record.get("metadata") or {}, reconciled_from_pending=True)})
+                settled_files.append(path)
+        _append_conflicts(conflicts)
+
+        adoption_error = None
+        if adopt:
+            try:
+                _commit_memory_change("remembered", adopt)
+            except Exception as error:
+                adoption_error = str(error)
+                adopt = []
+            else:
+                snapshot, memories = authority_memories()
+        if adoption_error is None:
+            for path in settled_files:
+                _remove_if_present(str(path))
+        digest = _authority_digest(snapshot["atoms"])
+
         if rebuilt:
             # Old model/dimensions/hash vectors: drop the vectors, rebuild every
             # entry from the authority (never "delete chroma_db and start over").
             db = _empty()
-        orphans = [item_id for item_id in db["ids"] if item_id not in memories]
-        trusted = not orphans or _authority_complete()
-        if trusted:
-            _index_drop(db, orphans)
+        _index_drop(db, drop)
+        kept_orphans = [item_id for item_id in db["ids"] if item_id not in memories]
         missing = []
         for item_id, (document, metadata, _atom) in sorted(memories.items()):
             if item_id in db["ids"]:
@@ -838,18 +976,46 @@ def reconcile_index(force=False):
         db["embedding_dimensions"] = EMBEDDING_DIMENSIONS
         db["embedding_schema"] = EMBEDDING_SCHEMA
         db["authority_index"] = {
-            "digest": digest if trusted and not missing else None,
+            "digest": digest if trusted and not missing and not kept_orphans else None,
             "epoch": snapshot.get("epoch"), "commit": snapshot.get("commit"),
             "count": len(memories), "unindexed": missing,
             "retry_after": retry_after if missing else 0,
             "last_error": error_text if missing else None,
+            "legacy_reconciled": bool(state.get("legacy_reconciled") or (trusted and adoption_error is None)),
         }
         changed = json.dumps(db, sort_keys=True, default=str) != before
         if changed:
             _save(db)
         return {"status": "reconciled" if changed else "current", "rebuilt": rebuilt,
-                "removed": orphans if trusted else [], "orphans_kept": [] if trusted else orphans,
-                "unindexed": missing, "error": error_text}
+                "adopted": [record["id"] for record in adopt], "dropped": drop,
+                "orphans_kept": kept_orphans, "conflicts": len(conflicts), "backup": backup,
+                "adoption_error": adoption_error, "unindexed": missing, "error": error_text}
+
+
+LAST_RECONCILE = {}
+
+
+def reconcile_notice(summary=None):
+    """One line telling the agent what the last reconcile did to its memories."""
+    summary = LAST_RECONCILE if summary is None else summary
+    parts = []
+    adopted = len(summary.get("adopted") or [])
+    if adopted:
+        parts.append("adopted %d %s that existed only in the search index or an unfinished earlier write "
+                     "into the AtomSpace (marked reconciled_from_index/reconciled_from_pending)"
+                     % (adopted, "memory" if adopted == 1 else "memories"))
+    if summary.get("conflicts"):
+        count = summary["conflicts"]
+        parts.append("kept %d differing index %s in chroma_db/reconcile_conflicts.jsonl (the AtomSpace "
+                     "version is in effect)" % (count, "version" if count == 1 else "versions"))
+    if summary.get("adoption_error"):
+        parts.append("could not adopt index-only memories yet (%s); they stay in the index and are "
+                     "retried" % str(summary["adoption_error"])[:160])
+    if not parts:
+        return ""
+    if summary.get("backup"):
+        parts.append("the previous index is kept at chroma_db/" + os.path.basename(summary["backup"]))
+    return "NOTE: memory index reconcile " + "; ".join(parts) + "."
 
 
 def require_current_index():
@@ -1018,9 +1184,11 @@ class PersistentClient:
         pass
 
     def get_or_create_collection(self, name="memories", embedding_function=None):
+        global LAST_RECONCILE
         try:
-            reconcile_index()
-        except Exception:
-            pass  # index upkeep is best effort; the authority stays correct
+            LAST_RECONCILE = reconcile_index() or {}
+        except Exception as error:
+            # index upkeep is best effort; the authority stays correct
+            LAST_RECONCILE = {"status": "error", "error": str(error)}
         require_current_index()
         return Collection()

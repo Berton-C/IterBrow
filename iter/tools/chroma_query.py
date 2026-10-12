@@ -21,6 +21,12 @@ def _gap_note():
 
 
 def run(query, k=5):
+    out = _search(query, k)
+    notice = petta_db.reconcile_notice()
+    return out + "\n" + notice if notice else out
+
+
+def _search(query, k):
     chroma_client = petta_db.PersistentClient()
     collection = chroma_client.get_or_create_collection(name="memories")
     note = _gap_note()

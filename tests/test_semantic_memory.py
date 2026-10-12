@@ -573,7 +573,9 @@ class IndexReconcileTests(ServiceTestCase):
         self.assertIn("Content: committed but never indexed", out)
         self.assertEqual(self.r.index_ids(), set(self.r.memories()))
 
-    def test_orphans_are_removed_and_drifted_metadata_follows_the_authority(self):
+    def test_orphans_are_adopted_and_drifted_metadata_follows_the_authority(self):
+        # Review 3 B1: an index-only memory is one an older build reported as
+        # stored; it is adopted into the authority, never deleted.
         keep = self.r.remember("a real memory")
         self.r.text("support", item_id=keep, episode_time="E1")
 
@@ -585,12 +587,17 @@ class IndexReconcileTests(ServiceTestCase):
             index["metadatas"][index["ids"].index(keep)] = {"mem_type": "todo"}
         self._inject(drift)
         out = self.r.text("chroma_query", query="a memory the authority never had", k=5)
-        self.assertNotIn("orphan-1", out)
-        self.assertEqual(self.r.index_ids(), {keep})
+        self.assertIn("ID: orphan-1", out)
+        memories = self.r.memories()
+        self.assertEqual(memories["orphan-1"], ("a memory the authority never had",
+                                                {"mem_type": "fact", "reconciled_from_index": True}))
+        self.assertEqual(self.r.index_ids(), {keep, "orphan-1"})
         index = self.r.index()
-        self.assertEqual(index["metadatas"][index["ids"].index(keep)], self.r.memories()[keep][1])
+        self.assertEqual(index["metadatas"][index["ids"].index(keep)], memories[keep][1])
+        conflicts = (self.r.root / "chroma_db" / "reconcile_conflicts.jsonl").read_text().splitlines()
+        self.assertEqual([json.loads(line)["index_metadata"] for line in conflicts], [{"mem_type": "todo"}])
 
-    def test_without_embeddings_removals_still_apply_and_the_gap_is_reported(self):
+    def test_without_embeddings_adoption_still_applies_and_the_gap_is_reported(self):
         self.r.remember("anchor belief")
         self.r.tool("remember", text="waiting for an embedding", env={"FAIL_SAVE": "1"})
         self._inject(lambda index: (index["ids"].append("orphan-2"), index["documents"].append("x"),
@@ -598,7 +605,8 @@ class IndexReconcileTests(ServiceTestCase):
         self.r.embeddings.fail = True
         out = self.r.text("chroma_query", query="anything")
         self.assertIn("1 memory is not yet searchable", out)
-        self.assertNotIn("orphan-2", self.r.index_ids())
+        self.assertIn("orphan-2", self.r.memories(), "an index-only memory must be adopted, not deleted")
+        self.assertIn("orphan-2", self.r.index_ids())
         self.r.embeddings.fail = False
         index = self.r.index()
         index["authority_index"]["retry_after"] = 0  # skip the retry back-off in the test
