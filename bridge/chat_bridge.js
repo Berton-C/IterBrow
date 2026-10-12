@@ -63,6 +63,9 @@ function makeChatBridge(iterRoot, onIncoming, options = {}) {
 
   const messages = [];
   const seen = new Set();
+  function loadJournal() {
+  messages.length = 0;
+  seen.clear();
   if (fs.existsSync(journalPath)) {
     const lines = fs.readFileSync(journalPath, 'utf8').split('\n');
     for (let index = 0; index < lines.length; index += 1) {
@@ -81,6 +84,8 @@ function makeChatBridge(iterRoot, onIncoming, options = {}) {
       }
     }
   }
+  }
+  loadJournal();
 
   function appendMessage(message) {
     if (!validMessage(message)) throw new Error('invalid chat message envelope');
@@ -187,6 +192,8 @@ function makeChatBridge(iterRoot, onIncoming, options = {}) {
     sendToIter,
     history: () => messages.slice(-historyLimit).map((message) => ({ ...message })),
     pollNow: pollOutbox,
+    // Re-read the journal after Reset (file removed) or Restore (file replaced).
+    reload: () => { repairIncompleteTail(); loadJournal(); return messages.length; },
     paths: { runtimeDir, inboxDir, outboxDir, stagingDir, recoveryDir, journalPath },
     stop: () => clearInterval(timer),
   };

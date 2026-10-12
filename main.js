@@ -1236,6 +1236,7 @@ async function restoreFromZipPath(zipPath) {
     // just silently ending up with a thinner restore than you expected --
     // this is exactly how a stale build on a different machine can look
     // like a broken Export when Export was actually fine.
+    if (chatBridge) chatBridge.reload();
     const notFoundInZip = wanted.filter((rel) => !restored.includes(rel));
     importedSummary = { restored, notFoundInZip, backedUp, cleared };
 
@@ -1372,6 +1373,7 @@ async function resetState() {
       const target = path.join(ITER_DIR, rel);
       fs.rmSync(target, { recursive: true, force: true });
     }
+    if (chatBridge) chatBridge.reload();
     const started = await startMettaServer();
     if (started.error) throw new Error(started.error);
     const status = await waitForAtomspaceReady();

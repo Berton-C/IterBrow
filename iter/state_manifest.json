@@ -191,7 +191,7 @@
       "role": "application_state",
       "format": "jsonl",
       "portable": true,
-      "reset": false,
+      "reset": true,
       "owner": "core.chat_bridge"
     },
     {
@@ -383,7 +383,7 @@
       "role": "projection",
       "format": "json",
       "portable": true,
-      "reset": true,
+      "reset": false,
       "owner": "application.crm_projection"
     },
     {
@@ -399,7 +399,7 @@
       "role": "application_state",
       "format": "mixed",
       "portable": true,
-      "reset": true,
+      "reset": false,
       "owner": "application.uploads"
     },
     {

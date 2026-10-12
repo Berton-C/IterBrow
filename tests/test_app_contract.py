@@ -332,5 +332,29 @@ class ApplicationContractTests(unittest.TestCase):
         self.assertEqual(after_reset["records"], {})
 
 
+class CrmSurvivesFactoryResetTests(unittest.TestCase):
+    """Factory Reset wipes .runtime/atomspace but keeps crm/data.  The CRM's
+    bootstrap must rebuild the contacts from that projection on a fresh store."""
+
+    def test_fresh_atomspace_rebuilds_crm_from_kept_projection(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "iter"
+            data = root / "crm" / "data"
+            data.mkdir(parents=True)
+            (data / "contacts.json").write_text(json.dumps([{"id": "c1", "name": "Ada"}]))
+            harness = AtomspaceHarness(Path(temp) / "fresh-atomspace")  # the post-Reset store
+            state = app_contract._load_state("crm", call_fn=harness.call)
+            real_apply = app_contract.apply_command
+
+            def apply_on_harness(*args, **kwargs):
+                kwargs.update(call_fn=harness.call, commit_batch_fn=harness.commit_batch)
+                return real_apply(*args, **kwargs)
+
+            with mock.patch.object(app_contract, "apply_command", apply_on_harness):
+                app_contract._bootstrap_crm(root, "crm-ui", state)
+            context = app_contract.read_context("crm", call_fn=harness.call)
+            names = [record.get("name") for record in context["records"]["contacts"]]
+            self.assertEqual(names, ["Ada"])
+
 if __name__ == "__main__":
     unittest.main()

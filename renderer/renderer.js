@@ -94,6 +94,14 @@ function mergeChatHistory(history) {
   if (changed || !chatMessages.size) renderChatMessages();
 }
 
+// After Reset or Restore the saved chat changed underneath us: drop what is
+// on screen and replay the journal as it is now.
+function replaceChatFromHistory() {
+  chatMessages.clear();
+  renderChatMessages();
+  return syncChatHistory();
+}
+
 function addMessage(role, text) {
   mergeChatMessage({
     id: `local-${Date.now()}-${transientChatSequence += 1}`,
@@ -390,6 +398,7 @@ document.getElementById('btn-import-state').addEventListener('click', async () =
   stateStatus.textContent = 'Importing…';
   try {
     const result = await window.iterApi.importState();
+    if (result && result.imported) await replaceChatFromHistory();
     if (result.canceled) { stateStatus.textContent = ''; return; }
     const notFound = result.notFoundInZip || [];
     stateStatus.textContent = `Imported ${result.itemCount} item(s) from ` + result.imported + (notFound.length ? ` (${notFound.length} not in this zip)` : '');
@@ -407,6 +416,7 @@ document.getElementById('btn-restore-state').addEventListener('click', async () 
   stateStatus.textContent = 'Restoring…';
   try {
     const result = await window.iterApi.restoreState();
+    if (result && result.imported) await replaceChatFromHistory();
     if (result.canceled) { stateStatus.textContent = ''; return; }
     if (result.error) { stateStatus.textContent = 'Restore failed: ' + result.error; return; }
     const notFound = result.notFoundInZip || [];
@@ -419,11 +429,12 @@ document.getElementById('btn-restore-state').addEventListener('click', async () 
 });
 
 document.getElementById('btn-reset-state').addEventListener('click', async () => {
-  const ok = confirm('Factory Reset: Iter forgets everything it has accumulated -- memory, conversation history, beliefs, the PWQ board and saved outputs -- and starts fresh. Your code, settings, API keys, tabs and the apps you built are kept.\n\nA full backup is saved first; you can return to it with Restore.\n\nContinue?');
+  const ok = confirm('Factory Reset: Iter forgets everything it has accumulated -- memory, conversation and chat history, beliefs, the PWQ board and saved outputs -- and starts fresh.\n\nKept: your code, settings and API keys, tabs, the apps you built, CRM contacts and uploaded files.\n\nA backup of everything Reset removes is saved first; you can return to it with Restore.\n\nContinue?');
   if (!ok) return;
   stateStatus.textContent = 'Saving a backup, then resetting…';
   try {
     const result = await window.iterApi.resetState();
+    await replaceChatFromHistory();
     const saved = result && result.backup ? result.backup.split('/').pop() : 'a backup';
     stateStatus.textContent = 'State reset. Backup: ' + saved;
     addMessage('sys', 'State reset (backup saved as ' + saved + ', available under Restore).'

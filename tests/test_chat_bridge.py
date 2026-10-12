@@ -131,5 +131,38 @@ class ChatBridgeTests(unittest.TestCase):
         self.assertIn("view.webContents.invalidate()", main)
 
 
+    def test_reload_follows_reset_and_restore_of_the_journal(self):
+        with tempfile.TemporaryDirectory() as temp:
+            script = f"""
+                const fs = require('fs');
+                const path = require('path');
+                const {{ makeChatBridge }} = require({json.dumps(str(ROOT / 'bridge' / 'chat_bridge.js'))});
+                const root = {json.dumps(temp)};
+                const bridge = makeChatBridge(root, () => {{}}, {{ log: () => {{}}, pollMs: 60000 }});
+                bridge.sendToIter('before reset');
+                const before = bridge.history().length;
+                const journal = bridge.paths.journalPath;
+                const saved = fs.readFileSync(journal, 'utf8');
+                fs.rmSync(journal);                       // Factory Reset
+                fs.rmSync(bridge.paths.inboxDir, {{ recursive: true }});
+                fs.rmSync(bridge.paths.stagingDir, {{ recursive: true }});
+                const afterReset = bridge.reload();
+                bridge.sendToIter('after reset');         // queue folders recreated on demand
+                const afterSend = bridge.history().map((m) => m.content);
+                fs.writeFileSync(journal, saved);         // Restore
+                const afterRestore = bridge.reload();
+                bridge.stop();
+                console.log(JSON.stringify({{ before, afterReset, afterSend, afterRestore,
+                  restored: bridge.history().map((m) => m.content) }}));
+            """
+            result = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=60)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            observed = json.loads(result.stdout.strip().splitlines()[-1])
+            self.assertEqual(observed["before"], 1)
+            self.assertEqual(observed["afterReset"], 0)
+            self.assertEqual(observed["afterSend"], ["after reset"])
+            self.assertEqual(observed["restored"], ["before reset"])
+
+
 if __name__ == "__main__":
     unittest.main()

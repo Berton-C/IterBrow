@@ -45,13 +45,13 @@ class StateManifestTests(unittest.TestCase):
             self.assertEqual(by_path[path]["role"], "secret")
             self.assertFalse(by_path[path]["portable"])
 
-    def test_chat_receipts_are_state_but_delivery_queues_are_not(self):
+    def test_chat_receipts_are_portable_state_but_delivery_queues_are_not(self):
         data = json.loads(MANIFEST.read_text(encoding="utf-8"))
         by_path = {entry["path"]: entry for entry in data["entries"]}
         journal = by_path[".runtime/electron_ui/messages.jsonl"]
         self.assertEqual(journal["role"], "application_state")
         self.assertTrue(journal["portable"])
-        self.assertFalse(journal["reset"])
+        self.assertTrue(journal["reset"])  # Factory Reset clears the visible chat with Iter's memory
         for name in ("inbox", "outbox", "staging", "recovery"):
             queue = by_path[".runtime/electron_ui/" + name]
             self.assertFalse(queue["portable"])
@@ -81,6 +81,14 @@ class StateManifestTests(unittest.TestCase):
         for entry in data["entries"]:
             if entry["role"] == "source_seed":
                 self.assertFalse(entry["reset"], entry["path"])
+
+
+    def test_user_data_survives_factory_reset(self):
+        data = json.loads(MANIFEST.read_text(encoding="utf-8"))
+        by_path = {entry["path"]: entry for entry in data["entries"]}
+        for path in ("crm/data", "uploads", "apps", ".runtime/settings.json", "private",
+                     ".runtime/tabs_session.json", ".runtime/hotload"):
+            self.assertFalse(by_path[path]["reset"], path)
 
 
 if __name__ == "__main__":
