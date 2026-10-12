@@ -103,6 +103,9 @@ function makeChatBridge(iterRoot, onIncoming, options = {}) {
       `${filename}.${process.pid}.${crypto.randomUUID()}.tmp`,
     );
     const destination = path.join(directory, filename);
+    // Reset/Import may have removed the queue folders while the window stayed open.
+    fs.mkdirSync(stagingDir, { recursive: true, mode: 0o700 });
+    fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
     fs.writeFileSync(temporary, content, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
     fs.renameSync(temporary, destination);
     return destination;

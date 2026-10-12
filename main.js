@@ -934,6 +934,18 @@ const STATE_MANIFEST = loadStateManifest();
 const STATE_PATHS = STATE_MANIFEST.entries.filter((entry) => entry.reset).map((entry) => entry.path);
 const PORTABLE_STATE_PATHS = STATE_MANIFEST.entries.filter((entry) => entry.portable).map((entry) => entry.path);
 const PORTABLE_ARCHIVE_PATHS = ['state_manifest.json', ...PORTABLE_STATE_PATHS];
+// Local safety-net archives (auto-backups and the snapshot taken before a
+// Reset) carry everything a Reset would destroy that cannot be regenerated:
+// portable state plus non-cache reset paths and the retained tool outputs
+// that history refers to.  Export (moving state to another machine) stays
+// portable-only.
+const LOCAL_ONLY_BACKUP_PATHS = STATE_MANIFEST.entries
+  .filter((entry) => entry.reset && !entry.portable && entry.role !== 'secret'
+    && (entry.role !== 'cache' || entry.path === '.runtime/tool_results'))
+  .map((entry) => entry.path);
+const LOCAL_BACKUP_PATHS = [...PORTABLE_STATE_PATHS, ...LOCAL_ONLY_BACKUP_PATHS];
+const LOCAL_ARCHIVE_PATHS = ['state_manifest.json', ...LOCAL_BACKUP_PATHS];
+const MERGE_ON_RESTORE = new Set(STATE_MANIFEST.entries.filter((entry) => entry.merge_on_restore).map((entry) => entry.path));
 
 // ---------------------------------------------------------------------
 // Automatic rolling backups -- independent of the user-triggered Export
@@ -997,7 +1009,7 @@ function pruneAutoBackups() {
 // have paused cognition and checkpointed the AtomSpace.
 async function writeStateArchive(prefix) {
   fs.mkdirSync(AUTO_BACKUP_DIR, { recursive: true });
-  const existing = PORTABLE_ARCHIVE_PATHS.filter((p) => fs.existsSync(path.join(ITER_DIR, p)));
+  const existing = LOCAL_ARCHIVE_PATHS.filter((p) => fs.existsSync(path.join(ITER_DIR, p)));
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   const zipPath = path.join(AUTO_BACKUP_DIR, `${prefix}${stamp}.zip`);
   await runCLI('zip', ['-qr', zipPath, ...existing], ITER_DIR);
@@ -1138,7 +1150,7 @@ async function exportState() {
     const existing = wanted.filter((p) => fs.existsSync(path.join(ITER_DIR, p)));
     const missing = wanted.filter((p) => !fs.existsSync(path.join(ITER_DIR, p)));
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-    await runCLI('zip', ['-r', filePath, ...existing], ITER_DIR);
+    await runCLI('zip', ['-qr', filePath, ...existing], ITER_DIR);
     return { exported: filePath, itemCount: existing.length, missing, checkpoint };
   } finally {
     await resumeCognition(pause);
@@ -1161,6 +1173,8 @@ async function importState() {
 // the rolling AUTO_BACKUP_KEEP snapshots in AUTO_BACKUP_DIR, no dialog
 // needed). Identical restore behavior either way.
 async function restoreFromZipPath(zipPath) {
+  const fromLocalBackup = path.dirname(path.resolve(zipPath)) === path.resolve(AUTO_BACKUP_DIR);
+  let touched = [];
   // Validate names before extraction and reject links after extraction. Only
   // manifest-approved paths are copied into ITER_DIR, but an archive must not
   // be able to escape the temporary directory while being inspected.
@@ -1181,10 +1195,16 @@ async function restoreFromZipPath(zipPath) {
       const innerEntries = fs.readdirSync(inner);
       if (innerEntries.some((e) => PORTABLE_STATE_PATHS.some((rel) => rel.split('/')[0] === e))) sourceRoot = inner;
     }
-    const wanted = PORTABLE_STATE_PATHS;
+    // A restore returns Iter to the saved state: every resettable path is
+    // cleared first (so nothing from the current session mixes in), then the
+    // archive's paths are copied in.  Our own local backups also carry the
+    // non-portable state a Reset would destroy.
+    const wanted = fromLocalBackup ? LOCAL_BACKUP_PATHS : PORTABLE_STATE_PATHS;
+    touched = [...new Set([...wanted, ...STATE_PATHS])];
     const restored = [];
     const backedUp = [];
-    for (const rel of wanted) {
+    const cleared = [];
+    for (const rel of touched) {
       const current = path.join(ITER_DIR, rel);
       if (!fs.existsSync(current)) continue;
       const backup = path.join(rollbackDir, rel);
@@ -1192,12 +1212,20 @@ async function restoreFromZipPath(zipPath) {
       fs.cpSync(current, backup, { recursive: true });
       backedUp.push(rel);
     }
+    for (const rel of STATE_PATHS) {
+      const dest = path.join(ITER_DIR, rel);
+      if (!fs.existsSync(dest)) continue;
+      fs.rmSync(dest, { recursive: true, force: true });
+      cleared.push(rel);
+    }
     for (const rel of wanted) {
       const src = path.join(sourceRoot, rel);
       if (!fs.existsSync(src)) continue;
       const dest = path.join(ITER_DIR, rel);
       fs.mkdirSync(path.dirname(dest), { recursive: true });
-      fs.rmSync(dest, { recursive: true, force: true });
+      // Paths that also hold shipped source (apps/music) are merged, never
+      // replaced, so an archive cannot delete code it did not contain.
+      if (!MERGE_ON_RESTORE.has(rel)) fs.rmSync(dest, { recursive: true, force: true });
       fs.cpSync(src, dest, { recursive: true });
       restored.push(rel);
     }
@@ -1209,7 +1237,7 @@ async function restoreFromZipPath(zipPath) {
     // this is exactly how a stale build on a different machine can look
     // like a broken Export when Export was actually fine.
     const notFoundInZip = wanted.filter((rel) => !restored.includes(rel));
-    importedSummary = { restored, notFoundInZip, backedUp };
+    importedSummary = { restored, notFoundInZip, backedUp, cleared };
 
     // Starting the service is the restore validation: snapshot checksum,
     // journal replay, seed load, and engine reconstruction must all succeed.
@@ -1218,8 +1246,14 @@ async function restoreFromZipPath(zipPath) {
     await waitForAtomspaceReady();
   } catch (error) {
     await stopMettaServer().catch(() => {});
-    for (const rel of PORTABLE_STATE_PATHS) {
+    for (const rel of touched) {
       const dest = path.join(ITER_DIR, rel);
+      if (MERGE_ON_RESTORE.has(rel)) {
+        // merged paths: put back exactly what was there, without deleting source first
+        const backup = path.join(rollbackDir, rel);
+        if (fs.existsSync(backup)) fs.cpSync(backup, dest, { recursive: true });
+        continue;
+      }
       fs.rmSync(dest, { recursive: true, force: true });
       const backup = path.join(rollbackDir, rel);
       if (fs.existsSync(backup)) {
@@ -1250,7 +1284,8 @@ async function restoreFromZipPath(zipPath) {
   }
 
   await resumeCognition(pause);
-  return { imported: zipPath, restarted: pause.iterWasRunning, itemCount: importedSummary.restored.length, notFoundInZip: importedSummary.notFoundInZip };
+  return { imported: zipPath, restarted: pause.iterWasRunning, itemCount: importedSummary.restored.length,
+    notFoundInZip: importedSummary.notFoundInZip, cleared: importedSummary.cleared };
 }
 
 // Restore button: no file dialog -- the caller (renderer, after showing the
@@ -1306,17 +1341,31 @@ async function restoreState() {
 async function resetState() {
   const pause = await pauseCognition({ shutdownAtomspace: false });
   let backup;
+  let phase = 'backup';
   try {
     saveTabSession();
     await callAtomspace('checkpoint', {}, 10000);
     backup = await writeStateArchive(PRE_RESET_BACKUP_PREFIX);
     pushLog(`[reset] saved pre-reset backup ${path.basename(backup.zipPath)} (${backup.itemCount} item(s))`);
+    phase = 'stop';
     await stopMettaServer();
     pause.shutdownAtomspace = true;
   } catch (error) {
-    // No backup, no reset: leave everything exactly as it was.
-    await resumeCognition(pause);
-    throw new Error(`Reset cancelled -- could not save a backup first: ${error.message}`);
+    // Nothing has been deleted. Bring the service back whichever way works
+    // (it may still be up and quiesced, or already gone), restart Iter if it
+    // was running, and report what actually failed.
+    try {
+      await callAtomspace('resume', {}, 5000);
+    } catch (_) {
+      await startMettaServer().catch(() => {});
+    }
+    pause.shutdownAtomspace = false;
+    pause.atomspaceWasRunning = false;
+    await resumeCognition(pause).catch(() => { atomspaceLifecycleBusy = false; });
+    const reason = phase === 'backup'
+      ? `could not save a backup first: ${error.message}`
+      : `backup saved (${backup && path.basename(backup.zipPath)}) but the AtomSpace service would not stop: ${error.message}`;
+    throw new Error(`Reset cancelled -- nothing was deleted; ${reason}`);
   }
   try {
     for (const rel of STATE_PATHS) {

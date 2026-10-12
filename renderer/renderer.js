@@ -426,8 +426,9 @@ document.getElementById('btn-reset-state').addEventListener('click', async () =>
     const result = await window.iterApi.resetState();
     const saved = result && result.backup ? result.backup.split('/').pop() : 'a backup';
     stateStatus.textContent = 'State reset. Backup: ' + saved;
-    addMessage('sys', 'State reset (backup saved as ' + saved + ', available under Restore). Press Start to begin fresh.');
-    setRunning(false);
+    addMessage('sys', 'State reset (backup saved as ' + saved + ', available under Restore).'
+      + (result && result.restarted ? ' Iter restarted with a fresh state.' : ' Press Start to begin fresh.'));
+    setRunning(!!(result && result.restarted));
   } catch (e) {
     stateStatus.textContent = 'Reset failed: ' + e.message;
   }

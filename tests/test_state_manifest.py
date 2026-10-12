@@ -58,5 +58,30 @@ class StateManifestTests(unittest.TestCase):
             self.assertTrue(queue["reset"])
 
 
+    def test_reset_never_deletes_and_restore_never_replaces_tracked_source(self):
+        import subprocess
+        try:
+            tracked = subprocess.run(["git", "ls-files", "iter"], cwd=str(MANIFEST.parents[1]),
+                                     capture_output=True, text=True, check=True).stdout.split()
+        except (OSError, subprocess.CalledProcessError):
+            self.skipTest("not a git checkout")
+        data = json.loads(MANIFEST.read_text(encoding="utf-8"))
+        for entry in data["entries"]:
+            prefix = "iter/" + entry["path"].rstrip("/")
+            covered = [t for t in tracked if t == prefix or t.startswith(prefix + "/")]
+            if not covered or entry["role"] == "source_seed":
+                continue
+            self.assertFalse(entry["reset"], "Reset would delete tracked source %s" % covered[:3])
+            if entry["portable"]:
+                self.assertTrue(entry.get("merge_on_restore"),
+                                "Import would replace tracked source %s; set merge_on_restore" % covered[:3])
+
+    def test_source_seeds_are_never_reset(self):
+        data = json.loads(MANIFEST.read_text(encoding="utf-8"))
+        for entry in data["entries"]:
+            if entry["role"] == "source_seed":
+                self.assertFalse(entry["reset"], entry["path"])
+
+
 if __name__ == "__main__":
     unittest.main()

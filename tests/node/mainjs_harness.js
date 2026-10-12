@@ -38,7 +38,10 @@ pushLog = (line) => { __calls.push(['log', line]); };
 module.exports = { ITER_DIR, AUTO_BACKUP_DIR, STATE_MANIFEST, STATE_PATHS, PORTABLE_STATE_PATHS,
   PORTABLE_ARCHIVE_PATHS, restoreFromZipPath, resetState, runCLI, listAutoBackupsSorted,
   writeStateArchive: typeof writeStateArchive === 'function' ? writeStateArchive : undefined, __calls,
-  __setWriteStateArchive: (fn) => { if (typeof writeStateArchive === 'function') writeStateArchive = fn; } };`;
+  __setWriteStateArchive: (fn) => { if (typeof writeStateArchive === 'function') writeStateArchive = fn; },
+  // Replace any top-level function (e.g. stopMettaServer) for one scenario.
+  __override: (name, fn) => { eval(name + ' = fn'); },
+  __busy: () => atomspaceLifecycleBusy };`;
   const m = new Module(file, null);
   m.filename = file;
   m.paths = Module._nodeModulePaths(repoRoot);

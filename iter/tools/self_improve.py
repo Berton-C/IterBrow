@@ -256,8 +256,10 @@ def _validate_regression():
     """Level 2: Run regression tests from self_improve_regression_tests.json
     (this tool's own file -- do not confuse with eval.py's
     memory/regression_tests.json, an unrelated run-results log)."""
-    tests = dict(_read_json(REGRESSION_SEED_PATH) or {})
-    tests.update(_read_json(REGRESSION_PATH) or {})
+    # Agent-added tests extend the shipped ones; a shipped test is never
+    # overridden by an older copy carried in memory/ (e.g. from a backup).
+    tests = dict(_read_json(REGRESSION_PATH) or {})
+    tests.update(_read_json(REGRESSION_SEED_PATH) or {})
     if not tests:
         return True, "no regression tests defined"
     passed = 0

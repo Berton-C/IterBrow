@@ -71,7 +71,8 @@
       "format": "foundry_projects_v1",
       "portable": true,
       "reset": false,
-      "owner": "user.foundry_projects"
+      "owner": "user.foundry_projects",
+      "merge_on_restore": true
     },
     {
       "path": "seeds/application_contract.metta",
@@ -227,9 +228,9 @@
     },
     {
       "path": ".runtime/pages",
-      "role": "projection",
+      "role": "application_state",
       "format": "html",
-      "portable": false,
+      "portable": true,
       "reset": true,
       "owner": "application.dashboards"
     },

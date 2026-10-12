@@ -122,6 +122,72 @@ class MainJsStateLifecycleTests(unittest.TestCase):
         self.assertEqual(self.content("memory"), "ORIGINAL memory\n")
         self.assertEqual(self.content("experience.json"), "ORIGINAL experience.json\n")
         self.assertEqual(self.content(".runtime/atomspace"), "ORIGINAL .runtime/atomspace\n")
+        # agent-authored pages and the outputs history refers to come back too
+        self.assertEqual(self.content(".runtime/pages"), "ORIGINAL .runtime/pages\n")
+        self.assertEqual(self.content(".runtime/tool_results"), "ORIGINAL .runtime/tool_results\n")
+
+    def test_everything_reset_destroys_comes_back_from_the_prereset_backup_except_caches(self):
+        self.populate()
+        self.run_js("const r = await api.resetState(); await api.restoreFromZipPath(r.backup); return null;")
+        for entry in self.manifest["entries"]:
+            if not entry["reset"] or entry["role"] == "secret":
+                continue
+            if entry["role"] == "cache" and entry["path"] != ".runtime/tool_results":
+                continue
+            self.assertEqual(self.content(entry["path"]), "ORIGINAL %s\n" % entry["path"],
+                             "Reset destroyed %s and the backup could not bring it back" % entry["path"])
+
+    def test_restore_returns_to_the_saved_state_without_mixing_in_the_current_session(self):
+        self.populate()
+        result = self.run_js("""
+            const r = await api.resetState();
+            const fs = require('fs'), path = require('path');
+            // the new session after Reset writes its own state
+            fs.mkdirSync(path.join(api.ITER_DIR, '.runtime/das_projection'), { recursive: true });
+            fs.writeFileSync(path.join(api.ITER_DIR, '.runtime/das_projection/item.txt'), 'NEW SESSION\\n');
+            fs.writeFileSync(path.join(api.ITER_DIR, '.budget_exceeded'), 'NEW SESSION\\n');
+            return await api.restoreFromZipPath(r.backup);
+        """)
+        self.assertNotEqual(self.content(".budget_exceeded"), "NEW SESSION\n")
+        self.assertEqual(self.content(".runtime/das_projection"), "ORIGINAL .runtime/das_projection\n")
+        self.assertIn(".budget_exceeded", result["cleared"])
+
+    def test_import_merges_apps_so_an_archive_cannot_delete_shipped_app_code(self):
+        self.populate()
+        shipped = self.iter_dir / "apps" / "music" / "index.html"
+        shipped.parent.mkdir(parents=True)
+        shipped.write_text("SHIPPED MUSIC APP\n")
+        donor = self.work / "donor.zip"
+        with zipfile.ZipFile(donor, "w") as archive:
+            archive.writestr("state_manifest.json", "{}")
+            archive.writestr("apps/myapp/index.html", "DONOR APP\n")
+        self.run_js("await api.restoreFromZipPath(%s); return null;" % json.dumps(str(donor)))
+        self.assertEqual(shipped.read_text(), "SHIPPED MUSIC APP\n")
+        self.assertEqual((self.iter_dir / "apps" / "myapp" / "index.html").read_text(), "DONOR APP\n")
+
+    def test_service_that_will_not_stop_cancels_reset_reports_why_and_recovers(self):
+        self.populate()
+        result = self.run_js("""
+            api.__override('stopMettaServer', async () => { throw new Error('did not stop cleanly'); });
+            try { await api.resetState(); return { ran: true }; }
+            catch (e) { return { message: e.message, busy: api.__busy(), calls: api.__calls.map((c) => c[0] + (c[1] && c[1].length ? ':' + c[1] : '')) }; }
+        """)
+        self.assertIn("nothing was deleted", result["message"])
+        self.assertIn("would not stop", result["message"])
+        self.assertIn("backup saved", result["message"])
+        self.assertFalse(result["busy"])
+        self.assertIn("atomspace:resume", result["calls"])
+        for entry in self.manifest["entries"]:
+            self.assertIsNotNone(self.content(entry["path"]), "deleted %s although reset was cancelled" % entry["path"])
+
+    def test_three_prereset_backups_are_kept(self):
+        self.populate()
+        self.run_js("""
+            for (let i = 0; i < 5; i++) { await api.writeStateArchive('prereset-'); await new Promise((r) => setTimeout(r, 5)); }
+            return null;
+        """)
+        files = [p.name for p in (self.user_data / "auto_backups").iterdir()]
+        self.assertEqual(sum(f.startswith("prereset-") for f in files), 3)
 
     def test_prereset_backups_survive_the_rolling_autobackup_rotation(self):
         self.populate()
