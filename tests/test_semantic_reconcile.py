@@ -7,16 +7,21 @@ direct index writes), so an orphan is a memory the agent believes it stored.
 Reconcile must adopt it into the authority, keep a one-time backup of the index
 it found, log index versions that differ from the authority instead of silently
 discarding them, and tell the agent what it did.
+
+H2 (review 3): with a slow embeddings endpoint the whole rebuild ran in one
+call and was killed by the 40s tool cap before saving anything, every time.
 """
 import hashlib
 import json
+import subprocess
 import sys
+import time
 import unittest
 import uuid
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from semantic_memory_support import SemanticRoot, fake_vector  # noqa: E402
+from semantic_memory_support import PYTHON, RUNNER, SemanticRoot, fake_vector  # noqa: E402
 from test_semantic_memory import write_current_index  # noqa: E402
 
 
@@ -152,6 +157,68 @@ class ForgottenOrphanTests(unittest.TestCase):
         r.text("chroma_query", query="forget me")
         self.assertEqual(set(r.memories()), {keep})
         self.assertEqual(r.index_ids(), {keep})
+
+
+class SlowEndpointTests(unittest.TestCase):
+    """H2: a slow endpoint must not keep the rebuild from ever making progress."""
+
+    def test_rebuild_progresses_within_the_tool_cap_and_reports_the_rest(self):
+        r = SemanticRoot("slow")
+        self.addCleanup(r.close)
+        n = 100
+        write_current_index(r.root, ["m%03d" % i for i in range(n)],
+                            ["memory number %d about things" % i for i in range(n)], [{"mem_type": "fact"}] * n)
+        r.start()
+        (r.root / "chroma_db" / "memories.json").unlink()  # the index is lost: full rebuild
+        handler = r.embeddings.server.RequestHandlerClass
+        original = handler.do_POST
+
+        def slow(self):
+            time.sleep(4)
+            return original(self)
+        handler.do_POST = slow
+        env = r.env({"ITER_RECONCILE_BUDGET_S": "6"})
+        started = time.time()
+        out = subprocess.run([PYTHON, str(RUNNER), str(r.root / "tools" / "chroma_query.py"),
+                              json.dumps({"query": "things"})], cwd=str(r.root), env=env,
+                             capture_output=True, text=True, timeout=60)
+        elapsed = time.time() - started
+        result = json.loads(out.stdout.strip().splitlines()[-1])
+        self.assertTrue(result["ok"], result)
+        # two batches fit the 6s budget (4s each, the second started at ~4s), then the query
+        self.assertLess(elapsed, 18, "one reconcile call ran past its time budget")
+        indexed = r.index_ids()
+        self.assertEqual(len(indexed), 64, "progress must be saved batch by batch")
+        self.assertIn("36 memories are still being indexed", result["result"])
+        # The next calls continue where it stopped (no back-off: nothing failed).
+        r.tool("chroma_query", env={"ITER_RECONCILE_BUDGET_S": "6"}, query="things")
+        self.assertEqual(len(r.index_ids()), 100)
+
+    def test_back_off_is_recorded_before_the_request_is_sent(self):
+        r = SemanticRoot("killed")
+        self.addCleanup(r.close)
+        write_current_index(r.root, ["a", "b"], ["first fact", "second fact"], [{"mem_type": "fact"}] * 2)
+        r.start()
+        (r.root / "chroma_db" / "memories.json").unlink()
+        handler = r.embeddings.server.RequestHandlerClass
+        original = handler.do_POST
+
+        def hang(self):
+            time.sleep(8)
+            return original(self)
+        handler.do_POST = hang
+        with self.assertRaises(subprocess.TimeoutExpired):  # the worker cap kills it mid-request
+            subprocess.run([PYTHON, str(RUNNER), str(r.root / "tools" / "chroma_query.py"),
+                            json.dumps({"query": "fact"})], cwd=str(r.root), env=r.env(),
+                           capture_output=True, text=True, timeout=3)
+        state = r.index()["authority_index"]
+        self.assertGreater(state["retry_after"], time.time(), "no back-off survived the kill")
+        handler.do_POST = original
+        before = r.embeddings.requests
+        out = r.text("chroma_query", query="fact")
+        # The index is still empty, so not even the query is embedded.
+        self.assertEqual(r.embeddings.requests - before, 0, "back-off ignored: rebuild retried at once")
+        self.assertIn("not yet searchable", out)
 
 
 if __name__ == "__main__":

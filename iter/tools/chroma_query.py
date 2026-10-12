@@ -13,6 +13,11 @@ def _gap_note():
         return ""
     count = len(unindexed)
     one = count == 1
+    if not error:
+        return ("NOTE: %d %s still being indexed: %s stored in the AtomSpace and %s searchable within "
+                "the next few memory calls; nothing is lost."
+                % (count, "memory is" if one else "memories are", "it is" if one else "they are",
+                   "becomes" if one else "become"))
     return ("NOTE: %d %s not yet searchable: %s stored in the AtomSpace but %s embedding could not be "
             "computed%s. %s indexed automatically once embeddings work; nothing is lost."
             % (count, "memory is" if one else "memories are", "it is" if one else "they are",

@@ -750,6 +750,7 @@ def _vector_dimensions(vector):
 
 
 RECONCILE_RETRY_S = 60
+RECONCILE_BUDGET_S = 20  # one reconcile call stops embedding after this; iter.py caps chroma_query at 40s
 TRUSTED_MIGRATION_STATES = ("migrated", "already_migrated", "not_needed")
 FORGOTTEN_EVENT_PREFIX = "event:memory:forgotten:"
 
@@ -866,6 +867,7 @@ def reconcile_index(force=False):
             and state.get("legacy_reconciled") and not state.get("unindexed")
             and set(db["ids"]) == set(memories) and _index_is_current(db)):
         return {"status": "current"}
+    started = time.monotonic()
     with writer_lock():
         snapshot, memories = authority_memories()
         db = _load(write=True)
@@ -957,36 +959,63 @@ def reconcile_index(force=False):
                     db["metadatas"][index] = metadata
             else:
                 missing.append(item_id)
+
+        def record_state(missing, retry_after, error_text):
+            db["embedding_model"] = EMBEDDING_MODEL
+            db["embedding_dimensions"] = EMBEDDING_DIMENSIONS
+            db["embedding_schema"] = EMBEDDING_SCHEMA
+            db["authority_index"] = {
+                "digest": digest if trusted and not missing and not kept_orphans else None,
+                "epoch": snapshot.get("epoch"), "commit": snapshot.get("commit"),
+                "count": len(memories), "unindexed": list(missing),
+                "retry_after": retry_after if missing else 0,
+                "last_error": error_text if missing else None,
+                "legacy_reconciled": bool(state.get("legacy_reconciled") or (trusted and adoption_error is None)),
+            }
+
+        # 3. Embed what is missing batch by batch, saving after every batch, within
+        # a time budget: a slow endpoint must not let the worker cap kill the
+        # whole rebuild before anything was saved.  The back-off is recorded
+        # before each request, so a worker killed mid-request is not retried at
+        # once by the next call.
         error_text = None
         retry_after = float(state.get("retry_after") or 0)
+        budget = float(os.environ.get("ITER_RECONCILE_BUDGET_S") or RECONCILE_BUDGET_S)
+        budget_exhausted = False
+        saved = before
         if missing and (force or time.time() >= retry_after):
-            try:
-                vectors = get_embeddings([memories[item_id][0] for item_id in missing], "search_document")
-            except Exception as error:
-                error_text = str(error)
-                retry_after = time.time() + RECONCILE_RETRY_S
-            else:
-                for item_id, vector in zip(missing, vectors):
+            while missing:
+                if time.monotonic() - started >= budget:
+                    budget_exhausted = True
+                    break
+                batch = missing[:EMBEDDING_BATCH_SIZE]
+                record_state(missing, time.time() + RECONCILE_RETRY_S,
+                             "an embedding request did not finish (the worker was stopped mid-request)")
+                _save(db)
+                saved = json.dumps(db, sort_keys=True, default=str)
+                try:
+                    vectors = _request_embedding_batch([memories[item_id][0] for item_id in batch],
+                                                       "search_document")
+                except Exception as error:
+                    error_text = str(error)
+                    retry_after = time.time() + RECONCILE_RETRY_S
+                    break
+                for item_id, vector in zip(batch, vectors):
                     document, metadata, _atom = memories[item_id]
                     _index_put(db, item_id, document, metadata, vector)
-                missing, retry_after = [], 0
+                missing, retry_after = missing[len(batch):], 0
+                record_state(missing, 0, None)
+                _save(db)
+                saved = json.dumps(db, sort_keys=True, default=str)
         elif missing:
             error_text = state.get("last_error")
-        db["embedding_model"] = EMBEDDING_MODEL
-        db["embedding_dimensions"] = EMBEDDING_DIMENSIONS
-        db["embedding_schema"] = EMBEDDING_SCHEMA
-        db["authority_index"] = {
-            "digest": digest if trusted and not missing and not kept_orphans else None,
-            "epoch": snapshot.get("epoch"), "commit": snapshot.get("commit"),
-            "count": len(memories), "unindexed": missing,
-            "retry_after": retry_after if missing else 0,
-            "last_error": error_text if missing else None,
-            "legacy_reconciled": bool(state.get("legacy_reconciled") or (trusted and adoption_error is None)),
-        }
-        changed = json.dumps(db, sort_keys=True, default=str) != before
-        if changed:
+        record_state(missing, retry_after, error_text)
+        final = json.dumps(db, sort_keys=True, default=str)
+        if final != saved:
             _save(db)
-        return {"status": "reconciled" if changed else "current", "rebuilt": rebuilt,
+        changed = final != before
+        return {"status": ("partial" if budget_exhausted else "reconciled") if changed else "current",
+                "rebuilt": rebuilt, "budget_exhausted": budget_exhausted,
                 "adopted": [record["id"] for record in adopt], "dropped": drop,
                 "orphans_kept": kept_orphans, "conflicts": len(conflicts), "backup": backup,
                 "adoption_error": adoption_error, "unindexed": missing, "error": error_text}
