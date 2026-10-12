@@ -338,6 +338,7 @@ were confirmation.
 | Tool | Purpose |
 |------|---------|
 | `episodes` | Search transcript history around a timestamp |
+| `record_episode` | Write the next memory/recap/episode_NNNN.json for a span of history (answers a Recap Request) |
 | `search_transcript` | Search communication transcript around a timestamp |
 
 ### Reasoning
@@ -387,13 +388,17 @@ were confirmation.
    - `tier4.txt` — Era summaries (~1 line per era)
    - `tier3.txt` — Episode summaries (~2-3 lines per episode)
    - `memory/recap/episode_*.json` — Full episode records
-   - Rollup trigger: when a tier exceeds its char limit, `.rollup_needed` flag is set.
+   - `tools/rebuild_tiers.py` is the only tier writer; `auto_consolidation`/`tiered_memory` call it
+     whenever episodes are newer than the tiers. Limits are characters; caps keep the newest content.
    - Context budget: 8000 chars total for tier content in system message.
 
 3. **Recap System:**
-   - `recap.py` transformation detects new episodes from transcript gaps.
-   - Episodes are numbered, JSON-structured, with title/summary/themes/notable_steps.
-   - `.recap_state` tracks the counter.
+   - `.recap_state` = number of logical history records (archive + history.metta) already summarized.
+   - When >= 20 records are unsummarized, `recap.py` appends a `## Recap Request` to the system
+     message naming the span by timestamp and the next episode number.
+   - The agent reads the span with `episodes` and writes the episode with `record_episode`
+     (`{"e", "s", "t"?, "start_time", "end_time", "lines": [a, b]}`); the cursor advances, the
+     request clears and the tiers are regenerated. Episodes are immutable; numbering gaps are fine.
 
 ### Bridge Between Systems
 - `link_episode` connects LTM items → episode timestamps.
@@ -420,7 +425,7 @@ were confirmation.
 | `wonder_preservation_bridge.py` | Feeds real evidence into `explore_with_purpose` (Wonder Preservation) by reading `stall_detect.py`'s own persisted state across consecutive cycles: a repeated-tool loop that persists vs. one that gets broken. See "Flourishing Reinterpretation" below. |
 | `connection_depth_bridge.py` | Feeds real evidence into `recover_gracefully` (Connection Depth) by reusing `auto_improve.py`'s own `ERROR_PATTERNS` against `transcript.txt`: an error surfaced to the user via `send` vs. one worked around in silence past a threshold. See "Flourishing Reinterpretation" below. |
 | `history.py` | Stores episodes (deduped, restart-safe) |
-| `recap.py` | Episode detection + `.recap_needed` flag |
+| `recap.py` | Recap cursor + `## Recap Request` in the system message; injects the newest episodes |
 | `screenshot.py` | Attaches screenshot as one-shot multimodal input |
 | `tiered_memory.py` | Reads tier files, assembles into system message (8000-char budget) |
 | `tool_reliability_tracker.py` | Tracks reliability of tools |

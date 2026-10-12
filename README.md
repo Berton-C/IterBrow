@@ -198,6 +198,7 @@ currently call, grouped by what it's for. (A further ~22 tools exist but are dea
 | Name | What it does |
 |---|---|
 | `episodes` | Search transcript history for entries around a given timestamp. Returns surrounding context lines. |
+| `record_episode` | Record an episode summary for a span of history (answers a Recap Request); the only sanctioned way to write episodes. |
 | `search_transcript` | Search the communication transcript around a timestamp. Use YYYY-MM-DD HH:MM:SS; returns nearby user and send lines. |
 | `memory_journal` | Append-only audit journal for memory-management actions. action='log' records {actor, action, detail} as a new immutable line (use this whenever you trim, regenerate, forget, or vote on memory content so there is always an audit trail). action='tail' returns the last n entries. |
 | `rebuild_tiers` | Regenerate memory/tiers/tier3.txt, tier4.txt, and tier5.txt from memory/recap/episode_*.json (the source of truth). This is the ONLY sanctioned way to update tier files - direct writes to them from python/shell are blocked. Safe to call any time; always idempotent. Call this instead of hand-editing tier files whenever memory/tiers/.rollup_needed exists or tiers look stale. |
@@ -266,7 +267,7 @@ transformations exist but are deactivated.)
 | `agents_md_inject` | Auto-inject AGENTS.md reference into system message. |
 | `append_last_transcript_lines` | Append last 6 transcript lines to system message. |
 | `browser_vision` | Attach browser_screenshot tool results as one-shot multimodal image input. |
-| `recap` | Episode recap: segments completed tasks into episode records and injects a recap of recent episodes. |
+| `recap` | Episode recap: asks the agent to record an episode (record_episode) when enough history is unsummarized, and injects the newest episodes. |
 | `tiered_memory` | Tiered memory pyramid: rolls episode summaries up into era and life summaries and injects the pyramid. |
 | `staleness_check` | Detect staleness in AGENTS.md by comparing disk vs documented files. |
 

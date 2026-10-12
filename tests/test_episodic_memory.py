@@ -255,5 +255,82 @@ class ContextBudgetSectionTests(EpisodicCase):
         self.assertLess(transcript_size, 200)   # the Soul block after it is not part of the transcript
 
 
+# ---------------------------------------------------------------- BUG-1
+def log_history(count, start=0, minute="10:00"):
+    """Log `count` user messages through the real history transformation."""
+    history = load("transformations/history.py")
+    messages = [user("2026-10-01 %s:%02d" % (minute, c), "q%d" % c) for c in range(start, start + count)]
+    history.transform(roundtrip([system()] + messages), [])
+    return messages
+
+
+class RecapPipelineTests(EpisodicCase):
+    def test_bug1_recap_request_reaches_the_system_prompt(self):
+        log_history(25)
+        content = load("transformations/recap.py").transform([system()], [])[0][0]["content"]
+        self.assertIn("## Recap Request", content)
+        self.assertIn("History records 1-25 (2026-10-01 10:00:00 to 2026-10-01 10:00:24)", content)
+        self.assertIn('episodes(time_string="2026-10-01 10:00:00"', content)
+        self.assertIn("record_episode(", content)
+        self.assertIn("episode_0001.json", content)
+
+    def test_bug1_record_episode_advances_cursor_and_clears_request(self):
+        log_history(25)
+        recap = load("transformations/recap.py")
+        recap.transform([system()], [])
+        result = load("tools/record_episode.py").run("Answered 25 questions. RECORDED-SUMMARY")
+        self.assertIn("SUCCESS", result)
+        episode = json.loads((self.dir / "memory/recap/episode_0001.json").read_text(encoding="utf-8"))
+        self.assertEqual(episode["lines"], [1, 25])
+        self.assertEqual((episode["start_time"], episode["end_time"]), ("2026-10-01 10:00:00", "2026-10-01 10:00:24"))
+        content = recap.transform([system()], [])[0][0]["content"]
+        self.assertNotIn("## Recap Request", content)
+        self.assertEqual((self.dir / "memory/recap/.recap_state").read_text(), "25")
+        self.assertFalse((self.dir / "memory/recap/.recap_needed").exists())
+        self.assertIn("E1: Answered 25 questions. RECORDED-SUMMARY", self.tier("tier3"))
+
+    def test_bug1_cursor_advances_when_requested_episode_appears_by_other_means(self):
+        log_history(25)
+        recap = load("transformations/recap.py")
+        recap.transform([system()], [])
+        self.assertTrue((self.dir / "memory/recap/.recap_needed").exists())
+        self.write_episodes([1], text=lambda i: "hand-written episode")
+        content = recap.transform([system()], [])[0][0]["content"]
+        self.assertEqual((self.dir / "memory/recap/.recap_state").read_text(), "25")
+        self.assertNotIn("## Recap Request", content)
+        self.assertFalse((self.dir / "memory/recap/.recap_needed").exists())
+
+    def test_bug1_owner_cursor_and_episode_gaps_stay_compatible(self):
+        self.write_episodes(range(26, 75))
+        recap_dir = self.dir / "memory/recap"
+        (recap_dir / ".recap_state").write_text("181")
+        (recap_dir / ".recap_needed").write_text("New lines: 40 (lines 182-221 of 221 total)\nlegacy text\n")
+        log_history(60, minute="10:00")
+        log_history(50, start=0, minute="10:01")
+        log_history(80, start=0, minute="10:02")   # 190 records: below threshold
+        recap = load("transformations/recap.py")
+        content = recap.transform([system()], [])[0][0]["content"]
+        self.assertNotIn("## Recap Request", content)
+        self.assertEqual((recap_dir / ".recap_state").read_text(), "181")
+        log_history(30, start=0, minute="10:03")   # 220 records
+        content = recap.transform([system()], [])[0][0]["content"]
+        self.assertIn("History records 182-220", content)
+        self.assertIn("episode_0075.json", content)
+        for i in range(26, 75):                     # existing episodes never rewritten
+            self.assertEqual(json.loads((recap_dir / ("episode_%04d.json" % i)).read_text()), {"e": i, "s": "ep %d" % i})
+
+    def test_bug1_large_backlog_is_requested_span_by_span(self):
+        log_history(50, minute="09:00"); log_history(50, minute="09:01"); log_history(50, minute="09:02")
+        log_history(50, minute="09:03"); log_history(50, minute="09:04")
+        recap = load("transformations/recap.py")
+        content = recap.transform([system()], [])[0][0]["content"]
+        self.assertIn("History records 1-200 ", content)
+        self.assertIn("50 more unsummarized records", content)
+        load("tools/record_episode.py").run("first span")
+        content = recap.transform([system()], [])[0][0]["content"]
+        self.assertIn("History records 201-250 ", content)
+        self.assertIn("episode_0002.json", content)
+
+
 if __name__ == "__main__":
     unittest.main()

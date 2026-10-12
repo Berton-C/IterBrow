@@ -1,35 +1,47 @@
 """
 Recap / Episode Summarization System.
 
-Detects unrecapped episodes in history.metta and signals for summarization.
-Also injects existing recap summaries into the system message so the agent
-has self-awareness of what it's been doing.
+Episodes are written BY THE AGENT. This transformation decides when one is
+due and tells the agent - in the system message it actually sees - exactly
+how to write it; it also injects the newest episodes.
 
 How it works:
-1. Reads history.metta line count and compares to last-recapped line count
-   stored in ./memory/recap/.recap_state
-2. If there are new unrecapped lines, writes ./memory/recap/.recap_needed
-   flag with details about how many lines need recapping
-3. Reads all JSON episode files from ./memory/recap/ and injects a summary
-   block into the system message so the agent can see its episode history
-4. The agent (LLM) then performs the actual summarization by reading the
-   episode data via the episodes tool and writing JSON files
+1. The recap cursor (memory/recap/.recap_state, an integer) is the number of
+   logical history records (archived history + history.metta tail) already
+   summarized into episodes.
+2. The cursor advances when episodes covering the requested span exist
+   (record_episode stores "lines": [start, end]; any episode numbered at or
+   above the requested number also completes the request).
+3. When at least RECAP_THRESHOLD records are unsummarized, a "## Recap
+   Request" block naming the episode number/file, the fields and the span by
+   TIMESTAMP (the episodes tool searches by time) is appended to the system
+   message, and memory/recap/.recap_needed + .recap_request.json are written.
+   They are cleared as soon as the cursor catches up.
+4. The newest RECAP_INJECT_EPISODES episodes are injected as a recap block.
 """
 import os, json
-from iterbrow_runtime.episodic_history import history_lines, list_episodes
+from iterbrow_runtime.atomspace_store import _atomic_text
+from iterbrow_runtime.episodic_history import list_episodes
+from iterbrow_runtime import recap_state
 
-DESCRIPTION = "Episode recap: segments completed tasks into episode records and injects a recap of recent episodes."
+DESCRIPTION = "Episode recap: asks the agent to record an episode (record_episode) when enough history is unsummarized, and injects the newest episodes."
 
-HISTORY_PATH = "history.metta"
-RECAP_DIR = "memory/recap"
-STATE_PATH = os.path.join(RECAP_DIR, ".recap_state")
-FLAG_PATH = os.path.join(RECAP_DIR, ".recap_needed")
+HISTORY_PATH = recap_state.HISTORY_PATH
+RECAP_DIR = recap_state.RECAP_DIR
+STATE_PATH = recap_state.STATE_PATH
+FLAG_PATH = recap_state.FLAG_PATH
+REQUEST_PATH = recap_state.REQUEST_PATH
 
 # Minimum lines of new history before triggering a recap
 RECAP_THRESHOLD = 20
+# One episode covers at most this many history records (a large backlog is
+# summarized span by span instead of in one unreadable request).
+RECAP_MAX_SPAN = 200
 # Only the NEWEST episodes are injected; older ones live on in the tier pyramid.
 RECAP_INJECT_EPISODES = 10
 RECAP_END = "(end of episode recap)"  # must match zz_context_budget.RECAP_END
+REQUEST_HEADING = "## Recap Request"
+
 
 def _exists(path):
     try:
@@ -38,64 +50,61 @@ def _exists(path):
     except OSError:
         return False
 
-def _read_file(path):
-    try:
-        with open(path, "r") as f:
-            return f.read().strip()
-    except Exception:
-        return ""
 
-def _count_lines(path):
+def _remove(path):
     try:
-        # A logical record position across archive + tail, not the rotating
-        # file's length. Existing integer cursors remain compatible.
-        return sum(1 for _ in history_lines(path))
-    except Exception:
-        return 0
-
-def _load_state():
-    """Load the last-recapped line count."""
-    if _exists(STATE_PATH):
-        try:
-            with open(STATE_PATH, "r") as f:
-                return int(f.read().strip())
-        except Exception:
-            return 0
-    return 0
-
-def _save_state(count):
-    try:
-        with open(STATE_PATH, "w") as f:
-            f.write(str(count))
-    except Exception:
+        os.remove(path)
+    except FileNotFoundError:
         pass
 
-def _check_recap_needed():
-    """Check if new episodes need recapping. Write flag if so."""
-    total_lines = _count_lines(HISTORY_PATH)
-    recapped_lines = _load_state()
-    new_lines = total_lines - recapped_lines
-    
-    if new_lines >= RECAP_THRESHOLD:
-        lines_info = "New lines: {} (lines {}-{} of {} total)\n"
-        lines_info = lines_info.format(new_lines, recapped_lines + 1, total_lines, total_lines)
-        lines_info += "Positions include archived history and never reset on rotation. Use episodes to retrieve the relevant time range, then create recap JSON files.\n"
-        lines_info += "JSON format: {\"e\": episode_number, \"s\": short_summary, \"t\": optional_type}\n"
-        lines_info += "  t is an optional typed-memory tag (fact/belief/value/todo/preference) - omit if not applicable.\n"
-        lines_info += "Save each episode as ./memory/recap/episode_NNNN.json (new file only - existing episodes are immutable, overwrites are blocked).\n"
-        lines_info += "After creating new episodes, call rebuild_tiers to refresh the tier pyramid - never hand-edit memory/tiers/ files."
-        try:
-            with open(FLAG_PATH, "w") as f:
-                f.write(lines_info)
-        except Exception:
-            pass
-    else:
-        # Clear flag if exists
-        if _exists(FLAG_PATH):
-            try:
-                os.remove(FLAG_PATH)
-            except Exception:
-                pass
+
+def _request_text(request, remaining):
+    n = request["next_e"]
+    first, last = request.get("start_time") or "?", request.get("end_time") or "?"
+    more = (" %d more unsummarized records follow; they get their own request afterwards." % remaining
+            if remaining > 0 else "")
+    return "\n".join([
+        REQUEST_HEADING,
+        "History records {a}-{b} ({t0} to {t1}) are not yet summarized into an episode.{more}".format(
+            a=request["start"], b=request["end"], t0=first, t1=last, more=more),
+        "When no user request is waiting (user work comes first), write episode E{n}:".format(n=n),
+        "1. Read the span: episodes(time_string=\"{t0}\", k=40). The episodes tool searches history by "
+        "TIMESTAMP, not by record number; repeat with later timestamps up to {t1} if needed.".format(t0=first, t1=last),
+        "2. Record it: record_episode(summary=\"<2-4 sentences: what was asked, what you did, the outcome>\", "
+        "start_time=\"{t0}\", end_time=\"{t1}\", mem_type=\"\")".format(t0=first, t1=last),
+        "   It creates memory/recap/episode_{n:04d}.json = {{\"e\": {n}, \"s\": summary, \"t\": mem_type, "
+        "\"start_time\": ..., \"end_time\": ..., \"lines\": [{a}, {b}]}}, advances the recap cursor and "
+        "regenerates the tier pyramid.".format(n=n, a=request["start"], b=request["end"]),
+        "Use record_episode only: never write episode files or memory/tiers/ with python/shell "
+        "(existing episodes are immutable).",
+    ])
+
+
+def _check_recap_needed(episodes):
+    """Advance the cursor over recorded episodes; return the request text to
+    show the agent, or "" when no recap is due (flag files cleared)."""
+    total = recap_state.total_records(HISTORY_PATH)
+    stored = recap_state.read_cursor()
+    request = recap_state.read_request()
+    cursor = recap_state.advanced_cursor(stored, episodes, request)
+    if cursor != stored:
+        recap_state.write_cursor(cursor)
+
+    if total - cursor < RECAP_THRESHOLD:
+        _remove(FLAG_PATH)
+        _remove(REQUEST_PATH)
+        return ""
+
+    start, end = cursor + 1, min(total, cursor + RECAP_MAX_SPAN)
+    start_time, end_time = recap_state.span_times(start, end, HISTORY_PATH)
+    request = {"next_e": recap_state.next_episode_number(episodes), "start": start, "end": end,
+               "start_time": start_time, "end_time": end_time}
+    text = _request_text(request, total - end)
+    if recap_state.read_request() != request:
+        _atomic_text(REQUEST_PATH, json.dumps(request))
+        _atomic_text(FLAG_PATH, text + "\n")
+    return text
+
 
 def _load_episodes():
     """All episode records in numeric episode order (not file-name order)."""
@@ -145,35 +154,36 @@ def _format_recap_block(episodes):
     lines.append(RECAP_END)
     return "\n".join(lines)
 
+def _append(messages, block):
+    first_msg = messages[0]
+    if isinstance(first_msg, dict):
+        content = first_msg.get("content", "")
+        if isinstance(content, str):
+            first_msg["content"] = content.rstrip() + "\n\n" + block
+        elif isinstance(content, list):
+            first_msg["content"] = content + [{"type": "text", "text": "\n\n" + block}]
+
+
 def transform(messages, tools):
+    if not messages:
+        return messages, tools
+    blocks = []
     try:
-        if not messages:
-            return messages, tools
-        
-        # Ensure recap directory exists
-        if not _exists(RECAP_DIR):
-            try:
-                os.mkdir(RECAP_DIR)
-            except Exception:
-                pass
-        
-        # Check if recap is needed (side-effect: may write/clear flag)
-        _check_recap_needed()
-        
-        # Load existing episodes and inject into system message
+        os.makedirs(RECAP_DIR, exist_ok=True)
         episodes = _load_episodes()
         if episodes:
-            recap_block = _format_recap_block(episodes)
-            if recap_block:
-                first_msg = messages[0]
-                if isinstance(first_msg, dict):
-                    content = first_msg.get("content", "")
-                    if isinstance(content, str):
-                        first_msg["content"] = content.rstrip() + "\n\n" + recap_block
-                    elif isinstance(content, list):
-                        first_msg["content"] = content + [{"type": "text", "text": "\n\n" + recap_block}]
-        
-    except Exception:
-        pass
-    
+            blocks.append(_format_recap_block(episodes))
+        try:
+            request = _check_recap_needed(episodes)
+        except Exception as error:
+            request = "%s\n[recap.py could not evaluate the recap cursor: %s: %s]" % (
+                REQUEST_HEADING, type(error).__name__, error)
+        if request:
+            # After the recap block's end sentinel: never deduplicated with it.
+            blocks.append(request)
+    except Exception as error:
+        blocks.append("[recap.py failed: %s: %s]" % (type(error).__name__, error))
+    for block in blocks:
+        if block:
+            _append(messages, block)
     return messages, tools

@@ -95,6 +95,11 @@ def history_lines(path):
     yield from current.splitlines(keepends=True)
 
 
+def history_line_count(path):
+    """Number of logical records history_lines(path) yields."""
+    return sum(1 for _ in history_lines(path))
+
+
 RECAP_DIR = "memory/recap"
 _EPISODE_NAME = re.compile(r"^episode_(\d+)\.json$")
 
