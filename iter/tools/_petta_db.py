@@ -45,7 +45,8 @@ _id_counter = 0
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from iterbrow_runtime.cognitive_events import commit_batch, metta_string, _call_atomspace
+from iterbrow_runtime.cognitive_events import (
+    commit_batch, metta_string, parse_semantic_atom, _call_atomspace, SEMANTIC_PREFIX)
 
 
 class MemoryCommitUncertain(RuntimeError):
@@ -64,15 +65,52 @@ class MemoryProjectionPending(RuntimeError):
                          "task_fulfillment": "unverified"}
 
 
-def pending_remember(text):
-    """Reuse the original identity after an interrupted write, not a new fact."""
-    wanted = " ".join(text.split())
-    for path in sorted((Path(ROOT) / ".runtime" / "memory_pending").glob("*.json")):
-        entry = json.loads(path.read_text())
-        kind, records, _ = entry["request"]
-        if kind == "remembered" and len(records) == 1 and " ".join(records[0]["document"].split()) == wanted:
-            return records[0]
+def _pending_dir():
+    return Path(ROOT) / ".runtime" / "memory_pending"
+
+
+def _normal(text):
+    return " ".join(str(text or "").split())
+
+
+def pending_remember(text, mem_type=None, provenance_type=None):
+    """Resume the identity of an interrupted (uncertain) remember of the same request.
+
+    Entries only survive an uncertain outcome (sent without a reply, or a worker
+    killed mid-write); every definite outcome removes its entry.  An entry is
+    reused only when text, mem_type and provenance_type all match, so a later,
+    different request never inherits an old identity or type.
+    """
+    wanted = _normal(text)
+    for path in sorted(_pending_dir().glob("*.json")):
+        try:
+            entry = json.loads(path.read_text())
+            kind, records, _ = entry["request"]
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+        if kind != "remembered" or len(records) != 1:
+            continue
+        record = records[0]
+        metadata = record.get("metadata") or {}
+        if (_normal(record.get("document")) == wanted
+                and (mem_type is None or metadata.get("mem_type") == mem_type)
+                and (provenance_type is None or metadata.get("provenance_type") == provenance_type)):
+            return record
     return None
+
+
+def discard_pending_remember(text, keep_path=None):
+    """Drop remember entries for `text` superseded by a definite outcome."""
+    wanted = _normal(text)
+    for path in sorted(_pending_dir().glob("*.json")):
+        if keep_path and str(path) == str(keep_path):
+            continue
+        try:
+            kind, records, _ = json.loads(path.read_text())["request"]
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+        if kind == "remembered" and len(records) == 1 and _normal(records[0].get("document")) == wanted:
+            _remove_if_present(str(path))
 
 
 def memory_status(item_id):
@@ -97,7 +135,7 @@ def _save_committed_projection(db, committed):
     try:
         _save(db)
     except Exception as error:
-        if isinstance(committed, dict) and not committed.get("deferred"):
+        if isinstance(committed, dict):
             raise MemoryProjectionPending(
                 "Durable memory commit %s is confirmed, but its search projection could not be saved. "
                 "Retry the original text/IDs to finish the projection; do not create a replacement."
@@ -114,25 +152,42 @@ def _memory_atom(item_id, document, metadata):
     )
 
 
-def _commit_memory_change(kind, records, remove_ids=None):
-    # Keep uncertain retries stable, but never confuse a later A->B->A edit
-    # with an earlier completed operation. Reuse the existing runtime directory.
+def _commit_memory_change(kind, records, remove_ids=None, expected_atoms=None):
+    """Commit one semantic-memory change to the AtomSpace authority.
+
+    A pending entry (.runtime/memory_pending/<request digest>.json) holds the
+    transaction id while the outcome is unknown, so an uncertain write can be
+    retried without minting a second identity.  It is removed on every definite
+    outcome; after a commit it is kept until the index is saved too.  A reused
+    transaction id that the AtomSpace reports as an earlier duplicate is only
+    accepted when the expected state is actually present (remember -> forget
+    -> remember must not be swallowed by the first transaction).
+    """
     canonical = json.dumps([kind, records, remove_ids or []], sort_keys=True, ensure_ascii=False)
-    pending_dir = Path(ROOT) / ".runtime" / "memory_pending"
+    pending_dir = _pending_dir()
     pending_dir.mkdir(parents=True, exist_ok=True)
     pending = pending_dir / (hashlib.sha256(canonical.encode()).hexdigest() + ".json")
     from iterbrow_runtime.atomspace_store import _atomic_json
-    with (pending_dir / "writer.lock").open("a") as lock:
-        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+    with writer_lock():
         created = not pending.exists()
+        operation_id = None
         if not created:
-            operation_id = json.loads(pending.read_text())["operation_id"]
-        else:
+            try:
+                operation_id = json.loads(pending.read_text())["operation_id"]
+            except (OSError, ValueError, KeyError):
+                created = True
+        if created:
             operation_id = uuid.uuid4().hex
             _atomic_json(pending, {"operation_id": operation_id, "request": json.loads(canonical)})
         ids = ",".join(str(record["id"]) for record in records)
         try:
-            result = _commit_memory_operation(kind, records, remove_ids, operation_id)
+            result = _commit_memory_operation(kind, records, remove_ids, operation_id, expected_atoms)
+            if not created and result.get("duplicate") and not _expected_state_present(kind, records, remove_ids):
+                # The old transaction committed long ago and the memory changed
+                # since; re-sending its id is a no-op.  This is a new operation.
+                operation_id = uuid.uuid4().hex
+                _atomic_json(pending, {"operation_id": operation_id, "request": json.loads(canonical)})
+                result = _commit_memory_operation(kind, records, remove_ids, operation_id, expected_atoms)
         except (OSError, json.JSONDecodeError) as error:
             if getattr(error, "atomspace_not_sent", False):
                 # Definite: nothing reached the AtomSpace.  An entry left by an
@@ -153,20 +208,30 @@ def _commit_memory_change(kind, records, remove_ids=None):
             # The AtomSpace answered with a rejection: a definite outcome.
             _remove_if_present(str(pending))
             raise
-        # Keep the existing recovery entry until the local search projection is
-        # saved too. An acknowledged commit followed by a crash is recoverable.
-        return {**result, **({"_pending_path": str(pending), "_operation_id": operation_id}
-                            if not result.get("deferred") else {})}
+        # Keep the recovery entry until the local search index is saved too;
+        # an acknowledged commit followed by a crash is recoverable.
+        return {**result, "_pending_path": str(pending), "_operation_id": operation_id}
 
 
-def _commit_memory_operation(kind, records, remove_ids, operation_id):
-    canonical = json.dumps(
-        {"kind": kind, "records": records, "remove_ids": remove_ids or []},
-        sort_keys=True, ensure_ascii=False,
-    )
+def _memory_state(kind, records, remove_ids):
+    state_atoms = {}
+    if kind != "forgotten":
+        for record in records:
+            state_atoms["semantic_memory:%s" % record["id"]] = _memory_atom(
+                record["id"], record.get("document", ""), record.get("metadata", {}))
+    return state_atoms, ["semantic_memory:%s" % item_id for item_id in (remove_ids or [])]
+
+
+def _expected_state_present(kind, records, remove_ids):
+    state_atoms, removed = _memory_state(kind, records, remove_ids)
+    snapshot = _call_atomspace("read_atoms", timeout=10, prefix=SEMANTIC_PREFIX)["atoms"]
+    return (all(snapshot.get("state:" + key) == atom for key, atom in state_atoms.items())
+            and all(("state:" + key) not in snapshot for key in removed))
+
+
+def _commit_memory_operation(kind, records, remove_ids, operation_id, expected_atoms=None):
     digest = operation_id
     events = []
-    state_atoms = {}
     for record in records:
         item_id = record["id"]
         events.append({
@@ -176,18 +241,16 @@ def _commit_memory_operation(kind, records, remove_ids, operation_id):
             "event_type": kind,
             "payload": record,
         })
-        if kind != "forgotten":
-            state_atoms["semantic_memory:%s" % item_id] = _memory_atom(
-                item_id, record.get("document", ""), record.get("metadata", {})
-            )
+    state_atoms, removed = _memory_state(kind, records, remove_ids)
     return commit_batch(
         events,
         require=True,  # semantic memory always fails closed (never "deferred")
         state_atoms=state_atoms,
-        remove_state_keys=["semantic_memory:%s" % item_id for item_id in (remove_ids or [])],
+        remove_state_keys=removed,
         actor="iter",
         source="tools._petta_db",
         transaction_id="cognitive:memory:%s" % digest,
+        expected_atoms=expected_atoms,
     )
 
 

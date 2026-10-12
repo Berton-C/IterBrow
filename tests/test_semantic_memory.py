@@ -314,5 +314,75 @@ class FailClosedTests(ServiceTestCase):
         self.assertEqual(len(self.r.pending_files()), 1)
 
 
+class PendingIdentityTests(ServiceTestCase):
+    """B1: a pending entry that outlived its commit (worker killed after the index
+    save) made a later identical request reuse the old transaction id; the
+    AtomSpace answered 'duplicate' and applied nothing, yet the tool reported
+    success. B2: a leftover entry resurrected an old identity, mem_type and
+    provenance for a different request, and survived failures it should not."""
+
+    def _authority_has(self, item_id):
+        return item_id in self.r.memories()
+
+    def test_remember_forget_remember_after_a_crash_reaches_the_authority(self):
+        text = "the user's cat is named Miso"
+        crashed = self.r.tool("remember", text=text, env={"CRASH_AFTER_SAVE": "1"})
+        self.assertIn("runner crash", crashed.get("error", ""))
+        self.assertEqual(len(self.r.pending_files()), 1)
+        item_id = next(iter(self.r.memories()))
+        self.assertTrue(self.r.text("forget", item_id=item_id, force="true").startswith("FORGET-SUCCESS"))
+        self.assertEqual(self.r.memories(), {})
+        out = self.r.text("remember", text=text)
+        self.assertTrue(out.startswith("REMEMBER-SUCCESS"), out)
+        stored = out.split()[2]
+        self.assertTrue(self._authority_has(stored), "reported success but the authority has nothing")
+        self.assertEqual(self.r.memories()[stored][0], text)
+        self.assertEqual(self.r.index_ids(), set(self.r.memories()))
+        self.assertEqual(self.r.pending_files(), [])
+
+    def test_link_unlink_link_after_a_crash_reaches_the_authority(self):
+        item_id = self.r.remember("belief with episodes")
+        self.r.tool("link_episode", item_id=item_id, linked_time="E1", env={"CRASH_AFTER_SAVE": "1"})
+        self.assertEqual(self.r.memories()[item_id][1].get("linkedEpisodes"), ["E1"])
+        self.assertIn("UNLINK-SUCCESS", self.r.text("unlink_episode", item_id=item_id, linked_time="E1"))
+        self.assertIsNone(self.r.memories()[item_id][1].get("linkedEpisodes"))
+        self.assertIn("LINK-SUCCESS", self.r.text("link_episode", item_id=item_id, linked_time="E1"))
+        self.assertEqual(self.r.memories()[item_id][1].get("linkedEpisodes"), ["E1"])
+        self.assertEqual(self.r.pending_files(), [])
+
+    def test_server_side_rejection_removes_the_pending_entry(self):
+        self.r.call("quiesce")
+        out = self.r.text("remember", text="Berton prefers dark mode", mem_type="todo")
+        self.r.call("resume")
+        self.assertNotIn("SUCCESS", out)
+        self.assertEqual(self.r.pending_files(), [])
+
+    def test_leftover_entry_is_reused_only_for_the_same_text_type_and_provenance(self):
+        text = "Berton prefers dark mode"
+        self.r.tool("remember", text=text, mem_type="todo", provenance_type="model_estimated",
+                    env={"CRASH_BEFORE_SEND": "1"})
+        self.assertEqual(len(self.r.pending_files()), 1)
+        self.assertEqual(self.r.memories(), {})
+        out = self.r.text("remember", text=text, mem_type="fact", provenance_type="observed")
+        self.assertTrue(out.startswith("REMEMBER-SUCCESS"), out)
+        metadata = self.r.memories()[out.split()[2]][1]
+        self.assertEqual((metadata["mem_type"], metadata["provenance_type"]), ("fact", "observed"))
+        self.assertTrue(self.r.text("forget", item_id=out.split()[2]).startswith("FORGET-REFUSED"))
+
+    def test_matching_uncertain_entry_resumes_its_original_identity(self):
+        text = "resume me exactly"
+        self.r.tool("remember", text=text, mem_type="todo", env={"CRASH_BEFORE_SEND": "1"})
+        pending_id = json.loads(self.r.pending_files()[0].read_text())["request"][1][0]["id"]
+        out = self.r.text("remember", text=text, mem_type="todo")
+        self.assertEqual(out.split()[2], pending_id)
+        self.assertTrue(self._authority_has(pending_id))
+        self.assertEqual(self.r.pending_files(), [])
+
+    def test_pending_queue_is_cleared_by_reset(self):
+        manifest = json.loads((ITER_SRC / "state_manifest.json").read_text())
+        entry = next(e for e in manifest["entries"] if e["path"] == ".runtime/memory_pending")
+        self.assertTrue(entry["reset"])
+
+
 if __name__ == "__main__":
     unittest.main()

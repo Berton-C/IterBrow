@@ -7,6 +7,8 @@ Test hooks (environment):
                        pending entry is cleared -- a worker SIGKILLed at 75s.
   NO_REPLY_AFTER_SEND=1  make the AtomSpace call send its request and then
                        report a lost reply (uncertain outcome) without waiting.
+  CRASH_BEFORE_SEND=1  die (exit 137) when the transaction is about to be sent:
+                       the pending entry exists, nothing was committed.
 """
 import importlib.util
 import json
@@ -28,7 +30,8 @@ def _petta():
 
 
 try:
-    if os.environ.get("CRASH_AFTER_SAVE") == "1" or os.environ.get("NO_REPLY_AFTER_SEND") == "1":
+    hooks = ("CRASH_AFTER_SAVE", "NO_REPLY_AFTER_SEND", "CRASH_BEFORE_SEND")
+    if any(os.environ.get(hook) == "1" for hook in hooks):
         import _petta_db as petta  # noqa: F811
         if os.environ.get("CRASH_AFTER_SAVE") == "1":
             original_save = petta._save
@@ -37,17 +40,18 @@ try:
                 original_save(db, *args, **kw)
                 os._exit(137)
             petta._save = crash_after_save
-        if os.environ.get("NO_REPLY_AFTER_SEND") == "1":
-            from iterbrow_runtime import cognitive_events
-            original_call = cognitive_events._call_atomspace
+        from iterbrow_runtime import cognitive_events
+        original_call = cognitive_events._call_atomspace
 
-            def lost_reply(method, timeout=30, **params):
-                if method == "transact":
-                    original_call(method, timeout=timeout, **params)
-                    raise ConnectionError("AtomSpace closed without a full response")
-                return original_call(method, timeout=timeout, **params)
-            cognitive_events._call_atomspace = lost_reply
-            petta._call_atomspace = lost_reply
+        def hooked_call(method, timeout=30, **params):
+            if method == "transact" and os.environ.get("CRASH_BEFORE_SEND") == "1":
+                os._exit(137)
+            if method == "transact" and os.environ.get("NO_REPLY_AFTER_SEND") == "1":
+                original_call(method, timeout=timeout, **params)
+                raise ConnectionError("AtomSpace closed without a full response")
+            return original_call(method, timeout=timeout, **params)
+        cognitive_events._call_atomspace = hooked_call
+        petta._call_atomspace = hooked_call
     spec = importlib.util.spec_from_file_location("_dynamic_" + tool_path.stem, tool_path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

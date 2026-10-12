@@ -60,9 +60,10 @@ def run(text="", provenance_type="observed", mem_type="fact", status_id=""):
 
     existing_id = _find_duplicate(collection, text)
     if existing_id:
+        petta_db.discard_pending_remember(text)  # any uncertain earlier write is settled
         return f"REMEMBER-DUPLICATE: identical memory already stored as {existing_id}; not re-storing"
 
-    pending = petta_db.pending_remember(text)
+    pending = petta_db.pending_remember(text, mem_type, provenance_type)
     text = pending["document"] if pending else text
     embedding = petta_db.get_embedding(text, "search_document")
     current = time.localtime()
@@ -77,6 +78,7 @@ def run(text="", provenance_type="observed", mem_type="fact", status_id=""):
         documents=[text],
         metadatas=[metadata]
     )
+    petta_db.discard_pending_remember(text)  # superseded entries for the same text
     try:
         import memory_journal
         memory_journal.log("remember", "stored", {"item_id": item_id, "mem_type": mem_type, "provenance_type": provenance_type})
