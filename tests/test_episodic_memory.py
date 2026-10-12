@@ -455,6 +455,17 @@ class RecapCursorMigrationTests(EpisodicCase):
         load("transformations/recap.py").transform([system()], [])
         self.assertEqual((recap / ".recap_state").read_text(), "4300")
 
+    def test_span_times_tolerate_out_of_order_records(self):
+        # Review 3 LOW-c: history.metta records carry event-time stamps, so a
+        # span's first record is not necessarily its earliest.
+        from iterbrow_runtime import recap_state
+        Path("history.metta").write_text("".join(history_record(i) for i in (5, 2, 9, 7, 1, 8)))
+        self.assertEqual(recap_state.span_times(1, 4), (stamp_of(2), stamp_of(9)))
+        self.assertEqual(recap_state.span_times(2, 6), (stamp_of(1), stamp_of(9)))
+        self.assertEqual(recap_state.span_for_times(stamp_of(2), stamp_of(7)), (1, 4))
+        self.assertEqual(recap_state.span_for_times(stamp_of(1), stamp_of(1)), (5, 5))
+
+
     def test_backlog_is_capped_to_the_most_recent_spans_and_said_once(self):
         recap = self.owner_shape()
         for i in range(26, 75):  # episodes much older than the history

@@ -91,27 +91,29 @@ def advanced_cursor(cursor, episodes, request):
 
 
 def span_times(start, end, path=HISTORY_PATH):
-    """(first, last) record timestamps within logical records start..end."""
-    first = last = None
+    """(earliest, latest) record timestamps within logical records start..end.
+
+    Records carry event-time stamps, so history is not strictly in time order:
+    min/max, never first/last."""
+    stamps = []
     for position, raw in history_lines_from(path, start):
         if position > end:
             break
         stamp = record_timestamp(raw)
         if stamp:
-            first = first or stamp
-            last = stamp
-    return first, last
+            stamps.append(stamp)
+    return (min(stamps), max(stamps)) if stamps else (None, None)
 
 
 def span_for_times(start_time, end_time, path=HISTORY_PATH):
-    """(first, last) logical record positions whose timestamps fall in the range."""
-    first = last = None
+    """(lowest, highest) logical record positions whose timestamps fall in the
+    range (out-of-order records included)."""
+    positions = []
     for position, raw in enumerate(history_lines(path), 1):
         stamp = record_timestamp(raw)
         if stamp and start_time <= stamp <= end_time:
-            first = first or position
-            last = position
-    return first, last
+            positions.append(position)
+    return (min(positions), max(positions)) if positions else (None, None)
 
 
 def _episode_time(episode, recap_dir=RECAP_DIR):
