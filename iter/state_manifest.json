@@ -101,7 +101,7 @@
       "path": ".runtime/hotload",
       "role": "authoritative_state",
       "format": "hotload_generations_v1",
-      "portable": true,
+      "portable": false,
       "reset": false,
       "owner": "platform.self_extension"
     },
@@ -126,7 +126,7 @@
       "role": "event_log",
       "format": "pwq_v1",
       "portable": true,
-      "reset": false,
+      "reset": true,
       "owner": "platform.human_agency"
     },
     {
@@ -134,7 +134,7 @@
       "role": "projection",
       "format": "json",
       "portable": true,
-      "reset": false,
+      "reset": true,
       "owner": "application.pwq_board"
     },
     {
@@ -408,6 +408,182 @@
       "portable": false,
       "reset": true,
       "owner": "cognition.perception"
+    },
+    {
+      "path": ".runtime/tool_results",
+      "role": "cache",
+      "format": "retained_tool_outputs_v1",
+      "portable": false,
+      "reset": true,
+      "owner": "core.tool_results"
+    },
+    {
+      "path": ".runtime/last_prompt.json",
+      "role": "cache",
+      "format": "json",
+      "portable": false,
+      "reset": true,
+      "owner": "core.loop"
+    },
+    {
+      "path": ".runtime/last_prompt.prev.json",
+      "role": "cache",
+      "format": "json",
+      "portable": false,
+      "reset": true,
+      "owner": "core.loop"
+    },
+    {
+      "path": ".runtime/last_model_usage.json",
+      "role": "cache",
+      "format": "json",
+      "portable": false,
+      "reset": true,
+      "owner": "core.loop"
+    },
+    {
+      "path": ".runtime/build_plan.metta",
+      "role": "projection",
+      "format": "metta",
+      "portable": true,
+      "reset": true,
+      "owner": "cognition.reasoning"
+    },
+    {
+      "path": ".runtime/surfaces",
+      "role": "projection",
+      "format": "html",
+      "portable": true,
+      "reset": true,
+      "owner": "application.component_museum"
+    },
+    {
+      "path": ".runtime/exports",
+      "role": "projection",
+      "format": "mixed",
+      "portable": true,
+      "reset": true,
+      "owner": "application.component_museum"
+    },
+    {
+      "path": ".runtime/memory_pending",
+      "role": "legacy_queue",
+      "format": "json",
+      "portable": false,
+      "reset": true,
+      "owner": "platform.semantic_index"
+    },
+    {
+      "path": ".runtime/recovery/cycle_completions",
+      "role": "cache",
+      "format": "json",
+      "portable": false,
+      "reset": true,
+      "owner": "platform.recovery_supervisor"
+    },
+    {
+      "path": ".runtime/metta_server.log",
+      "role": "cache",
+      "format": "text",
+      "portable": false,
+      "reset": true,
+      "owner": "platform.atomspace"
+    },
+    {
+      "path": ".runtime/metta_server_workdir",
+      "role": "cache",
+      "format": "mixed",
+      "portable": false,
+      "reset": true,
+      "owner": "platform.atomspace"
+    },
+    {
+      "path": ".runtime/platform_revisions",
+      "role": "authoritative_state",
+      "format": "json",
+      "portable": false,
+      "reset": false,
+      "owner": "platform.source_revision"
+    },
+    {
+      "path": ".trajectory",
+      "role": "projection",
+      "format": "json",
+      "portable": true,
+      "reset": true,
+      "owner": "cognition.trajectory"
+    },
+    {
+      "path": "dashboard_atomspace.html",
+      "role": "projection",
+      "format": "html",
+      "portable": false,
+      "reset": true,
+      "owner": "application.dashboards"
+    },
+    {
+      "path": "dashboard_context.html",
+      "role": "projection",
+      "format": "html",
+      "portable": false,
+      "reset": true,
+      "owner": "application.dashboards"
+    },
+    {
+      "path": "dashboard_gallery.html",
+      "role": "projection",
+      "format": "html",
+      "portable": false,
+      "reset": true,
+      "owner": "application.dashboards"
+    },
+    {
+      "path": "dashboard_runtime.html",
+      "role": "projection",
+      "format": "html",
+      "portable": false,
+      "reset": true,
+      "owner": "application.dashboards"
+    },
+    {
+      "path": ".dashboard_cycle_state.json",
+      "role": "cache",
+      "format": "json",
+      "portable": false,
+      "reset": true,
+      "owner": "cognition.context"
+    },
+    {
+      "path": ".context_budget_log.txt",
+      "role": "cache",
+      "format": "text",
+      "portable": false,
+      "reset": true,
+      "owner": "cognition.context"
+    },
+    {
+      "path": ".context_budget_errors.txt",
+      "role": "cache",
+      "format": "text",
+      "portable": false,
+      "reset": true,
+      "owner": "cognition.context"
+    },
+    {
+      "path": ".budget_exceeded",
+      "role": "cache",
+      "format": "text",
+      "portable": false,
+      "reset": true,
+      "owner": "cognition.context"
+    },
+    {
+      "path": "seeds/self_improve_regression_tests.json",
+      "role": "source_seed",
+      "format": "json",
+      "portable": false,
+      "reset": false,
+      "owner": "platform.self_extension"
     }
   ]
 }

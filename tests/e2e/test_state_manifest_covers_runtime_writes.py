@@ -12,7 +12,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from harness import IterRun, COPY, send, nop
+from harness import IterRun, COPY, send, nop, tool
 
 CODE_ROOTS = set(COPY) | {".venv"}
 
@@ -37,15 +37,30 @@ class ManifestCoversRuntimeWritesTests(unittest.TestCase):
 
 
 
-    @unittest.skipUnless(os.environ.get("ITERBROW_E2E_ALL"), "known failure until milestone 2; set ITERBROW_E2E_ALL=1 to run")
-    @unittest.expectedFailure  # milestone 2: declare every runtime path the agent writes
     def test_every_runtime_written_path_is_declared(self):
-        script = [[send("hello-0")], [send("hello-1")], [nop(5)]]
+        # Exercise the memory writers as well as the conversation loop.
+        script = [
+            [tool("start_new_task", person="tester", requestchannel="electron_ui",
+                  taskcontent="remember the codeword", completionsendcriterium="codeword confirmed",
+                  originalUserMessage="say hello twice", new_work="true"),
+             send("hello-0")],
+            [tool("remember", text="The codeword is PELICAN.", mem_type="fact"),
+             tool("pin", message="working on: codeword")],
+            [tool("chroma_query", query="what is the codeword?", k=3),
+             tool("reminder", when="2099-01-01 00:00", channel="electron_ui", message="far future")],
+            [send("hello-1")],
+            [nop(5)],
+        ]
         with IterRun(script, name="manifest") as run:
             run.say("say hello twice")
             run.wait_for_reply("hello-1")
-            run.wait_for_requests(3)
+            run.wait_for_requests(5)
             run.stop()
+            # The scenario only means something if the memory writers really ran.
+            results = {m["tool_call_id"]: m["content"] for m in run.experience() if m["role"] == "tool"}
+            self.assertIn("REMEMBER-SUCCESS", results.get("call_1_0", ""), results)
+            self.assertIn("PELICAN", results.get("call_2_0", ""), results)
+            self.assertTrue(run.read("memory/tasks/current_tasks.txt"), "start_new_task wrote nothing")
             manifest = json.loads(run.read("state_manifest.json"))
             missing = undeclared_paths(run.root, manifest)
         self.assertEqual(missing, [], "written but not declared in state_manifest.json:\n  "

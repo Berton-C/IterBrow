@@ -38,6 +38,9 @@ MEMORY_DIR = os.path.join(ITER_ROOT, "memory")
 BACKUP_DIR = os.path.join(ITER_ROOT, "memory", "self_improve_backups")
 MAX_MEMORY_CHARS = 20000  # kept in sync with iter.py's cap
 HOTLOAD = HotloadManager(os.path.realpath(ITER_ROOT))
+# Shipped regression tests live in seeds/ (source, survives Reset); tests the
+# agent adds at runtime may live in memory/ (state).  Both are run.
+REGRESSION_SEED_PATH = os.path.join(ITER_ROOT, "seeds", "self_improve_regression_tests.json")
 REGRESSION_PATH = os.path.join(ITER_ROOT, "memory", "self_improve_regression_tests.json")
 
 # ---- Filesystem helpers ----
@@ -253,7 +256,8 @@ def _validate_regression():
     """Level 2: Run regression tests from self_improve_regression_tests.json
     (this tool's own file -- do not confuse with eval.py's
     memory/regression_tests.json, an unrelated run-results log)."""
-    tests = _read_json(REGRESSION_PATH)
+    tests = dict(_read_json(REGRESSION_SEED_PATH) or {})
+    tests.update(_read_json(REGRESSION_PATH) or {})
     if not tests:
         return True, "no regression tests defined"
     passed = 0

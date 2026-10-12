@@ -30,7 +30,9 @@ ROOT = os.path.realpath(os.environ.get("ITER_DIR") or os.getcwd())
 DB_DIR = ROOT + "/chroma_db"
 DB_FILE = DB_DIR + "/memories.json"
 
-EMBEDDING_URL = "https://openrouter.ai/api/v1/embeddings"
+# ITER_EMBEDDING_URL lets tests (and, later, a local embedding server) supply
+# the embeddings endpoint; the default is OpenRouter as before.
+EMBEDDING_URL = os.environ.get("ITER_EMBEDDING_URL") or "https://openrouter.ai/api/v1/embeddings"
 EMBEDDING_MODEL = "qwen/qwen3-embedding-8b"
 EMBEDDING_DIMENSIONS = 1024
 EMBEDDING_SCHEMA = 3

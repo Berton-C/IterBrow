@@ -93,6 +93,8 @@ class IterRun:
             "ITER_INIT_WAIT": "0",
             "BASE_URL": "http://127.0.0.1:%d/v1" % self.port,
             "AI_API_KEY": "fake",
+            "OPENROUTER_API_KEY": "fake",
+            "ITER_EMBEDDING_URL": "http://127.0.0.1:%d/v1/embeddings" % self.port,
             "LLM_PROVIDER": "compatible",
             "NO_PROXY": "127.0.0.1", "no_proxy": "127.0.0.1",
             "PYTHONDONTWRITEBYTECODE": "1", "PYTHONUNBUFFERED": "1",
@@ -245,3 +247,7 @@ def nop(seconds=0):
 
 def shell(cmd):
     return {"name": "shell", "arguments": {"cmd": cmd}}
+
+
+def tool(name, **arguments):
+    return {"name": name, "arguments": arguments}
