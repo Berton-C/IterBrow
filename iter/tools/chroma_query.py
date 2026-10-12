@@ -7,12 +7,26 @@ import _petta_db as petta_db
 
 DESCRIPTION = "Query the chroma_db vector projection for semantically similar authoritative memories. Returns matching entries with their content and metadata."
 
+def _gap_note():
+    unindexed, error = petta_db.index_gap()
+    if not unindexed:
+        return ""
+    count = len(unindexed)
+    one = count == 1
+    return ("NOTE: %d %s not yet searchable: %s stored in the AtomSpace but %s embedding could not be "
+            "computed%s. %s indexed automatically once embeddings work; nothing is lost."
+            % (count, "memory is" if one else "memories are", "it is" if one else "they are",
+               "its" if one else "their", " (" + str(error)[:160] + ")" if error else "",
+               "It is" if one else "They are"))
+
+
 def run(query, k=5):
     chroma_client = petta_db.PersistentClient()
     collection = chroma_client.get_or_create_collection(name="memories")
+    note = _gap_note()
 
     if not collection.get(include=["metadatas"]).get("ids"):
-        return "No results found."
+        return ("No results found.\n" + note) if note else "No results found."
 
     try:
         query_embedding = petta_db.get_embedding(query, "search_query")
@@ -24,8 +38,9 @@ def run(query, k=5):
             # attention at this instead of onto replying to the user. Long-term-memory
             # search just isn't available until a key is set in Settings; say so once,
             # calmly, and move on.
-            return "Long-term-memory search unavailable: no OpenRouter key configured in Settings (needed for embeddings even when chatting via LM Studio). Not a bug — set a key there if you want this back; otherwise safe to ignore and continue without it."
-        raise
+            return "Long-term-memory search unavailable: no OpenRouter key configured in Settings (needed for embeddings even when chatting via LM Studio). Not a bug — set a key there if you want this back; otherwise safe to ignore and continue without it." + ("\n" + note if note else "")
+        return ("Long-term-memory search unavailable right now: the embeddings request failed (%s). "
+                "Stored memories are safe; try again later.%s" % (str(error)[:200], "\n" + note if note else ""))
 
     results = collection.query(
         query_embeddings=[query_embedding],
@@ -39,7 +54,7 @@ def run(query, k=5):
     distances = results.get("distances", [[]])[0]
 
     if not documents:
-        return "No results found."
+        return ("No results found.\n" + note) if note else "No results found."
 
     output_lines = ["Found " + str(len(documents)) + ' results for query: "' + query + '"\n']
     for i in range(len(documents)):
@@ -70,4 +85,6 @@ def run(query, k=5):
         output_lines.append("Content: " + str(doc))
         output_lines.append("")
 
+    if note:
+        output_lines.append(note)
     return "\n".join(output_lines)

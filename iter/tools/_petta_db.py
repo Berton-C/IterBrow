@@ -420,6 +420,8 @@ def _mkdirs(path):
 
 
 def _empty():
+    # "authority_index" (written by reconcile_index) records which authority
+    # state the index was last aligned with; older files simply lack it.
     return {
         "ids": [],
         "documents": [],
@@ -479,6 +481,8 @@ def _write_new_file(path, db):
         "embedding_dimensions": db.get("embedding_dimensions", EMBEDDING_DIMENSIONS),
         "embedding_schema": EMBEDDING_SCHEMA,
     }
+    if "authority_index" in db:
+        storage_db["authority_index"] = db["authority_index"]
     with open(path, "w", encoding="utf-8") as file:
         file.write(json.dumps(storage_db))
         file.flush()
@@ -745,14 +749,119 @@ def _vector_dimensions(vector):
     return len(vector) if isinstance(vector, list) else 0
 
 
+RECONCILE_RETRY_S = 60
+TRUSTED_MIGRATION_STATES = ("migrated", "already_migrated", "not_needed")
+
+
+def _authority_digest(atoms):
+    pairs = sorted((key, atom) for key, atom in atoms.items() if key.startswith(SEMANTIC_PREFIX))
+    return hashlib.sha256(json.dumps(pairs, ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
+def _authority_complete():
+    """Orphans may only be removed when the authority holds every legacy memory:
+    a failed legacy migration means the authority is missing what the index has."""
+    try:
+        status = _call_atomspace("status", timeout=10)
+    except Exception:
+        return False
+    return (status.get("legacy_migration") or {}).get("status") in TRUSTED_MIGRATION_STATES
+
+
+def index_gap(db=None):
+    """Authority memories not yet searchable (embedding pending), per the last reconcile."""
+    state = (db or _load()).get("authority_index") or {}
+    return list(state.get("unindexed") or []), state.get("last_error")
+
+
+def reconcile_index(force=False):
+    """Align chroma_db (a rebuildable index) with the AtomSpace authority.
+
+    Missing in the index -> embedded (batched) and added; index-only ids ->
+    removed; differing document -> re-embedded; differing metadata -> the
+    authority's.  Without embeddings, removals and metadata fixes still apply
+    and the missing ids are recorded as unindexed (retried after a back-off).
+    The authority's semantic-atom digest is stored in the index, so an aligned
+    index costs one read_atoms and no writes.  Returns a summary dict.
+    """
+    try:
+        snapshot, memories = authority_memories()
+    except Exception as error:
+        return {"status": "authority_unavailable", "error": str(error)}
+    db = _load()
+    state = db.get("authority_index") or {}
+    if (not force and state.get("digest") == _authority_digest(snapshot["atoms"])
+            and not state.get("unindexed") and _index_is_current(db)):
+        return {"status": "current"}
+    with writer_lock():
+        snapshot, memories = authority_memories()
+        digest = _authority_digest(snapshot["atoms"])
+        db = _load(write=True)
+        state = db.get("authority_index") or {}
+        before = json.dumps(db, sort_keys=True, default=str)
+        rebuilt = not _index_is_current(db)
+        if rebuilt:
+            # Old model/dimensions/hash vectors: drop the vectors, rebuild every
+            # entry from the authority (never "delete chroma_db and start over").
+            db = _empty()
+        orphans = [item_id for item_id in db["ids"] if item_id not in memories]
+        trusted = not orphans or _authority_complete()
+        if trusted:
+            _index_drop(db, orphans)
+        missing = []
+        for item_id, (document, metadata, _atom) in sorted(memories.items()):
+            if item_id in db["ids"]:
+                index = db["ids"].index(item_id)
+                if db["documents"][index] != document:
+                    _index_drop(db, [item_id])
+                    missing.append(item_id)
+                elif db["metadatas"][index] != metadata:
+                    db["metadatas"][index] = metadata
+            else:
+                missing.append(item_id)
+        error_text = None
+        retry_after = float(state.get("retry_after") or 0)
+        if missing and (force or time.time() >= retry_after):
+            try:
+                vectors = get_embeddings([memories[item_id][0] for item_id in missing], "search_document")
+            except Exception as error:
+                error_text = str(error)
+                retry_after = time.time() + RECONCILE_RETRY_S
+            else:
+                for item_id, vector in zip(missing, vectors):
+                    document, metadata, _atom = memories[item_id]
+                    _index_put(db, item_id, document, metadata, vector)
+                missing, retry_after = [], 0
+        elif missing:
+            error_text = state.get("last_error")
+        db["embedding_model"] = EMBEDDING_MODEL
+        db["embedding_dimensions"] = EMBEDDING_DIMENSIONS
+        db["embedding_schema"] = EMBEDDING_SCHEMA
+        db["authority_index"] = {
+            "digest": digest if trusted and not missing else None,
+            "epoch": snapshot.get("epoch"), "commit": snapshot.get("commit"),
+            "count": len(memories), "unindexed": missing,
+            "retry_after": retry_after if missing else 0,
+            "last_error": error_text if missing else None,
+        }
+        changed = json.dumps(db, sort_keys=True, default=str) != before
+        if changed:
+            _save(db)
+        return {"status": "reconciled" if changed else "current", "rebuilt": rebuilt,
+                "removed": orphans if trusted else [], "orphans_kept": [] if trusted else orphans,
+                "unindexed": missing, "error": error_text}
+
+
 def require_current_index():
-    """Reject old/hash vectors instead of silently re-embedding them."""
+    """The index must use the current embedding model; otherwise it is rebuilt
+    from the authority (reconcile_index) rather than deleted by hand."""
     db = _load()
     if not _index_is_current(db):
         raise RuntimeError(
-            "Incompatible legacy/hash-vector memory database at " + DB_FILE
-            + ". Automatic re-embedding is disabled. Remove " + DB_DIR
-            + " and retry to create a fresh OpenRouter index."
+            "The semantic-memory index at " + DB_FILE + " uses an old embedding format and could "
+            "not be rebuilt yet: the AtomSpace authority (the source of every memory) is not "
+            "reachable. Nothing is lost; it is rebuilt automatically once the AtomSpace service "
+            "runs. Do not delete chroma_db."
         )
     return True
 
@@ -909,5 +1018,9 @@ class PersistentClient:
         pass
 
     def get_or_create_collection(self, name="memories", embedding_function=None):
+        try:
+            reconcile_index()
+        except Exception:
+            pass  # index upkeep is best effort; the authority stays correct
         require_current_index()
         return Collection()

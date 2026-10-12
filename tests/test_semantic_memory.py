@@ -525,5 +525,98 @@ class LegacyEvidenceMigrationTests(unittest.TestCase):
         self.assertEqual(r.memories()["linked-only"][1]["confidence"], revised(1.0, 0.5, 1.0)[1])
 
 
+class IndexReconcileTests(ServiceTestCase):
+    """B3 (index half): nothing ever rebuilt chroma_db from the authority, so a
+    commit whose index save failed stayed unsearchable forever, orphans stayed
+    searchable, and drifted metadata was shown (and, before, written back)."""
+
+    def _inject(self, mutate):
+        path = self.r.root / "chroma_db" / "memories.json"
+        index = json.loads(path.read_text())
+        mutate(index)
+        path.write_text(json.dumps(index))
+
+    def test_committed_memory_missing_from_the_index_becomes_searchable(self):
+        self.r.remember("anchor belief")
+        self.r.tool("remember", text="committed but never indexed", env={"FAIL_SAVE": "1"})
+        self.assertEqual(len(self.r.memories()), 2)
+        self.assertEqual(len(self.r.index_ids()), 1)
+        out = self.r.text("chroma_query", query="committed but never indexed", k=1)
+        self.assertIn("Content: committed but never indexed", out)
+        self.assertEqual(self.r.index_ids(), set(self.r.memories()))
+
+    def test_orphans_are_removed_and_drifted_metadata_follows_the_authority(self):
+        keep = self.r.remember("a real memory")
+        self.r.text("support", item_id=keep, episode_time="E1")
+
+        def drift(index):
+            index["ids"].append("orphan-1")
+            index["documents"].append("a memory the authority never had")
+            index["metadatas"].append({"mem_type": "fact"})
+            index["embeddings"].append(index["embeddings"][0])
+            index["metadatas"][index["ids"].index(keep)] = {"mem_type": "todo"}
+        self._inject(drift)
+        out = self.r.text("chroma_query", query="a memory the authority never had", k=5)
+        self.assertNotIn("orphan-1", out)
+        self.assertEqual(self.r.index_ids(), {keep})
+        index = self.r.index()
+        self.assertEqual(index["metadatas"][index["ids"].index(keep)], self.r.memories()[keep][1])
+
+    def test_without_embeddings_removals_still_apply_and_the_gap_is_reported(self):
+        self.r.remember("anchor belief")
+        self.r.tool("remember", text="waiting for an embedding", env={"FAIL_SAVE": "1"})
+        self._inject(lambda index: (index["ids"].append("orphan-2"), index["documents"].append("x"),
+                                    index["metadatas"].append({}), index["embeddings"].append(index["embeddings"][0])))
+        self.r.embeddings.fail = True
+        out = self.r.text("chroma_query", query="anything")
+        self.assertIn("1 memory is not yet searchable", out)
+        self.assertNotIn("orphan-2", self.r.index_ids())
+        self.r.embeddings.fail = False
+        index = self.r.index()
+        index["authority_index"]["retry_after"] = 0  # skip the retry back-off in the test
+        (self.r.root / "chroma_db" / "memories.json").write_text(json.dumps(index))
+        out = self.r.text("chroma_query", query="waiting for an embedding", k=1)
+        self.assertIn("Content: waiting for an embedding", out)
+        self.assertNotIn("not yet searchable", out)
+
+    def test_deleted_index_is_rebuilt_from_the_authority(self):
+        self.r.remember("Berton lives in Buenos Aires")
+        shutil.rmtree(self.r.root / "chroma_db")
+        out = self.r.text("chroma_query", query="Berton lives in Buenos Aires", k=1)
+        self.assertIn("Content: Berton lives in Buenos Aires", out)
+        self.assertTrue(self.r.text("remember", text="Berton lives in Buenos Aires").startswith("REMEMBER-DUPLICATE"))
+
+    def test_an_aligned_index_is_not_re_embedded(self):
+        self.r.remember("steady memory")
+        self.r.text("chroma_query", query="steady")
+        before = self.r.embeddings.requests
+        self.r.text("chroma_query", query="steady")
+        self.assertEqual(self.r.embeddings.requests - before, 1, "only the query itself is embedded")
+
+
+class LegacyIndexTests(unittest.TestCase):
+    """B13: a legacy (hash-vector) index made every memory tool tell the agent to
+    delete chroma_db; doing so left nothing to rebuild the index from, chroma_query
+    found nothing, and remember of a known fact minted a duplicate."""
+
+    def test_legacy_index_is_rebuilt_from_the_authority_without_duplicates(self):
+        r = SemanticRoot("legacy-index")
+        self.addCleanup(r.close)
+        (r.root / "chroma_db").mkdir()
+        (r.root / "chroma_db" / "memories.json").write_text(json.dumps({
+            "ids": ["legacy-0", "legacy-1"],
+            "documents": ["Berton lives in Buenos Aires", "Berton likes mate"],
+            "metadatas": [{"mem_type": "fact"}, {"mem_type": "fact"}],
+            "embeddings": [[0.1] * 16, [0.2] * 16],
+            "embedding_model": "hash", "embedding_dimensions": 16, "embedding_schema": 1}))
+        r.start()
+        out = r.text("chroma_query", query="Berton lives in Buenos Aires", k=1)
+        self.assertNotIn("Remove", out)
+        self.assertIn("Content: Berton lives in Buenos Aires", out)
+        self.assertTrue(r.text("remember", text="Berton lives in Buenos Aires").startswith("REMEMBER-DUPLICATE"))
+        self.assertEqual(len(r.memories()), 2)
+        self.assertEqual(r.index_ids(), {"legacy-0", "legacy-1"})
+
+
 if __name__ == "__main__":
     unittest.main()
