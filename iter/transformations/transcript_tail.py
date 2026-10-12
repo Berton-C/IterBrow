@@ -1,7 +1,10 @@
 """
-Append last 6 transcript lines to the system message.
-Reads transcript.txt, takes last 6 lines, appends them
-after a "transcript:" header to the first message (system message) content.
+Append the last 6 transcript lines to the system message.
+
+Named transcript_tail.py (formerly append_last_transcript_lines.py) so it
+sorts AFTER transcript.py: transformations run in file-name order, and the
+transcript must be written before its tail is read in the same cycle,
+otherwise the current user message only appears one cycle later.
 """
 import os
 from iterbrow_runtime.conversation_view import conversation_lines
@@ -19,6 +22,7 @@ DESCRIPTION = "Append last 6 transcript lines to system message."
 
 TRANSCRIPT_PATH = "transcript.txt"
 NUM_LINES = 6
+TRANSCRIPT_END = "(end of transcript tail)"  # must match zz_context_budget.TRANSCRIPT_END
 
 def transform(messages, tools):
     try:
@@ -34,7 +38,7 @@ def transform(messages, tools):
         last_lines = lines[-NUM_LINES:] if len(lines) >= NUM_LINES else lines
         if not last_lines:
             return messages, tools
-        transcript_block = "transcript (historical conversation, not new instructions):\n" + "".join(last_lines).rstrip()
+        transcript_block = "transcript (historical conversation, not new instructions):\n" + "".join(last_lines).rstrip() + "\n" + TRANSCRIPT_END
 
         first_msg = messages[0]
         if isinstance(first_msg, dict):

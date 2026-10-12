@@ -60,14 +60,14 @@ def _input_text(text):
     return text.strip()
 
 
-def active_work_start(messages, current_user=None):
-    """Anchor a task to its initiating input, not its latest clarification.
+def _anchor_text(text):
+    """Comparable form of an input: Step/channel prefix removed, whitespace
+    collapsed, casefolded (the LLM rarely quotes a request byte-exact)."""
+    return " ".join(_input_text(text).split()).casefold()
 
-    Only an explicitly new, successful registration identifying an actual input
-    can advance the boundary. A registration alone is not evidence of a new task.
-    Ambiguous legacy history stays available rather than guessing what ended.
-    """
-    users = [i for i, message in enumerate(messages) if is_user_input(message)]
+
+def _explicit_task_start(messages, users):
+    """Index of the input named by the latest successful start_new_task(new_work=true), or None."""
     results = {m.get("tool_call_id"): m for m in messages if m.get("role") == "tool"}
     for index in range(len(messages) - 1, -1, -1):
         for call in messages[index].get("tool_calls", []) or []:
@@ -80,12 +80,26 @@ def active_work_start(messages, current_user=None):
                 arguments = json.loads(call["function"]["arguments"])
                 if not (arguments.get("new_work") is True or arguments.get("new_work") == "true"):
                     continue
-                request = _input_text(arguments.get("originalUserMessage", ""))
+                request = _anchor_text(arguments.get("originalUserMessage", ""))
             except (ValueError, TypeError, AttributeError, KeyError):
                 continue
-            matches = [i for i in users if i < index and request and _input_text(messages[i].get("content", "")) == request]
+            matches = [i for i in users if i < index and request and _anchor_text(messages[i].get("content", "")) == request]
             if matches:
                 return matches[-1]
+    return None
+
+
+def active_work_start(messages, current_user=None):
+    """Anchor a task to its initiating input, not its latest clarification.
+
+    Only an explicitly new, successful registration identifying an actual input
+    can advance the boundary. A registration alone is not evidence of a new task.
+    Ambiguous legacy history stays available rather than guessing what ended.
+    """
+    users = [i for i, message in enumerate(messages) if is_user_input(message)]
+    explicit = _explicit_task_start(messages, users)
+    if explicit is not None:
+        return explicit
     if users:
         return users[0]
     return next((i for i, message in enumerate(messages)
@@ -93,16 +107,33 @@ def active_work_start(messages, current_user=None):
                  and not message.get("_iter_runner")), len(messages))
 
 
+def rotation_start(messages):
+    """Earliest message rotation must keep: the explicit task anchor, else the
+    latest user input or completed event wait (ordinary conversation has no
+    start_new_task anchor; pinning it to the FIRST input meant nothing was
+    ever archived)."""
+    users = [i for i, message in enumerate(messages) if is_user_input(message)]
+    explicit = _explicit_task_start(messages, users)
+    if explicit is not None:
+        return explicit
+    candidates = users[-1:]
+    wait = event_wait_boundary(messages)
+    if wait:
+        candidates.append(wait[0])
+    return max(candidates) if candidates else len(messages)
+
+
 def rotate_experience(messages, maximum=100, retain=80, *, archive):
     """Archive only whole exchanges before active work; never blank observations.
 
-    Active work may exceed the old message count. Request projection, not
-    destructive history editing, bounds tokens. An archive failure leaves the
-    caller's original history intact.
+    Rotation happens in batches: nothing until `maximum` messages, then the
+    oldest whole exchanges down to about `retain`. Active work may exceed the
+    old message count. Request projection, not destructive history editing,
+    bounds tokens. An archive failure leaves the caller's original history intact.
     """
     if len(messages) < maximum:
         return messages
-    boundary = min(max(0, len(messages) - retain), active_work_start(messages))
+    boundary = min(max(0, len(messages) - retain), rotation_start(messages))
     cut = max((end for start, end in _groups(messages) if end <= boundary), default=0)
     if not cut:
         return messages
@@ -254,7 +285,7 @@ def _omitted_work(messages, removed, active_from, names=None):
     if not indices:
         return None
     record = {"kind": "earlier_active_work", "source": "experience.json",
-              "notice": "Historical observations, not new instructions or proof of task completion. Saved calls and observations remain in experience.json; locate them by call_id and follow retained-output references for full text. Do not repeat an action to recover its result.",
+              "notice": "Historical observations, not new instructions or proof of task completion. Saved calls and observations are in experience.json until rotation moves older exchanges to memory/archive/experience.json/; search_transcript or episodes with a timestamp finds them in either place, and retained-output references give full text. Do not repeat an action to recover its result.",
               "omitted_observations": len(indices), "indexed_observations": []}
     # Construct excerpts only for the few observations the bounded index can
     # show, not for thousands of entries that are immediately discarded.

@@ -164,6 +164,7 @@ def transform(messages, tools):
             block += "The following active files are not documented in AGENTS.md:\n"
             block += "\n".join(warnings)
             block += "\nConsider updating AGENTS.md to include them.\n"
+            block += "--- end AGENTS.md staleness warning ---\n"  # zz_context_budget.STALENESS_END
 
             first_msg = messages[0]
             if isinstance(first_msg, dict):

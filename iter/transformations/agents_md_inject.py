@@ -34,7 +34,7 @@ def transform(messages, tools):
             content = content[:MAX_CHARS] + "\n[Current runtime reference shown; read AGENTS.md for the remaining architecture and historical notes.]"
 
         header = "\n\n--- AGENTS.md (auto-included) ---\n"
-        block = header + content
+        block = header + content + "\n--- end AGENTS.md ---"  # zz_context_budget.AGENTS_END
 
         first_msg = messages[0]
         if isinstance(first_msg, dict):

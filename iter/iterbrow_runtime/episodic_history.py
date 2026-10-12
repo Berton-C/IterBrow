@@ -1,6 +1,8 @@
 """Lossless rotation of existing episodic files; archives never enter prompts."""
 import hashlib
 import json
+import os
+import re
 import time
 import uuid
 from pathlib import Path
@@ -74,23 +76,189 @@ def archive_text(path, text):
     return target
 
 
-def history_lines(path):
-    """Chronological archive + working tail, including interrupted rotation."""
+def _segments(path):
+    """The archives (in order) and working tail that make up a log's logical
+    history, applying the interrupted-rotation and legacy-archive skip rules."""
     current = Path(path).read_text(encoding="utf-8") if Path(path).exists() else ""
     archives = sorted((Path("memory/archive") / Path(path).name).glob("*.txt"))
     marker = _rotation_path(path)
     pending = json.loads(marker.read_text(encoding='utf-8')) if marker.exists() else {}
+    kept = []
     for index, archive in enumerate(archives):
-        text = archive.read_text(encoding="utf-8")
         # A crash after archiving but before replacing the tail must not make
         # these records appear twice or move recap's logical position twice.
         if (archive.name == pending.get('archive')
                 and current != pending['after'] and current.startswith(pending['before'])):
             continue
-        if '-rotation-' not in archive.name and index == len(archives) - 1 and current.startswith(text):
+        if ('-rotation-' not in archive.name and index == len(archives) - 1
+                and current.startswith(archive.read_text(encoding="utf-8"))):
             continue
-        yield from text.splitlines(keepends=True)
+        kept.append(archive)
+    return kept, current
+
+
+def history_lines(path):
+    """Chronological archive + working tail, including interrupted rotation."""
+    archives, current = _segments(path)
+    for archive in archives:
+        yield from archive.read_text(encoding="utf-8").splitlines(keepends=True)
     yield from current.splitlines(keepends=True)
+
+
+def history_lines_from(path, start):
+    """(position, line) for logical records at 1-based position >= start;
+    whole archives before `start` are skipped via cached line counts."""
+    archives, current = _segments(path)
+    counts = _archive_line_counts(archives[0].parent, archives) if archives else {}
+    position = 1
+    for archive in archives:
+        if position + counts[archive.name] <= start:
+            position += counts[archive.name]
+            continue
+        for line in archive.read_text(encoding="utf-8").splitlines(keepends=True):
+            if position >= start:
+                yield position, line
+            position += 1
+    for line in current.splitlines(keepends=True):
+        if position >= start:
+            yield position, line
+        position += 1
+
+
+_COUNT_CACHE = ".line_counts.json"
+
+
+def _archive_line_counts(folder, archives):
+    """Line count of each (immutable) archive file, cached by name and size in
+    <folder>/.line_counts.json so a cycle does not re-read every archive."""
+    cache_path = folder / _COUNT_CACHE
+    try:
+        cache = json.loads(cache_path.read_bytes().decode("utf-8"))
+        if not isinstance(cache, dict):
+            cache = {}
+    except (OSError, ValueError, UnicodeDecodeError):
+        cache = {}
+    counts, changed = {}, False
+    for archive in archives:
+        size = archive.stat().st_size
+        entry = cache.get(archive.name)
+        if isinstance(entry, list) and len(entry) == 2 and entry[0] == size:
+            counts[archive.name] = entry[1]
+            continue
+        with open(archive, "r", encoding="utf-8") as handle:
+            counts[archive.name] = sum(1 for _ in handle)
+        changed = True
+    if changed or set(cache) != set(counts):
+        try:
+            _atomic_json(cache_path, {name: [archive.stat().st_size, counts[archive.name]]
+                                      for archive in archives for name in [archive.name]})
+        except OSError:
+            pass  # a cache only; the count itself is exact either way
+    return counts
+
+
+def history_line_count(path):
+    """Number of logical records history_lines(path) yields, using cached
+    per-archive line counts instead of re-reading every archive each cycle."""
+    archives, current = _segments(path)
+    counts = _archive_line_counts(archives[0].parent, archives) if archives else {}
+    return sum(counts[a.name] for a in archives) + len(current.splitlines(keepends=True))
+
+
+EXPERIENCE_ARCHIVE = Path("memory/archive") / "experience.json"
+_STEP = re.compile(r"^Step (\d{4}-\d\d-\d\d \d\d:\d\d:\d\d): ")
+
+
+def _one_line(text, limit=600):
+    text = " ".join(str(text).split())
+    return text if len(text) <= limit else text[:limit - 3] + "..."
+
+
+def archived_experience_lines(folder=EXPERIENCE_ARCHIVE):
+    """Messages rotated out of experience.json, as timestamped read-only lines
+    "[YYYY-MM-DD HH:MM:SS][role] text" in archive (chronological) order.
+    User/tool messages carry their Step time; a tool call the time of its result."""
+    try:
+        archives = sorted(Path(folder).glob("*.txt"))
+    except OSError:
+        return
+    for archive in archives:
+        try:
+            messages = json.loads(archive.read_text(encoding="utf-8"))
+        except (OSError, ValueError, UnicodeDecodeError):
+            continue
+        if not isinstance(messages, list):
+            continue
+        times = {}
+        for message in messages:
+            if isinstance(message, dict) and message.get("role") == "tool":
+                match = _STEP.match(str(message.get("content", "")))
+                if match:
+                    times[message.get("tool_call_id")] = match.group(1)
+        for message in messages:
+            if not isinstance(message, dict):
+                continue
+            role, content = message.get("role"), message.get("content")
+            if role == "user" and isinstance(content, str):
+                match = _STEP.match(content)
+                if match:
+                    yield "[%s][user, archived] %s\n" % (match.group(1), _one_line(content))
+            elif role == "assistant":
+                for call in message.get("tool_calls") or []:
+                    stamp = times.get(call.get("id"))
+                    function = call.get("function", {})
+                    if stamp:
+                        yield "[%s][call %s, archived] %s\n" % (
+                            stamp, function.get("name", ""), _one_line(function.get("arguments", "")))
+            elif role == "tool" and isinstance(content, str):
+                match = _STEP.match(content)
+                if match:
+                    yield "[%s][result %s, archived] %s\n" % (
+                        match.group(1), message.get("tool_call_id", ""), _one_line(content))
+
+
+RECAP_DIR = "memory/recap"
+_EPISODE_NAME = re.compile(r"^episode_(\d+)\.json$")
+
+
+def episode_number(episode, filename=""):
+    """Numeric identity of an episode: its "e" (or legacy "id") field, else the
+    digits in its file name. None when neither is a number."""
+    for key in ("e", "id", "e_num"):
+        value = episode.get(key) if isinstance(episode, dict) else None
+        try:
+            if value is not None and not isinstance(value, bool):
+                return int(str(value).strip().lstrip("Ee"))
+        except ValueError:
+            pass
+    match = _EPISODE_NAME.match(Path(filename).name)
+    return int(match.group(1)) if match else None
+
+
+def list_episodes(recap_dir=RECAP_DIR):
+    """All readable episode records, ordered by episode NUMBER (never by the
+    lexicographic file name: episode_10 sorts after episode_9). Gaps are fine.
+    Each record gets "_file" (its file name) and "_n" (its number)."""
+    episodes = []
+    try:
+        names = os.listdir(recap_dir)
+    except OSError:
+        return episodes
+    for name in names:
+        if not (name.startswith("episode_") and name.endswith(".json")):
+            continue
+        try:
+            with open(os.path.join(recap_dir, name), "r", encoding="utf-8") as handle:
+                episode = json.loads(handle.read())
+        except (OSError, ValueError, UnicodeDecodeError):
+            continue
+        if not isinstance(episode, dict):
+            continue
+        episode["_file"] = name
+        episode["_n"] = episode_number(episode, name)
+        episodes.append(episode)
+    episodes.sort(key=lambda e: (e["_n"] is None, e["_n"] if e["_n"] is not None else 0, e["_file"]))
+    return episodes
 
 
 def load_experience(path="experience.json", log=print):

@@ -108,6 +108,13 @@ def transform(messages, tools):
             os.fsync(f.fileno())
         os.replace(temporary, STATE_PATH)
 
-    except Exception:
-        pass
+    except Exception as error:
+        # Surface, don't swallow: the state file was not advanced, so these
+        # lines are retried next cycle, but the agent must know they are missing.
+        for msg in messages:
+            if isinstance(msg, dict) and msg.get("role") == "system" and isinstance(msg.get("content"), str):
+                msg["content"] = msg["content"].rstrip() + (
+                    "\n\n[transcript.py: could not update %s (%s: %s); conversation lines are retried "
+                    "next cycle.]" % (LOG_PATH, type(error).__name__, error))
+                break
     return messages, tools

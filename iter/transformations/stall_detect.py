@@ -5,7 +5,6 @@ DESCRIPTION = "Stall detection: detects repetitive loops and injects warnings."
 
 ROOT = "."
 STATE_PATH = os.path.join(ROOT, "memory", ".stall_state.json")
-TRANSCRIPT_PATH = os.path.join(ROOT, "transcript.txt")
 
 WINDOW_SIZE = 30
 REPEAT_THRESHOLD = 3
@@ -19,36 +18,28 @@ def _exists(path):
     except OSError:
         return False
 
-def _parse_transcript_for_calls():
-    if not _exists(TRANSCRIPT_PATH):
-        return []
-    try:
-        with open(TRANSCRIPT_PATH, "r") as f:
-            lines = f.readlines()
-    except:
-        return []
-    calls = []
-    for line in lines:
-        line = line.strip()
-        if not line or not line.startswith("["):
-            continue
-        parts = line.split("]")
-        if len(parts) < 2:
-            continue
-        tool_info = parts[1].strip().lstrip("[")
-        tokens = tool_info.split()
-        if not tokens:
-            continue
-        tool_name = tokens[0]
-        calls.append(tool_name)
-    return calls[-WINDOW_SIZE:]
+def tool_call_names(messages):
+    """Tool names the agent actually called, oldest first, from the request's
+    messages (assistant tool_calls). transcript.txt holds only user/send lines."""
+    names = []
+    for msg in messages or []:
+        if isinstance(msg, dict) and msg.get("role") == "assistant":
+            for call in msg.get("tool_calls") or []:
+                if isinstance(call, dict):
+                    name = (call.get("function") or {}).get("name")
+                    if name:
+                        names.append(name)
+    return names
+
+def _recent_calls(messages):
+    return tool_call_names(messages)[-WINDOW_SIZE:]
 
 def _detect_stalls(window):
     warnings = []
     if not window:
         return warnings
-    if window[-1] == "nop":
-        return warnings  # Deliberate waiting is not a failed attempt.
+    if window[-1] in ("nop", "send"):
+        return warnings  # Deliberate waiting / status updates to the user are not a failed attempt.
     if len(window) >= REPEAT_THRESHOLD:
         last_tool = window[-1]
         recent = window[-REPEAT_THRESHOLD:]
@@ -76,7 +67,7 @@ def transform(messages, tools):
     try:
         if not messages:
             return messages, tools
-        window = _parse_transcript_for_calls()
+        window = _recent_calls(messages)
         if not window:
             return messages, tools
         silent_count = _count_silent_calls(window)

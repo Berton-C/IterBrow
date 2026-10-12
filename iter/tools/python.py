@@ -63,12 +63,11 @@ def run(code: str) -> str:
     tools = _load_tools()
 
     # Prepare execution namespace with tools + builtins.
-    # Memory write-protection (see _memory_guard.py): the LLM-authored code
-    # below gets its own copy of __builtins__ with a guarded `open`, and a
-    # proxy `os` module that checks destructive calls (remove/unlink/
-    # rename/replace/truncate) before delegating to the real os module.
-    # This does NOT mutate the real builtins/os for the rest of the
-    # process - only this exec namespace is affected.
+    # Memory write-protection (see _memory_guard.py): while the LLM-authored
+    # code runs, _guard.guard_process() checks open/io.open/os.open and
+    # os.remove/unlink/rename/replace/truncate PROCESS-WIDE (pathlib and
+    # self-imported modules included) and restores them afterwards. The
+    # namespace's own guarded `open` / proxy `os` remain as a second layer.
     real_builtins = __builtins__
     if isinstance(real_builtins, dict):
         guarded_builtins = dict(real_builtins)
@@ -109,7 +108,7 @@ def run(code: str) -> str:
     captured = io.StringIO()
     
     try:
-        with contextlib.redirect_stdout(captured), contextlib.redirect_stderr(captured):
+        with contextlib.redirect_stdout(captured), contextlib.redirect_stderr(captured), _guard.guard_process():
             exec(compile(code, '<python>', 'exec'), exec_namespace)
         output = captured.getvalue()
         if not output:

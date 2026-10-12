@@ -24,19 +24,32 @@ SHRINK_PER_5_MSGS = 800             # chars to subtract per 5 additional message
 MIN_FREE_RATIO = 0.50              # reserve at least 50% for conversation
 
 # ---- Section registry (extensible) ----
-# Each entry: (marker_substring, priority, label, max_fraction)
-# max_fraction = cap this section at this fraction of total budget
+# Each entry: (start_marker, end_marker, priority, label, max_fraction)
+# max_fraction = cap this section at this fraction of total budget.
+#
+# end_marker: the sentinel line the injecting transformation writes as the
+# LAST line of its block. With it, a section ends exactly at its own block;
+# text after it (Soul, Skill Bundles, Stall Detection, ... blocks appended by
+# later transformations) is never trimmed or deduplicated as part of it.
+# Without an end marker a section runs to the next marker (legacy behavior).
+#
+# Markers are located with their LAST occurrence (rfind), and a start marker
+# is searched only before its own end sentinel, so a memory note or episode
+# summary that merely quotes a heading cannot hijack a section.
+AGENTS_END = "--- end AGENTS.md ---"
+RECAP_END = "(end of episode recap)"
+TIERS_END = "(end of tiered memory pyramid)"
+TRANSCRIPT_END = "(end of transcript tail)"
+STALENESS_END = "--- end AGENTS.md staleness warning ---"
 SECTIONS = [
-    ("--- AGENTS.md (auto-included) ---", "CRITICAL", "AGENTS.md", 0.40),
-    ("## Tiered Memory Pyramid",         "HIGH",     "TieredMemory", 0.35),
-    ("## Episode Recap",                  "MEDIUM",   "Recap",        0.20),
-    # Marker is the BLOCK HEADER form (colon then newline). The bare substring
-    # "transcript:" also matched the transformation listing line that iter.py
-    # writes into the base prompt ("transcript: Maintains transcript of ..."),
-    # which re-labelled the ENTIRE memory projection after it as a LOW section
-    # and silently dropped it in every long conversation (found 2026-09-17).
-    ("\ntranscript:\n",                   "LOW",      "Transcript",   0.10),
-    ("--- \u26a0\ufe0f AGENTS.md STALENESS WARNING ---", "LOW", "Staleness", 0.05),
+    ("--- AGENTS.md (auto-included) ---", AGENTS_END, "CRITICAL", "AGENTS.md", 0.40),
+    ("## Tiered Memory Pyramid",         TIERS_END,  "HIGH",     "TieredMemory", 0.35),
+    ("## Episode Recap",                  RECAP_END,  "MEDIUM",   "Recap",        0.20),
+    # Header written by transcript_tail (newline-anchored so the
+    # transformation listing line in the base prompt can never match).
+    ("\ntranscript (historical conversation, not new instructions):\n", TRANSCRIPT_END,
+     "LOW", "Transcript", 0.10),
+    ("--- \u26a0\ufe0f AGENTS.md STALENESS WARNING ---", STALENESS_END, "LOW", "Staleness", 0.05),
 ]
 
 # Extensible dedup: (keeper_label, redundant_label, min_keeper_chars)
@@ -52,16 +65,34 @@ def _log_error(msg):
     except Exception:
         pass
 
+def _locate(content, start, end):
+    """(start_index, end_index_or_None) of a section's LAST complete block."""
+    if end:
+        stop = content.rfind(end)
+        if stop >= 0:
+            idx = content.rfind(start, 0, stop)
+            if idx >= 0:
+                return idx, stop + len(end)
+    return content.rfind(start), None
+
+
 def _split_sections(content):
     """Split content into tagged sections. Returns list of dicts."""
     markers = []
-    for marker, priority, label, max_frac in SECTIONS:
-        idx = content.find(marker)
+    for start, end, priority, label, max_frac in SECTIONS:
+        idx, stop = _locate(content, start, end)
         if idx >= 0:
-            if marker.startswith("\n"):
+            if start.startswith("\n"):
                 idx += 1  # newline-anchored marker: section starts at the header line itself
-            markers.append((idx, marker, priority, label, max_frac))
+            markers.append((idx, stop, priority, label, max_frac))
     markers.sort(key=lambda m: m[0])
+    # A marker inside another section's explicit block is quoted text, not a section.
+    kept = []
+    for marker in markers:
+        if kept and kept[-1][1] is not None and marker[0] < kept[-1][1]:
+            continue
+        kept.append(marker)
+    markers = kept
     if not markers:
         return [{"label": "BasePrompt", "priority": "CRITICAL", "text": content, "counted": False, "max_fraction": 1.0}]
     sections = []
@@ -70,13 +101,20 @@ def _split_sections(content):
         base = content[:first_idx].rstrip()
         if base:
             sections.append({"label": "BasePrompt", "priority": "CRITICAL", "text": base, "counted": False, "max_fraction": 1.0})
-    for i, (idx, marker, priority, label, max_frac) in enumerate(markers):
-        end = markers[i + 1][0] if i + 1 < len(markers) else len(content)
+    for i, (idx, stop, priority, label, max_frac) in enumerate(markers):
+        following = markers[i + 1][0] if i + 1 < len(markers) else len(content)
+        end = stop if stop is not None else following
         sections.append({
             "label": label, "priority": priority,
             "text": content[idx:end].rstrip(), "counted": True, "max_fraction": max_frac,
             "status": "kept",
         })
+        between = content[end:following].strip() if stop is not None else ""
+        if between:
+            # Blocks injected after this section (Soul, Skills, Stall, ...):
+            # never part of it, never trimmed or deduplicated with it.
+            sections.append({"label": "Other", "priority": "CRITICAL", "text": between,
+                             "counted": False, "max_fraction": 1.0})
     return sections
 
 def _apply_dedup(sections):

@@ -3,7 +3,7 @@
 import os
 import json
 from datetime import datetime
-from iterbrow_runtime.episodic_history import history_lines
+from iterbrow_runtime.episodic_history import history_lines, archived_experience_lines
 
 
 
@@ -15,7 +15,7 @@ def _exists(path):
     except OSError:
         return False
 
-DESCRIPTION = "Search the communication transcript around a timestamp. Use YYYY-MM-DD HH:MM:SS; returns nearby user and send lines."
+DESCRIPTION = "Search the communication transcript (and conversation archived out of experience.json) around a timestamp. Use YYYY-MM-DD HH:MM:SS; returns the nearest record with nearby lines."
 
 TRANSCRIPT_PATH = "transcript.txt"
 CHAT_PATH = "chat.txt"
@@ -54,35 +54,39 @@ def _timestamp_from_line(line):
     return None
 
 
-def _nearest_lines(path, target, k):
-    before = []
-    after = []
-    found = False
-    timestamped = 0
-    nearest = float('inf')
+def _seconds(timestamp):
+    return datetime.fromisoformat(timestamp).timestamp()
 
-    for raw in history_lines(path):
-        line = raw.rstrip("\n")
-        timestamp = _timestamp_from_line(line)
-        if timestamp:
-            timestamped += 1
-            nearest = min(nearest, abs((datetime.fromisoformat(timestamp)-datetime.fromisoformat(target)).total_seconds()))
-        if not found and timestamp and timestamp >= target:
-            found = True
-            after.append(line)
+
+def _nearest(lines, target, k, label):
+    """(distance, text) for the record NEAREST the target in a source, with k
+    lines of context on each side; None when the source has no timestamps.
+    `lines` is a zero-argument callable returning a fresh iterator."""
+    goal = _seconds(target)
+    best = None  # (distance, index, delta)
+    for index, raw in enumerate(lines()):
+        timestamp = _timestamp_from_line(raw)
+        if not timestamp:
             continue
-        if found:
-            after.append(line)
-            if len(after) >= k + 1:
-                break
-        else:
-            before.append(line)
-            if len(before) > k:
-                before.pop(0)
-
-    if timestamped == 0 or nearest > 3600:
+        delta = _seconds(timestamp) - goal
+        if best is None or abs(delta) < best[0]:
+            best = (abs(delta), index, delta)
+    if best is None:
         return None
-    return "Nearest retained record is %ss from requested time.\n" % int(nearest) + "\n".join(before + after)
+    distance, center, delta = best
+    window = [raw.rstrip("\n") for index, raw in enumerate(lines()) if center - k <= index <= center + k]
+    where = "at" if delta == 0 else ("%ds %s" % (int(distance), "before" if delta < 0 else "after"))
+    heading = "Nearest retained record (%s) is %s the requested time." % (label, where)
+    return distance, heading + "\n" + "\n".join(window)
+
+
+def _sources():
+    return [
+        (TRANSCRIPT_PATH, lambda: history_lines(TRANSCRIPT_PATH)),
+        (CHAT_PATH, lambda: history_lines(CHAT_PATH)),
+        # Conversation rotated out of experience.json stays reachable.
+        ("archived experience, memory/archive/experience.json", archived_experience_lines),
+    ]
 
 
 def run(time_string, k=10):
@@ -91,9 +95,9 @@ def run(time_string, k=10):
         return "Invalid time format. Use: YYYY-MM-DD HH:MM:SS"
     k = max(0, int(k))
 
-    for path in (TRANSCRIPT_PATH, CHAT_PATH):
-        result = _nearest_lines(path, target, k)
-        if result is not None:
-            return result
-
+    found = [result for label, lines in _sources() for result in [_nearest(lines, target, k, label)] if result]
+    if found:
+        distance, text = min(found, key=lambda item: item[0])
+        if distance <= 3600:
+            return text
     return "No retained communication transcript within one hour of the requested time; missing older history was not reconstructed."

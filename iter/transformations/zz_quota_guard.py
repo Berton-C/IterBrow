@@ -25,9 +25,23 @@ def _fsize(path):
     except OSError:
         return 0
 
+LOW_WATER = 0.8  # rotate in batches: once over a cap, trim to 80% of it
+
+
 def _truncate_tail(path, max_lines, max_bytes=0):
-    """Keep only the tail of a text file (last max_lines, under max_bytes)."""
-    return rotate_tail(path, max_lines, max_bytes)
+    """Once a log exceeds max_lines/max_bytes, archive its oldest lines down to
+    LOW_WATER of the caps. Below the caps nothing is rotated, so one archive
+    file is created per batch instead of one per cycle."""
+    try:
+        size = os.stat(path).st_size
+    except OSError:
+        return 0
+    if not (max_bytes and size > max_bytes):
+        with open(path, "rb") as handle:
+            lines = sum(1 for _ in handle)
+        if lines <= max_lines:
+            return 0
+    return rotate_tail(path, int(max_lines * LOW_WATER), int(max_bytes * LOW_WATER) if max_bytes else 0)
 
 def _screenshot_sweep():
     """Delete oldest screenshots beyond MAX_SCREENSHOTS."""
@@ -55,7 +69,8 @@ def _dir_size(path):
     total = 0
     try:
         for entry in os.listdir(path):
-            if entry in (".venv", ".git", ".runtime", "node_modules", "archive"):
+            # memory/archive counts: it is where rotated history accumulates.
+            if entry in (".venv", ".git", ".runtime", "node_modules"):
                 continue
             full = os.path.join(path, entry)
             if os.path.isdir(full):

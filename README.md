@@ -198,9 +198,10 @@ currently call, grouped by what it's for. (A further ~22 tools exist but are dea
 | Name | What it does |
 |---|---|
 | `episodes` | Search transcript history for entries around a given timestamp. Returns surrounding context lines. |
+| `record_episode` | Record an episode summary for a span of history (answers a Recap Request); the only sanctioned way to write episodes. |
 | `search_transcript` | Search the communication transcript around a timestamp. Use YYYY-MM-DD HH:MM:SS; returns nearby user and send lines. |
 | `memory_journal` | Append-only audit journal for memory-management actions. action='log' records {actor, action, detail} as a new immutable line (use this whenever you trim, regenerate, forget, or vote on memory content so there is always an audit trail). action='tail' returns the last n entries. |
-| `rebuild_tiers` | Regenerate memory/tiers/tier3.txt, tier4.txt, and tier5.txt from memory/recap/episode_*.json (the source of truth). This is the ONLY sanctioned way to update tier files - direct writes to them from python/shell are blocked. Safe to call any time; always idempotent. Call this instead of hand-editing tier files whenever memory/tiers/.rollup_needed exists or tiers look stale. |
+| `rebuild_tiers` | Regenerate memory/tiers/tier3.txt, tier4.txt, and tier5.txt from memory/recap/episode_*.json (the source of truth). This is the ONLY sanctioned way to update tier files - direct writes are blocked in the python tool (shell checks are best effort). Safe to call any time; always idempotent. Call this instead of hand-editing tier files whenever memory/tiers/.rollup_needed exists or tiers look stale. |
 
 **Reasoning & self-model (MeTTa / Soul)**
 
@@ -264,9 +265,9 @@ transformations exist but are deactivated.)
 | Name | What it does |
 |---|---|
 | `agents_md_inject` | Auto-inject AGENTS.md reference into system message. |
-| `append_last_transcript_lines` | Append last 6 transcript lines to system message. |
+| `transcript_tail` | Append last 6 transcript lines to system message. |
 | `browser_vision` | Attach browser_screenshot tool results as one-shot multimodal image input. |
-| `recap` | Episode recap: segments completed tasks into episode records and injects a recap of recent episodes. |
+| `recap` | Episode recap: asks the agent to record an episode (record_episode) when enough history is unsummarized, and injects the newest episodes. |
 | `tiered_memory` | Tiered memory pyramid: rolls episode summaries up into era and life summaries and injects the pyramid. |
 | `staleness_check` | Detect staleness in AGENTS.md by comparing disk vs documented files. |
 
@@ -276,7 +277,7 @@ transformations exist but are deactivated.)
 |---|---|
 | `history` | Stores episodes (deduped, restart-safe) |
 | `atom_space_update` | Refresh the legacy/display `space.metta` projection from semantic-memory formalizations; never an authoritative writer |
-| `auto_consolidation` | Auto-consolidation: auto-rolls up tier files when they exceed size limits. |
+| `auto_consolidation` | Auto-consolidation: regenerates the tier pyramid via rebuild_tiers when it is stale or over its limits. |
 | `trajectory` | Trajectory capture: per-cycle tool-call snapshots for self-improvement evidence. |
 | `transcript` | Maintains transcript of textual communication messages only. |
 
@@ -340,9 +341,10 @@ IterBrow runs **two parallel memory systems**, bridged together:
    active chat backend.
 2. **Episodic memory (tiered rollup pyramid).** `tier5.txt` (life summary, ~1 line) →
    `tier4.txt` (era summaries) → `tier3.txt` (episode summaries, 2-3 lines each) →
-   `memory/recap/episode_*.json` (full episode records, the source of truth). When a tier exceeds
-   its character budget, `auto_consolidation` rolls it up; `rebuild_tiers` regenerates the tier
-   files from the episode JSONs on demand. This keeps the agent's context window useful instead of
+   `memory/recap/episode_*.json` (full episode records, the source of truth). `rebuild_tiers` is
+   the only writer of the tier files: it regenerates them from the episode JSONs, keeping the
+   newest episodes and eras within each character limit; `auto_consolidation` and `tiered_memory`
+   call it automatically whenever the episodes are newer than the tiers. This keeps the agent's context window useful instead of
    drowning in raw transcript, while still letting it recall what happened days or weeks ago.
 
 `link_episode` / `unlink_episode` bridge the two systems — connecting a semantic memory item to

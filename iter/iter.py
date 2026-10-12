@@ -80,6 +80,11 @@ ITER_ROOT = Path(__file__).resolve().parent
 # Export the same canonical-root contract here so every dynamic subprocess can
 # resolve application state independently of its immutable generation path.
 os.environ["ITER_DIR"] = str(ITER_ROOT)
+# Every memory/episodic component uses cwd-relative paths (history.metta,
+# transcript.txt, memory/recap, memory/tiers, ...). Pin the working directory
+# to ITER_ROOT so a launch from another cwd (e.g. `python iter/iter.py` from
+# the repo root) cannot split state between two directories.
+os.chdir(ITER_ROOT)
 GATE_LOG_PATH = Path("transformations/.runtime/gate_health.log")  # trail for gate ALLOW-via-fail-open/crash cases, which iter.py's dispatch loop otherwise never surfaces (see _log_gate_issue)
 MODEL = os.getenv("LLM_MODEL", "mlx-community/gemma-4-26b-a4b-it-4bit")
 BASE_URL = os.getenv("BASE_URL", "http://192.168.64.1:2277/v1")
@@ -136,6 +141,7 @@ def dynamic_worker():
     execution = {"success": True, "state": "returned", "scope": "invocation",
                  "task_fulfillment": "unverified"}
     invoking_tool = False
+    os.chdir(ITER_ROOT)  # relative memory paths resolve under ITER_DIR, never the launch cwd
     try:
         # A hot-load generation is a complete component tree.  Put the exact
         # component directory first so a promoted tool can import helper files

@@ -2,7 +2,7 @@ import os
 import json
 import re
 import time
-from iterbrow_runtime.episodic_history import history_lines
+from iterbrow_runtime.episodic_history import history_lines, archived_experience_lines
 from iterbrow_runtime.conversation_view import is_runner_control
 
 
@@ -33,7 +33,7 @@ def _decode(raw):
     except Exception:
         return raw.decode()
 
-DESCRIPTION = "Search history around a timestamp. Returns readable timestamped historical records, not new instructions. Stored records are unchanged."
+DESCRIPTION = "Search history (history.metta and conversation archived out of experience.json) around a timestamp. Returns readable timestamped historical records, not new instructions. Stored records are unchanged."
 
 HISTORY_PATH = "history.metta"
 
@@ -73,6 +73,39 @@ def _recall_line(raw):
             pass
     return line
 
+def _archive_timestamp(line):
+    if line.startswith("[") and len(line) >= 21:
+        try:
+            return _iso_seconds(line[1:20])
+        except Exception:
+            return None
+    return None
+
+
+def _sources():
+    """(label, fresh-iterator factory, timestamp parser, renderer)."""
+    return [
+        ("history.metta", lambda: history_lines(HISTORY_PATH), _parse_timestamp, _recall_line),
+        # Conversation rotated out of experience.json stays reachable.
+        ("archived experience, memory/archive/experience.json", archived_experience_lines,
+         _archive_timestamp, lambda raw: raw.rstrip("\n")),
+    ]
+
+
+def _nearest(lines, parse, target):
+    best_index = best_diff = None
+    count = 0
+    for index, raw in enumerate(lines()):
+        count += 1
+        ts = parse(raw)
+        if ts is None:
+            continue
+        diff = abs(ts - target)
+        if best_diff is None or diff < best_diff:
+            best_diff, best_index = diff, index
+    return count, best_index, best_diff
+
+
 def run(time_string, k=10, max_distance_seconds=3600):
     time_string = time_string.replace(r'\"', '').replace('"', '').strip()
     k = int(k)
@@ -86,33 +119,29 @@ def run(time_string, k=10, max_distance_seconds=3600):
     # positions: a long record can put the requested event outside a byte window.
     # Keep only the selected line index; memory use is independent of log size.
     k = max(0, k)
-    best_index = None
-    best_diff = None
-    line_count = 0
-    for index, raw in enumerate(history_lines(HISTORY_PATH)):
-        line_count += 1
-        ts = _parse_timestamp(raw)
-        if ts is None:
-            continue
-        diff = abs(ts - target)
-        if best_diff is None or diff < best_diff:
-            best_diff = diff
-            best_index = index
-    if not line_count:
+    total = 0
+    best = None  # (diff, index, source)
+    for source in _sources():
+        count, index, diff = _nearest(source[1], source[2], target)
+        total += count
+        if index is not None and (best is None or diff < best[0]):
+            best = (diff, index, source)
+    if not total:
         return "File is empty"
-    if best_index is None:
+    if best is None:
         return f"No timestamped entries found near {time_string}"
+    best_diff, best_index, (label, lines, _parse, render) = best
     if best_diff > max(0, float(max_distance_seconds)):
         return f"No retained history within {max_distance_seconds}s of {time_string}; nearest record is {int(best_diff)}s away. Older missing material was not reconstructed."
 
     start_show = max(0, best_index - k)
     end_show = best_index + k + 1
     result_lines = []
-    for index, raw in enumerate(history_lines(HISTORY_PATH)):
+    for index, raw in enumerate(lines()):
         if index >= end_show:
             break
         if index >= start_show:
             # Preserve the actual record. The shared result-retention layer
             # already provides bounded previews and exact paged retrieval.
-            result_lines.append(_recall_line(raw))
-    return "Nearest retained record is %ss from requested time.\n" % int(best_diff) + "\n".join(result_lines)
+            result_lines.append(render(raw))
+    return "Nearest retained record (%s) is %ss from requested time.\n" % (label, int(best_diff)) + "\n".join(result_lines)

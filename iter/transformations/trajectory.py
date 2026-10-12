@@ -5,7 +5,6 @@ DESCRIPTION = "Trajectory capture: per-cycle tool-call snapshots for self-improv
 
 ROOT = "."
 TRAJ_DIR = os.path.join(ROOT, ".trajectory")
-TRANSCRIPT_PATH = os.path.join(ROOT, "transcript.txt")
 TASKS_PATH = os.path.join(ROOT, "memory", "tasks", "current_tasks.txt")
 MAX_ENTRIES = 20
 
@@ -37,28 +36,22 @@ def _get_task_context():
         pass
     return ""
 
-def _parse_recent_calls(last_n=10):
-    if not _exists(TRANSCRIPT_PATH):
-        return []
-    try:
-        with open(TRANSCRIPT_PATH, "r") as f:
-            lines = f.readlines()
-    except:
-        return []
-    calls = []
-    for line in lines:
-        line = line.strip()
-        if not line or not line.startswith("["):
-            continue
-        parts = line.split("]")
-        if len(parts) < 2:
-            continue
-        tool_info = parts[1].strip().lstrip("[")
-        tokens = tool_info.split()
-        if not tokens:
-            continue
-        calls.append(tokens[0])
-    return calls[-last_n:] if len(calls) > last_n else calls
+def tool_call_names(messages):
+    """Tool names the agent actually called, oldest first, from the request's
+    messages (assistant tool_calls). transcript.txt holds only user/send lines."""
+    names = []
+    for msg in messages or []:
+        if isinstance(msg, dict) and msg.get("role") == "assistant":
+            for call in msg.get("tool_calls") or []:
+                if isinstance(call, dict):
+                    name = (call.get("function") or {}).get("name")
+                    if name:
+                        names.append(name)
+    return names
+
+def _parse_recent_calls(messages, last_n=10):
+    calls = tool_call_names(messages)
+    return calls[-last_n:]
 
 def _list_snapshots():
     if not _exists(TRAJ_DIR):
@@ -98,7 +91,7 @@ def _next_snapshot_num():
 def transform(messages, tools):
     try:
         _ensure_dir(TRAJ_DIR)
-        calls = _parse_recent_calls()
+        calls = _parse_recent_calls(messages)
         has_send = "send" in calls
         task_ctx = _get_task_context()
         snapshot = {
