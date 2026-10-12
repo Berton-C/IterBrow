@@ -145,7 +145,7 @@ class IterRun:
                     proc.kill()
         for handle in (self.log, self.service_log, self.model_log):
             handle.close()
-        if not self.keep:
+        if not (self.keep or os.environ.get("ITERBROW_E2E_KEEP")):
             shutil.rmtree(self.work, ignore_errors=True)
 
     def __enter__(self):

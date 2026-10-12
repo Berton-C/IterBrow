@@ -1,0 +1,36 @@
+name: tests
+
+on:
+  push:
+    branches: [main, memory-repair]
+  pull_request:
+
+jobs:
+  python-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Create the agent's virtualenv (same requirements the installer uses)
+        run: |
+          python3 -m venv iter/.venv
+          iter/.venv/bin/pip install --upgrade pip
+          iter/.venv/bin/pip install -r scripts/requirements.txt pytest
+          iter/.venv/bin/python -c "import hyperon"
+      - name: Run every check
+        run: scripts/test_all.sh
+        env:
+          ITERBROW_E2E_KEEP: "1"
+      - name: Keep end-to-end logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-logs
+          path: /tmp/iterbrow-*
+          if-no-files-found: ignore
