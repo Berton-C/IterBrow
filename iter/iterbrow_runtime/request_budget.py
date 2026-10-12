@@ -123,18 +123,35 @@ def rotation_start(messages):
     return max(candidates) if candidates else len(messages)
 
 
-def rotate_experience(messages, maximum=100, retain=80, *, archive):
-    """Archive only whole exchanges before active work; never blank observations.
+HARD_EXPERIENCE_FACTOR = 4   # hard maximum = 4 x the soft maximum (400 messages in iter.py)
+KEEP_USER_TURNS = 20         # past the hard maximum: keep at least the last K user turns
+
+
+def rotate_experience(messages, maximum=100, retain=80, *, archive, hard_maximum=None,
+                      keep_user_turns=KEEP_USER_TURNS):
+    """Archive only whole turns before active work; never blank observations.
 
     Rotation happens in batches: nothing until `maximum` messages, then the
-    oldest whole exchanges down to about `retain`. Active work may exceed the
-    old message count. Request projection, not destructive history editing,
-    bounds tokens. An archive failure leaves the caller's original history intact.
+    oldest turns down to about `retain`.  The cut is always at a user message
+    that starts a turn, so the retained history starts with a user message
+    (never with an assistant call or a tool result), and never after the
+    latest user input or the active task's start_new_task request.  Active
+    work may exceed the soft size, up to `hard_maximum` messages; past that the
+    last `keep_user_turns` user turns are kept (fewer when even that is above
+    the hard maximum).  An archive failure leaves the caller's history intact.
     """
     if len(messages) < maximum:
         return messages
-    boundary = min(max(0, len(messages) - retain), rotation_start(messages))
-    cut = max((end for start, end in _groups(messages) if end <= boundary), default=0)
+    _groups(messages)  # refuses a malformed history before anything is archived
+    hard = hard_maximum or HARD_EXPERIENCE_FACTOR * maximum
+    inputs = [i for i, message in enumerate(messages) if i and is_user_input(message)]
+    turns = [i for i, message in enumerate(messages) if i and message.get("role") == "user"]
+    limit = min(len(messages) - retain, rotation_start(messages))
+    cut = max((i for i in inputs if i <= limit), default=0)
+    if len(messages) - cut > hard and turns:
+        cut = max(cut, turns[-keep_user_turns] if len(turns) >= keep_user_turns else turns[0])
+        if len(messages) - cut > hard:
+            cut = min((i for i in turns if len(messages) - i <= hard), default=turns[-1])
     if not cut:
         return messages
     archive(copy.deepcopy(messages[:cut]))

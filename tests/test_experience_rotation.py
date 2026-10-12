@@ -61,5 +61,42 @@ class RotateExperienceTests(EpisodicCase):
         self.assertIn("Build the importer", experience[0]["content"])
 
 
+    # Review 3 M2 -----------------------------------------------------------
+    def runner(self, ts, text):
+        return {"role": "user", "content": "Step %s: (autonomous) %s" % (ts, text), "_iter_runner": True}
+
+    def test_retained_history_starts_with_the_user_message_of_a_turn(self):
+        from iterbrow_runtime.request_budget import is_user_input
+        experience = []
+        for c in range(140):  # the reviewer's shape: a request every 10 cycles, autonomous continuations between
+            experience.append(user(stamp(c), "user request %d" % c) if c % 10 == 0 else self.runner(stamp(c), "go on"))
+            experience += send_exchange("c%d" % c, stamp(c), "msg %d" % c)
+        archived = []
+        kept = rotate_experience(experience, 100, 80, archive=archived.append)
+        self.assertLess(len(kept), len(experience))
+        self.assertTrue(is_user_input(kept[0]), kept[0])
+        self.assertEqual(archived[0] + kept, experience)
+        self.assertIn("user request 130", json.dumps(kept))
+
+    def test_start_new_task_request_is_kept_until_the_hard_maximum(self):
+        experience = [user(stamp(0), "Build the importer")] + start_task("t0", stamp(0), "build the importer")
+        for c in range(1, 200):
+            experience += send_exchange("c%d" % c, stamp(c), "progress %d" % c)
+            if c % 40 == 0:
+                experience.append(user(stamp(c), "also handle case %d" % c))
+        kept = rotate_experience(experience, 100, 80, archive=lambda m: None, hard_maximum=500)
+        self.assertEqual(kept, experience, "below the hard maximum the task's request stays")
+        for c in range(200, 400):
+            experience += send_exchange("c%d" % c, stamp(c), "progress %d" % c)
+            if c % 40 == 0:
+                experience.append(user(stamp(c), "also handle case %d" % c))
+        archived = []
+        kept = rotate_experience(experience, 100, 80, archive=archived.append, hard_maximum=500)
+        self.assertLessEqual(len(kept), 500)
+        self.assertEqual(kept[0]["role"], "user")
+        self.assertNotIn("_iter_runner", kept[0])
+        self.assertEqual(archived[0] + kept, experience)
+
+
 if __name__ == "__main__":
     unittest.main()
