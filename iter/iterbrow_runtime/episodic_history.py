@@ -1,6 +1,8 @@
 """Lossless rotation of existing episodic files; archives never enter prompts."""
 import hashlib
 import json
+import os
+import re
 import time
 import uuid
 from pathlib import Path
@@ -91,6 +93,50 @@ def history_lines(path):
             continue
         yield from text.splitlines(keepends=True)
     yield from current.splitlines(keepends=True)
+
+
+RECAP_DIR = "memory/recap"
+_EPISODE_NAME = re.compile(r"^episode_(\d+)\.json$")
+
+
+def episode_number(episode, filename=""):
+    """Numeric identity of an episode: its "e" (or legacy "id") field, else the
+    digits in its file name. None when neither is a number."""
+    for key in ("e", "id", "e_num"):
+        value = episode.get(key) if isinstance(episode, dict) else None
+        try:
+            if value is not None and not isinstance(value, bool):
+                return int(str(value).strip().lstrip("Ee"))
+        except ValueError:
+            pass
+    match = _EPISODE_NAME.match(Path(filename).name)
+    return int(match.group(1)) if match else None
+
+
+def list_episodes(recap_dir=RECAP_DIR):
+    """All readable episode records, ordered by episode NUMBER (never by the
+    lexicographic file name: episode_10 sorts after episode_9). Gaps are fine.
+    Each record gets "_file" (its file name) and "_n" (its number)."""
+    episodes = []
+    try:
+        names = os.listdir(recap_dir)
+    except OSError:
+        return episodes
+    for name in names:
+        if not (name.startswith("episode_") and name.endswith(".json")):
+            continue
+        try:
+            with open(os.path.join(recap_dir, name), "r", encoding="utf-8") as handle:
+                episode = json.loads(handle.read())
+        except (OSError, ValueError, UnicodeDecodeError):
+            continue
+        if not isinstance(episode, dict):
+            continue
+        episode["_file"] = name
+        episode["_n"] = episode_number(episode, name)
+        episodes.append(episode)
+    episodes.sort(key=lambda e: (e["_n"] is None, e["_n"] if e["_n"] is not None else 0, e["_file"]))
+    return episodes
 
 
 def load_experience(path="experience.json", log=print):

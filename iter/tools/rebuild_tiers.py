@@ -28,6 +28,7 @@ if TOOLS_DIR not in sys.path:
     sys.path.insert(0, TOOLS_DIR)
 import _memory_guard as guard
 import memory_journal
+from iterbrow_runtime.episodic_history import list_episodes
 
 DESCRIPTION = (
     "Regenerate memory/tiers/tier3.txt, tier4.txt, and tier5.txt from "
@@ -49,21 +50,9 @@ TIER5_LIMIT = 300
 
 
 def _list_episodes():
-    episodes = []
-    if not os.path.isdir(RECAP_DIR):
-        return episodes
-    for entry in sorted(os.listdir(RECAP_DIR)):
-        if entry.startswith("episode_") and entry.endswith(".json"):
-            path = os.path.join(RECAP_DIR, entry)
-            try:
-                with open(path, "r") as f:
-                    ep = json.loads(f.read())
-                ep["_file"] = entry
-                episodes.append(ep)
-            except Exception:
-                continue
-    episodes.sort(key=lambda e: e.get("_file", ""))
-    return episodes
+    # Numeric order by episode number ("e", else digits in the file name),
+    # never lexicographic: episode_10 must sort after episode_9.
+    return list_episodes(RECAP_DIR)
 
 
 def _episode_num(ep):

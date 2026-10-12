@@ -16,7 +16,7 @@ How it works:
    episode data via the episodes tool and writing JSON files
 """
 import os, json
-from iterbrow_runtime.episodic_history import history_lines
+from iterbrow_runtime.episodic_history import history_lines, list_episodes
 
 DESCRIPTION = "Episode recap: segments completed tasks into episode records and injects a recap of recent episodes."
 
@@ -67,17 +67,6 @@ def _save_state(count):
     except Exception:
         pass
 
-def _list_episode_files():
-    """List episode JSON files without glob."""
-    files = []
-    try:
-        for entry in os.listdir(RECAP_DIR):
-            if entry.startswith("episode_") and entry.endswith(".json"):
-                files.append(os.path.join(RECAP_DIR, entry))
-    except Exception:
-        pass
-    return sorted(files)
-
 def _check_recap_needed():
     """Check if new episodes need recapping. Write flag if so."""
     total_lines = _count_lines(HISTORY_PATH)
@@ -106,16 +95,8 @@ def _check_recap_needed():
                 pass
 
 def _load_episodes():
-    """Load all episode JSON files from recap directory."""
-    episodes = []
-    for fpath in _list_episode_files():
-        try:
-            with open(fpath, "r") as f:
-                ep = json.loads(f.read())
-                episodes.append(ep)
-        except Exception:
-            continue
-    return episodes
+    """All episode records in numeric episode order (not file-name order)."""
+    return list_episodes(RECAP_DIR)
 
 def _format_recap_block(episodes):
     """Format episodes into a compact summary block for system message.
