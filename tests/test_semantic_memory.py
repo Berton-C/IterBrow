@@ -279,5 +279,40 @@ print(json.dumps({"missing": missing}))
         self.assertFalse(os.path.exists(petta.DB_FILE), "a read wrote the index")
 
 
+NO_STRICT = {"ITER_REQUIRE_ATOMSPACE": None}
+
+
+class FailClosedTests(ServiceTestCase):
+    """B6: with the AtomSpace down and ITER_REQUIRE_ATOMSPACE unset (a direct
+    `python iter.py` launch) memory writes were 'deferred': the tool reported
+    success and the index advanced while the authority never got the write.
+    S1: a refused connection (nothing was sent) was reported as uncertain."""
+
+    def test_remember_with_authority_down_reports_failure_and_changes_nothing(self):
+        self.r.stop()
+        result = self.r.tool("remember", text="written while authority is down", env=NO_STRICT)
+        self.assertFalse(result["ok"] and "SUCCESS" in result.get("result", ""), result)
+        self.assertEqual(self.r.index_ids(), set())
+        self.assertEqual(self.r.pending_files(), [], "a definite failure left a pending entry")
+        # S1: nothing was sent, so the outcome is definite, not 'uncertain'.
+        self.assertEqual((result.get("execution") or {}).get("state"), "not_executed", result)
+
+    def test_metadata_write_with_authority_down_reports_failure(self):
+        item_id = self.r.remember("belief to support")
+        before = self.r.index()
+        self.r.stop()
+        out = self.r.text("support", item_id=item_id, episode_time="E1", env=NO_STRICT)
+        self.assertNotIn("SUCCESS", out)
+        self.assertEqual(self.r.index()["metadatas"], before["metadatas"])
+        self.r.start()
+        self.assertEqual(self.r.memories()[item_id][1].get("strength", 1.0), 1.0)
+
+    def test_sent_without_reply_is_uncertain_and_keeps_its_pending_identity(self):
+        result = self.r.tool("remember", text="reply lost in transit", env={"NO_REPLY_AFTER_SEND": "1"})
+        self.assertFalse(result["ok"], result)
+        self.assertEqual((result.get("execution") or {}).get("state"), "uncertain", result)
+        self.assertEqual(len(self.r.pending_files()), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

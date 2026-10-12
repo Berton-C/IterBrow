@@ -137,8 +137,14 @@ def _call_atomspace(method, timeout=30, **params):
         connection.settimeout(budget)
 
     try:
-        remaining()
-        connection.connect(SOCKET_PATH)
+        try:
+            remaining()
+            connection.connect(SOCKET_PATH)
+        except OSError as exc:
+            # Definite: the request was never sent (socket missing, refused,
+            # or not accepted in time).  Errors after this point are uncertain.
+            exc.atomspace_not_sent = True
+            raise
         request = json.dumps({"method": method, "params": params}, ensure_ascii=False) + "\n"
         remaining()
         connection.sendall(request.encode("utf-8"))
@@ -173,7 +179,13 @@ def _event_atom(event):
 
 
 def commit_batch(events, state_atoms=None, remove_state_keys=None, actor="iter",
-                 source="cognition", transaction_id=None, timeout=30, expected_atoms=None):
+                 source="cognition", transaction_id=None, timeout=30, expected_atoms=None,
+                 require=None):
+    """Commit events + state atoms in one AtomSpace transaction.
+
+    require=True always fails closed (raises) when the AtomSpace is
+    unreachable; require=None keeps the ITER_REQUIRE_ATOMSPACE switch.
+    """
     normalised = []
     operations = []
     for raw in events or []:
@@ -213,7 +225,7 @@ def commit_batch(events, state_atoms=None, remove_state_keys=None, actor="iter",
         # cognitive writes fail closed if authority is unavailable. Direct
         # offline unit/maintenance invocations retain legacy compatibility and
         # report that the authoritative event was not committed.
-        if os.environ.get("ITER_REQUIRE_ATOMSPACE") == "1":
+        if require or (require is None and os.environ.get("ITER_REQUIRE_ATOMSPACE") == "1"):
             raise
         return {"deferred": True, "reason": "%s: %s" % (type(exc).__name__, exc)}
 

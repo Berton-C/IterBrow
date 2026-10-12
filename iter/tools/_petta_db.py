@@ -53,6 +53,12 @@ class MemoryCommitUncertain(RuntimeError):
                          "task_fulfillment": "unverified"}
 
 
+class MemoryAuthorityUnavailable(RuntimeError):
+    """The AtomSpace could not be reached; nothing was sent, nothing changed."""
+    execution_outcome = {"success": False, "state": "not_executed", "scope": "invocation",
+                         "task_fulfillment": "unverified"}
+
+
 class MemoryProjectionPending(RuntimeError):
     execution_outcome = {"success": None, "state": "projection_pending", "scope": "invocation",
                          "task_fulfillment": "unverified"}
@@ -118,20 +124,35 @@ def _commit_memory_change(kind, records, remove_ids=None):
     from iterbrow_runtime.atomspace_store import _atomic_json
     with (pending_dir / "writer.lock").open("a") as lock:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
-        if pending.exists():
+        created = not pending.exists()
+        if not created:
             operation_id = json.loads(pending.read_text())["operation_id"]
         else:
             operation_id = uuid.uuid4().hex
             _atomic_json(pending, {"operation_id": operation_id, "request": json.loads(canonical)})
+        ids = ",".join(str(record["id"]) for record in records)
         try:
             result = _commit_memory_operation(kind, records, remove_ids, operation_id)
         except (OSError, json.JSONDecodeError) as error:
-            ids = ",".join(str(record["id"]) for record in records)
+            if getattr(error, "atomspace_not_sent", False):
+                # Definite: nothing reached the AtomSpace.  An entry left by an
+                # earlier uncertain attempt stays; one made just now goes.
+                if created:
+                    _remove_if_present(str(pending))
+                raise MemoryAuthorityUnavailable(
+                    "Memory NOT stored: the AtomSpace authority is unreachable (%s); nothing was "
+                    "changed for memory ID(s) %s. Retry once the AtomSpace service is running."
+                    % (error, ids)
+                ) from error
             raise MemoryCommitUncertain(
                 "No confirmed reply for memory ID(s) %s, transaction %s. The write may commit later. "
                 "Use remember(status_id=ID) to inspect it; retry the exact same text/IDs, not a reworded replacement."
                 % (ids, "cognitive:memory:" + operation_id)
             ) from error
+        except Exception:
+            # The AtomSpace answered with a rejection: a definite outcome.
+            _remove_if_present(str(pending))
+            raise
         # Keep the existing recovery entry until the local search projection is
         # saved too. An acknowledged commit followed by a crash is recoverable.
         return {**result, **({"_pending_path": str(pending), "_operation_id": operation_id}
@@ -161,6 +182,7 @@ def _commit_memory_operation(kind, records, remove_ids, operation_id):
             )
     return commit_batch(
         events,
+        require=True,  # semantic memory always fails closed (never "deferred")
         state_atoms=state_atoms,
         remove_state_keys=["semantic_memory:%s" % item_id for item_id in (remove_ids or [])],
         actor="iter",
