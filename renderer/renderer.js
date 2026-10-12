@@ -419,13 +419,14 @@ document.getElementById('btn-restore-state').addEventListener('click', async () 
 });
 
 document.getElementById('btn-reset-state').addEventListener('click', async () => {
-  const ok = confirm('This permanently deletes Iter\'s accumulated memory, vector store, backups, and knowledge files. Your tools/transformations code is NOT touched. This cannot be undone. Continue?');
+  const ok = confirm('Factory Reset: Iter forgets everything it has accumulated -- memory, conversation history, beliefs, the PWQ board and saved outputs -- and starts fresh. Your code, settings, API keys, tabs and the apps you built are kept.\n\nA full backup is saved first; you can return to it with Restore.\n\nContinue?');
   if (!ok) return;
-  stateStatus.textContent = 'Resetting…';
+  stateStatus.textContent = 'Saving a backup, then resetting…';
   try {
-    await window.iterApi.resetState();
-    stateStatus.textContent = 'State reset.';
-    addMessage('sys', 'State reset. Iter was stopped; press Start to begin fresh.');
+    const result = await window.iterApi.resetState();
+    const saved = result && result.backup ? result.backup.split('/').pop() : 'a backup';
+    stateStatus.textContent = 'State reset. Backup: ' + saved;
+    addMessage('sys', 'State reset (backup saved as ' + saved + ', available under Restore). Press Start to begin fresh.');
     setRunning(false);
   } catch (e) {
     stateStatus.textContent = 'Reset failed: ' + e.message;

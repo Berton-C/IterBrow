@@ -956,16 +956,10 @@ async function runAutoBackup() {
   let pause = null;
   try {
     pause = await pauseCognition({ shutdownAtomspace: false });
-    fs.mkdirSync(AUTO_BACKUP_DIR, { recursive: true });
     saveTabSession();
     await callAtomspace('checkpoint', {}, 10000);
-    const wanted = PORTABLE_ARCHIVE_PATHS;
-    const existing = wanted.filter((p) => fs.existsSync(path.join(ITER_DIR, p)));
-    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const zipPath = path.join(AUTO_BACKUP_DIR, `autobackup-${stamp}.zip`);
-    await runCLI('zip', ['-r', zipPath, ...existing], ITER_DIR);
-    pruneAutoBackups();
-    pushLog(`[auto-backup] saved ${existing.length} item(s) -> ${path.basename(zipPath)}`);
+    const { zipPath, itemCount } = await writeStateArchive('autobackup-');
+    pushLog(`[auto-backup] saved ${itemCount} item(s) -> ${path.basename(zipPath)}`);
   } catch (e) {
     pushLog(`[auto-backup] failed: ${e.message}`);
   } finally {
@@ -973,10 +967,16 @@ async function runAutoBackup() {
   }
 }
 
+// Reset always saves one of these first; they share the Restore list with the
+// rolling auto-backups but are pruned separately so the 6-hourly rotation
+// can never age out the snapshot taken right before a Reset.
+const PRE_RESET_BACKUP_PREFIX = 'prereset-';
+const PRE_RESET_BACKUP_KEEP = 3;
+
 function listAutoBackupsSorted() {
   if (!fs.existsSync(AUTO_BACKUP_DIR)) return [];
   return fs.readdirSync(AUTO_BACKUP_DIR)
-    .filter((f) => f.startsWith('autobackup-') && f.endsWith('.zip'))
+    .filter((f) => (f.startsWith('autobackup-') || f.startsWith(PRE_RESET_BACKUP_PREFIX)) && f.endsWith('.zip'))
     .map((f) => {
       const full = path.join(AUTO_BACKUP_DIR, f);
       const stat = fs.statSync(full);
@@ -987,7 +987,22 @@ function listAutoBackupsSorted() {
 
 function pruneAutoBackups() {
   const all = listAutoBackupsSorted();
-  for (const old of all.slice(AUTO_BACKUP_KEEP)) fs.rmSync(old.full, { force: true });
+  const rolling = all.filter((b) => b.file.startsWith('autobackup-'));
+  const preReset = all.filter((b) => b.file.startsWith(PRE_RESET_BACKUP_PREFIX));
+  for (const old of rolling.slice(AUTO_BACKUP_KEEP)) fs.rmSync(old.full, { force: true });
+  for (const old of preReset.slice(PRE_RESET_BACKUP_KEEP)) fs.rmSync(old.full, { force: true });
+}
+
+// Zip every portable state path into AUTO_BACKUP_DIR. Caller must already
+// have paused cognition and checkpointed the AtomSpace.
+async function writeStateArchive(prefix) {
+  fs.mkdirSync(AUTO_BACKUP_DIR, { recursive: true });
+  const existing = PORTABLE_ARCHIVE_PATHS.filter((p) => fs.existsSync(path.join(ITER_DIR, p)));
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const zipPath = path.join(AUTO_BACKUP_DIR, `${prefix}${stamp}.zip`);
+  await runCLI('zip', ['-qr', zipPath, ...existing], ITER_DIR);
+  pruneAutoBackups();
+  return { zipPath, itemCount: existing.length };
 }
 
 function startAutoBackupTimer() {
@@ -1265,7 +1280,8 @@ async function restoreState() {
   const labels = backups.map((b) => {
     const when = new Date(b.mtimeMs).toLocaleString();
     const mb = (b.size / (1024 * 1024)).toFixed(1);
-    return `${when}  (${mb} MB)`;
+    const kind = b.file.startsWith(PRE_RESET_BACKUP_PREFIX) ? '  [before Reset]' : '';
+    return `${when}  (${mb} MB)${kind}`;
   });
   const buttons = [...labels, 'Cancel'];
   const { response } = await dialog.showMessageBox(win, {
@@ -1282,8 +1298,26 @@ async function restoreState() {
   return { ...result, restoredFrom: chosen.file };
 }
 
+// Factory Reset: forget everything Iter has accumulated (memory, history,
+// beliefs, PWQ board, retained outputs, dashboards -- every manifest path
+// marked reset:true) and start fresh. Code, settings/keys, tabs and the apps
+// you built are kept. A full state archive is saved first and appears at the
+// top of the Restore list, so a Reset is never unrecoverable.
 async function resetState() {
-  const pause = await pauseCognition({ shutdownAtomspace: true });
+  const pause = await pauseCognition({ shutdownAtomspace: false });
+  let backup;
+  try {
+    saveTabSession();
+    await callAtomspace('checkpoint', {}, 10000);
+    backup = await writeStateArchive(PRE_RESET_BACKUP_PREFIX);
+    pushLog(`[reset] saved pre-reset backup ${path.basename(backup.zipPath)} (${backup.itemCount} item(s))`);
+    await stopMettaServer();
+    pause.shutdownAtomspace = true;
+  } catch (error) {
+    // No backup, no reset: leave everything exactly as it was.
+    await resumeCognition(pause);
+    throw new Error(`Reset cancelled -- could not save a backup first: ${error.message}`);
+  }
   try {
     for (const rel of STATE_PATHS) {
       const target = path.join(ITER_DIR, rel);
@@ -1293,7 +1327,7 @@ async function resetState() {
     if (started.error) throw new Error(started.error);
     const status = await waitForAtomspaceReady();
     await resumeCognition(pause);
-    return { reset: true, restarted: pause.iterWasRunning, atomspace: status };
+    return { reset: true, restarted: pause.iterWasRunning, atomspace: status, backup: backup.zipPath };
   } catch (error) {
     // Leave Iter stopped if reset could not reconstruct authoritative state.
     atomspaceLifecycleBusy = false;
