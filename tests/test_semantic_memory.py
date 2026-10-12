@@ -395,6 +395,20 @@ class PendingIdentityTests(ServiceTestCase):
         self.assertTrue(self._authority_has(pending_id))
         self.assertEqual(self.r.pending_files(), [])
 
+    def test_leftover_old_format_entry_for_a_stored_memory_is_settled(self):
+        # The owner's Mac has one .runtime/memory_pending file in the old format.
+        text = "an old uncertain write that did commit"
+        item_id = self.r.remember(text)
+        pending_dir = self.r.root / ".runtime" / "memory_pending"
+        pending_dir.mkdir(parents=True, exist_ok=True)
+        (pending_dir / ("0" * 64 + ".json")).write_text(json.dumps({
+            "operation_id": "f" * 32,
+            "request": ["remembered", [{"id": item_id, "document": text, "metadata": self.r.memories()[item_id][1]}], []],
+        }))
+        out = self.r.text("remember", text=text)
+        self.assertTrue(out.startswith("REMEMBER-DUPLICATE"), out)
+        self.assertEqual(self.r.pending_files(), [])
+
     def test_pending_queue_is_cleared_by_reset(self):
         manifest = json.loads((ITER_SRC / "state_manifest.json").read_text())
         entry = next(e for e in manifest["entries"] if e["path"] == ".runtime/memory_pending")
@@ -507,6 +521,20 @@ class LegacyEvidenceMigrationTests(unittest.TestCase):
     """B10 on the owner's existing memories (no evidenceEpisodes field): linked
     episodes of a revised memory count as already counted; links of a memory still
     at the default (1.0, 0.5) were never counted."""
+
+    def test_owner_style_index_is_adopted_without_re_embedding_or_vector_changes(self):
+        r = SemanticRoot("owner-index")
+        self.addCleanup(r.close)
+        write_current_index(r.root, ["m1", "m2", "m3"], ["fact one", "fact two", "fact three"],
+                            [{"mem_type": "fact", "time": "2026-01-0%d 00:00:00" % i} for i in (1, 2, 3)])
+        vectors = json.loads((r.root / "chroma_db" / "memories.json").read_text())["embeddings"]
+        r.start()
+        atoms = r.atoms()
+        out = r.text("chroma_query", query="fact two", k=1)
+        self.assertIn("ID: m2", out)
+        self.assertEqual(r.embeddings.requests, 1, "only the query was embedded")
+        self.assertEqual(r.index()["embeddings"], vectors)
+        self.assertEqual(r.atoms(), atoms, "reading changed authority bytes")
 
     def test_existing_memories_are_read_with_the_documented_rule(self):
         r = SemanticRoot("legacy-evidence")
