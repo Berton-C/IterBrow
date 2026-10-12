@@ -20,7 +20,9 @@ import binascii
 import sys
 import uuid
 import fcntl
+import shutil
 import urllib.request
+from contextlib import contextmanager
 from pathlib import Path
 
 
@@ -255,60 +257,96 @@ def _fsync_db_dir():
         pass
 
 
+_writer_depth = 0
+_writer_handle = None
+
+
+@contextmanager
+def writer_lock():
+    """One exclusive writer for the index: load -> authority commit -> save.
+
+    flock on chroma_db/.writer.lock; re-entrant within a process.  Readers never
+    take it and never write.
+    """
+    global _writer_depth, _writer_handle
+    if _writer_depth:
+        _writer_depth += 1
+        try:
+            yield
+        finally:
+            _writer_depth -= 1
+        return
+    _ensure_dir()
+    handle = open(os.path.join(DB_DIR, ".writer.lock"), "a")
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        _writer_depth, _writer_handle = 1, handle
+        try:
+            yield
+        finally:
+            _writer_depth, _writer_handle = 0, None
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    finally:
+        handle.close()
+
+
 def _save(db):
-    """Write through a temporary file while retaining the previous valid file."""
+    """Replace the index atomically; memories.json exists at every instant.
+
+    tmp is written and fsynced, the current file is hard-linked (or copied) to
+    .bak, then os.replace(tmp, DB_FILE).  A concurrent reader sees either the
+    previous or the new complete file, never a gap.
+    """
     _ensure_dir()
     _validate(db, "in-memory database")
-    tmp = DB_FILE + ".tmp"
-    backup = DB_FILE + ".bak"
-    _remove_if_present(tmp)
-    _write_new_file(tmp, db)
-
-    moved_old = False
-    try:
-        if _exists(DB_FILE):
-            _remove_if_present(backup)
-            os.replace(DB_FILE, backup)
-            moved_old = True
-        os.replace(tmp, DB_FILE)
-        _fsync_db_dir()
-    except Exception:
+    with writer_lock():
+        tmp = "%s.tmp.%d" % (DB_FILE, os.getpid())
+        backup = DB_FILE + ".bak"
         _remove_if_present(tmp)
-        if moved_old and not _exists(DB_FILE) and _exists(backup):
-            try:
-                os.replace(backup, DB_FILE)
-                _fsync_db_dir()
-            except Exception:
-                pass
-        raise
+        try:
+            _write_new_file(tmp, db)
+            if _exists(DB_FILE):
+                staged = backup + ".tmp"
+                _remove_if_present(staged)
+                try:
+                    os.link(DB_FILE, staged)
+                except OSError:
+                    shutil.copy2(DB_FILE, staged)
+                os.replace(staged, backup)
+            os.replace(tmp, DB_FILE)
+            _fsync_db_dir()
+        finally:
+            _remove_if_present(tmp)
 
 
 def _restore_backup(backup):
-    db = _read(backup)
-    recover = DB_FILE + ".recover"
-    _remove_if_present(recover)
-    _write_new_file(recover, db)
-    _remove_if_present(DB_FILE)
-    os.replace(recover, DB_FILE)
-    _fsync_db_dir()
-    return db
+    """Writer-only: put the last good index back in place (under writer_lock)."""
+    with writer_lock():
+        db = _read(backup)
+        recover = DB_FILE + ".recover"
+        _remove_if_present(recover)
+        _write_new_file(recover, db)
+        os.replace(recover, DB_FILE)
+        _fsync_db_dir()
+        return db
 
 
-def _load():
+def _load(write=False):
+    """Read the index.  Readers fall back to .bak in memory and never write;
+    only a writer (write=True, under writer_lock) restores .bak on disk."""
     _ensure_dir()
     backup = DB_FILE + ".bak"
     if _exists(DB_FILE):
         try:
             return _read(DB_FILE)
         except Exception:
-            if _exists(backup):
-                return _restore_backup(backup)
-            raise
-
-    if _exists(backup):
+            if not _exists(backup):
+                raise
+    elif not _exists(backup):
+        return _empty()
+    if write:
         return _restore_backup(backup)
-
-    return _empty()
+    return _read(backup)
 
 
 def _hex(data):
@@ -493,7 +531,7 @@ def status():
 
 class Collection:
     def add(self, ids, embeddings, documents, metadatas):
-        db = _load()
+        db = _load(write=True)
         for i in range(len(ids)):
             item_id = ids[i]
             if item_id in db["ids"]:
@@ -565,7 +603,7 @@ class Collection:
         return result
 
     def update(self, ids, documents=None, metadatas=None, embeddings=None):
-        db = _load()
+        db = _load(write=True)
         for target_index in range(len(ids)):
             item_id = ids[target_index]
             if item_id not in db["ids"]:
@@ -590,7 +628,7 @@ class Collection:
         _save_committed_projection(db, committed)
 
     def delete(self, ids):
-        db = _load()
+        db = _load(write=True)
         removed = []
         for item_id in ids:
             if item_id in db["ids"]:

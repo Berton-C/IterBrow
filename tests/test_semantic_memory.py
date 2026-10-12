@@ -215,5 +215,69 @@ class QuantizationTests(unittest.TestCase):
         self.assertEqual(result["ids"][0], ["b"])
 
 
+class AtomicSaveTests(unittest.TestCase):
+    """B8: _save renamed memories.json to .bak before moving the new file in; a
+    concurrent pure reader that landed in that gap restored the old .bak over the
+    writer's new file (or found no file at all), rolling back committed writes."""
+
+    WRITER = r"""
+import sys, json
+sys.path.insert(0, sys.argv[1]); sys.path.insert(0, sys.argv[1] + "/tools")
+import _petta_db as p
+p.DB_DIR = sys.argv[2]; p.DB_FILE = p.DB_DIR + "/memories.json"
+db = p._empty()
+for i in range(int(sys.argv[3])):
+    db["ids"].append("m%d" % i); db["documents"].append("doc"); db["metadatas"].append({})
+    db["embeddings"].append([0.25] * 8)
+    p._save(db)
+"""
+    READER = r"""
+import sys, os, time, json
+sys.path.insert(0, sys.argv[1]); sys.path.insert(0, sys.argv[1] + "/tools")
+import _petta_db as p
+p.DB_DIR = sys.argv[2]; p.DB_FILE = p.DB_DIR + "/memories.json"
+missing = 0
+end = time.time() + float(sys.argv[3])
+while time.time() < end:
+    if not os.path.exists(p.DB_FILE):
+        missing += 1
+    try:
+        p._load()
+    except Exception:
+        pass
+print(json.dumps({"missing": missing}))
+"""
+
+    def test_concurrent_readers_never_lose_or_roll_back_a_save(self):
+        import subprocess
+        work = Path(tempfile.mkdtemp(prefix="iterbrow-atomic-"))
+        self.addCleanup(shutil.rmtree, work, True)
+        (work / "w.py").write_text(self.WRITER)
+        (work / "r.py").write_text(self.READER)
+        db_dir = work / "chroma_db"
+        db_dir.mkdir()
+        (db_dir / "memories.json").write_text(json.dumps(
+            {"ids": [], "documents": [], "metadatas": [], "embeddings": []}))
+        env = dict(os.environ, ITER_DIR=str(work))
+        readers = [subprocess.Popen([sys.executable, str(work / "r.py"), str(ITER_SRC), str(db_dir), "4"],
+                                    stdout=subprocess.PIPE, text=True, env=env) for _ in range(3)]
+        subprocess.run([sys.executable, str(work / "w.py"), str(ITER_SRC), str(db_dir), "300"],
+                       check=True, env=env)
+        missing = sum(json.loads(r.communicate()[0])["missing"] for r in readers)
+        self.assertEqual(len(json.loads((db_dir / "memories.json").read_text())["ids"]), 300)
+        self.assertEqual(missing, 0, "memories.json was absent during a save")
+
+    def test_a_reader_never_restores_the_backup_itself(self):
+        petta = load_petta(self)
+        db = petta._empty()
+        db["ids"].append("m1"); db["documents"].append("d"); db["metadatas"].append({})
+        db["embeddings"].append([0.5] * 4)
+        petta._save(db)
+        petta._save(db)  # leaves a .bak
+        os.remove(petta.DB_FILE)
+        self.assertEqual(petta._load()["ids"], ["m1"])
+        self.assertFalse(os.path.exists(petta.DB_FILE), "a read wrote the index")
+
+
 if __name__ == "__main__":
     unittest.main()
