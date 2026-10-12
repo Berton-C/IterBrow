@@ -176,6 +176,45 @@ class SingleTierWriterTests(EpisodicCase):
         self.assertIn("E74", self.tier("tier3"))
 
 
+    def test_first_rebuild_keeps_the_old_life_and_era_summaries_in_the_prompt(self):
+        # Review 3 H1: episodes 1-25 are gone; the hand-written tier4/tier5 were the
+        # only summaries of them and of the life so far.  Archiving them on the
+        # first rebuild dropped them from every later prompt.
+        tiers = self.dir / "memory/tiers"
+        tiers.mkdir(parents=True)
+        (tiers / "tier3.txt").write_text("E70: hand tier3 line", encoding="utf-8")
+        (tiers / "tier4.txt").write_text("E1-5: LEGACY ERA early IterBrow setup; E11-25: NodeQuest", encoding="utf-8")
+        (tiers / "tier5.txt").write_text("LIFE: Iter has helped Berton since August.", encoding="utf-8")
+        self.write_episodes(range(26, 75))
+        tiered = load("transformations/tiered_memory.py")
+        content = tiered.transform([system()], [])[0][0]["content"]
+        self.assertIn("LIFE: Iter has helped Berton since August.", content)
+        self.assertIn("E1-5: LEGACY ERA early IterBrow setup", content)
+        self.assertIn("E74", content)
+        self.assertLess(content.index("LEGACY ERA"), content.index("## Life Summary"),
+                        "the legacy summary comes ahead of the regenerated tiers")
+        legacy = (tiers / "legacy_summary.txt").read_text(encoding="utf-8")
+        self.assertNotIn("hand tier3 line", legacy)
+        # Later rebuilds keep it (written once, never regenerated) and keep injecting it.
+        self.write_episodes([75], text=lambda i: "NEWER EPISODE")
+        content = tiered.transform([system()], [])[0][0]["content"]
+        self.assertIn("NEWER EPISODE", content)
+        self.assertIn("LIFE: Iter has helped Berton since August.", content)
+        self.assertEqual((tiers / "legacy_summary.txt").read_text(encoding="utf-8"), legacy)
+
+    def test_legacy_summary_is_bounded_and_not_agent_writable(self):
+        tiers = self.dir / "memory/tiers"
+        tiers.mkdir(parents=True)
+        (tiers / "tier5.txt").write_text("LIFE " + "x" * 20000, encoding="utf-8")
+        self.write_episodes(range(1, 3))
+        content = load("transformations/tiered_memory.py").transform([system()], [])[0][0]["content"]
+        self.assertIn("LIFE xxx", content)
+        self.assertLess(len(content), 9000)
+        guard = load("tools/_memory_guard.py")
+        with self.assertRaises(PermissionError):
+            guard.check_open(str(tiers / "legacy_summary.txt"), "w")
+
+
 class CapsKeepNewestTests(EpisodicCase):
     def test_bug3_tier4_cap_keeps_newest_eras(self):
         self.write_episodes(range(1, 201), text=lambda i: "Worked on feature number %d of the browser and verified the result" % i)

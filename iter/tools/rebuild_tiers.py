@@ -45,6 +45,11 @@ RECAP_DIR = "memory/recap"
 TIER_DIR = "memory/tiers"
 STATE_PATH = os.path.join(TIER_DIR, ".rebuild_state.json")
 FLAG_PATH = os.path.join(TIER_DIR, ".rollup_needed")
+# Tier4/tier5 text that existed before the first rebuild (hand-maintained,
+# covering episodes that no longer exist) is frozen here once and injected by
+# tiered_memory ahead of the regenerated tiers.  Never written by the agent.
+LEGACY_PATH = os.path.join(TIER_DIR, "legacy_summary.txt")
+LEGACY_LIMIT = 1500  # characters tiered_memory injects
 
 TIER3_EPISODE_WINDOW = 10   # most recent N episodes, one line each, verbatim summary
 TIER4_CHUNK_SIZE = 5        # older episodes collapsed into eras of N
@@ -192,6 +197,27 @@ def needs_rebuild():
     return None
 
 
+def _freeze_legacy_summary(tiers):
+    """First rebuild only: keep the pre-existing life (tier5) and era (tier4)
+    summaries -- the only summaries of episodes that no longer exist -- as
+    legacy_summary.txt, created once and never rewritten."""
+    parts = []
+    for name, label in (("tier5", "Life summary"), ("tier4", "Era summaries")):
+        current = (_read_tier(name) or "").strip()
+        if current and current != tiers[name].strip():
+            parts.append("%s (written before episode records):\n%s" % (label, current))
+    if not parts:
+        return False
+    try:
+        with open(LEGACY_PATH, "x", encoding="utf-8") as handle:
+            handle.write("\n\n".join(parts) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+    except FileExistsError:
+        return False
+    return True
+
+
 def rebuild(actor="agent"):
     """The ONLY writer of tier3/4/5. Deterministic and idempotent: unchanged
     tiers are not rewritten. Tier text this tool did not write itself (e.g. an
@@ -200,10 +226,13 @@ def rebuild(actor="agent"):
     episodes = _list_episodes()
     os.makedirs(TIER_DIR, exist_ok=True)
     tiers = plan(episodes)
-    previous = _read_state().get("written", {})
+    state = _read_state()
+    previous = state.get("written", {})
 
     written, changed = {}, []
     with guard.allow_protected_write("rebuild_tiers: regenerating from recap source of truth"):
+        if not state and not os.path.exists(LEGACY_PATH):
+            _freeze_legacy_summary(tiers)
         for name in TIER_NAMES:
             content = tiers[name]
             path = os.path.join(TIER_DIR, name + ".txt")

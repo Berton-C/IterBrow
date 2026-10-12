@@ -27,7 +27,8 @@ Three protection classes:
    created (file does not yet exist). An existing episode file may never
    be written again, in any mode (overwrite, 'r+', append).
 
-3. REGEN_ONLY   - memory/tiers/tier*.txt. These are a pure, regenerable
+3. REGEN_ONLY   - memory/tiers/tier*.txt (and the frozen legacy_summary.txt
+   rebuild_tiers writes once). These are a pure, regenerable
    index/projection. Every write from agent code is blocked; only
    tools/rebuild_tiers.py may write them, via the `allow_protected_write()`
    bypass below.
@@ -69,6 +70,9 @@ CREATE_ONLY_PATTERNS = [
 REGEN_ONLY_PATTERNS = [
     "memory/tiers/tier*.txt",
     "*/memory/tiers/tier*.txt",
+    # Frozen pre-episode summaries, written once by rebuild_tiers.
+    "memory/tiers/legacy_summary.txt",
+    "*/memory/tiers/legacy_summary.txt",
 ]
 
 ALL_PROTECTED_PATTERNS = APPEND_ONLY_PATTERNS + CREATE_ONLY_PATTERNS + REGEN_ONLY_PATTERNS

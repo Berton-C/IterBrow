@@ -12,6 +12,8 @@ rebuild_tiers.ensure_current() first, so the pyramid always shows the newest
 episode. Sizes are CHARACTERS everywhere (limits come from rebuild_tiers).
 
 Tier files:
+  legacy_summary.txt - frozen tier4/tier5 text from before the first rebuild
+               (the only summary of episodes that no longer exist), bounded
   tier5.txt  - coarsest (whole-life summary)
   tier4.txt  - era summaries (newest eras)
   tier3.txt  - episode summaries (newest episodes)
@@ -24,11 +26,13 @@ from pathlib import Path
 DESCRIPTION = "Tiered memory pyramid: rolls episode summaries up into era and life summaries and injects the pyramid."
 
 TIER_DIR = "memory/tiers"
-TIERS = ["tier5", "tier4", "tier3", "tier2", "tier1"]
+TIERS = ["legacy_summary", "tier5", "tier4", "tier3", "tier2", "tier1"]
+LEGACY_LIMIT = 1500  # characters of memory/tiers/legacy_summary.txt injected (rebuild_tiers.LEGACY_LIMIT)
 TIERS_END = "(end of tiered memory pyramid)"  # must match zz_context_budget.TIERS_END
 DEFAULT_BUDGET = 8000  # character budget for assembled memory block
 
 TIER_LABELS = {
+    "legacy_summary": "Legacy Summary (before episode records; frozen)",
     "tier5": "Life Summary",
     "tier4": "Era Summaries",
     "tier3": "Episode Summaries",
@@ -100,6 +104,8 @@ def transform(messages, tools):
             path = os.path.join(TIER_DIR, tier + ".txt")
             if _exists(path):
                 content = _read_file(path)
+                if tier == "legacy_summary" and len(content) > LEGACY_LIMIT:
+                    content = content[:LEGACY_LIMIT - 3] + "..."
                 if content:
                     tier_contents[tier] = content
 
