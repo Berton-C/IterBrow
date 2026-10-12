@@ -91,3 +91,28 @@ def history_lines(path):
             continue
         yield from text.splitlines(keepends=True)
     yield from current.splitlines(keepends=True)
+
+
+def load_experience(path="experience.json", log=print):
+    """Load saved conversation history without ever refusing to start.
+
+    A missing file starts empty.  A corrupt or non-list file (partial write,
+    disk full, hand edit) is moved aside as ``<path>.corrupt-<ns>`` so nothing
+    is lost, the event is logged, and Iter starts with an empty history
+    instead of crashing on every launch."""
+    target = Path(path)
+    try:
+        raw = target.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return []
+    try:
+        experience = json.loads(raw)
+        if not isinstance(experience, list):
+            raise ValueError("history is not a list")
+        return experience
+    except (ValueError, UnicodeDecodeError) as error:
+        quarantine = target.with_name(target.name + ".corrupt-%d" % time.time_ns())
+        target.replace(quarantine)
+        log("[continuity] %s unreadable (%s); moved to %s and starting with empty history"
+            % (target, error, quarantine.name))
+        return []

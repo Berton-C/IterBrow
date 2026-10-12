@@ -16,7 +16,7 @@ from pathlib import Path
 from iterbrow_runtime.hotload_manager import HotloadManager, IterHeartbeat
 # PORT: Independently bound complete input projection and model output.
 from iterbrow_runtime.request_budget import RequestBudgetExceeded, project_request, working_input_limit, relevant_memory, memory_context, rotate_experience
-from iterbrow_runtime.episodic_history import archive_text
+from iterbrow_runtime.episodic_history import archive_text, load_experience
 from iterbrow_runtime.atomspace_store import _atomic_json
 # PORT: Retain oversized observations for reading without repeating tool effects.
 from iterbrow_runtime import tool_results as retained_text
@@ -559,11 +559,7 @@ def apply_transformation(messages, tools, timings=None):
 # --------------------------------------------------------------------
 # 4. Main loop
 # --------------------------------------------------------------------
-try:
-    with open("experience.json", "r", encoding="utf-8") as file:
-        experience = json.load(file)
-except FileNotFoundError:
-    experience = []
+experience = load_experience("experience.json")
 try:
     retained_text.archive_cached_outputs(ITER_ROOT)
 except Exception as error:
