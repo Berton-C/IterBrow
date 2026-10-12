@@ -674,5 +674,62 @@ module.transform(json.loads(sys.argv[2]), [])
         self.assertIn("((--> swan ([] white)) (stv 1.0 0.5))", space)
 
 
+class ImportDivergenceTests(unittest.TestCase):
+    """Import of an archive that holds chroma_db but no .runtime/atomspace (an
+    export from before the AtomSpace existed): main.js clears every resettable
+    path, copies the archive's paths, and starts the service. The legacy
+    migration must rerun on the fresh store and the index must end up aligned."""
+
+    def _restore(self, root, archive):
+        """main.js restoreFromZipPath: clear resettable paths, copy archive paths."""
+        manifest = json.loads((root / "state_manifest.json").read_text())
+        for entry in manifest["entries"]:
+            if entry["reset"]:
+                path = root / entry["path"]
+                if path.is_dir():
+                    shutil.rmtree(path)
+                elif path.exists():
+                    path.unlink()
+        for entry in manifest["entries"]:
+            source = archive / entry["path"]
+            if entry["portable"] and source.exists():
+                destination = root / entry["path"]
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                if source.is_dir():
+                    shutil.copytree(source, destination)
+                else:
+                    shutil.copy2(source, destination)
+
+    def test_archive_with_index_but_no_atomspace_ends_up_consistent(self):
+        source = SemanticRoot("import-src")
+        self.addCleanup(source.close)
+        source.start()
+        imported = source.remember("imported memory from old machine")
+        source.text("support", item_id=imported, episode_time="E1")
+        source.stop()
+        archive = Path(tempfile.mkdtemp(prefix="iterbrow-archive-"))
+        self.addCleanup(shutil.rmtree, archive, True)
+        shutil.copytree(source.root / "chroma_db", archive / "chroma_db")
+
+        r = SemanticRoot("import-dst")
+        self.addCleanup(r.close)
+        r.start()
+        local = r.remember("local memory on this machine")
+        r.stop()
+        self._restore(r.root, archive)
+        status = r.start()
+        self.assertEqual(status["legacy_migration"]["status"], "migrated", status)
+        self.assertIn("Content: imported memory from old machine",
+                      r.text("chroma_query", query="imported memory from old machine", k=1))
+        memories = r.memories()
+        self.assertEqual(set(memories), {imported})
+        self.assertNotIn(local, r.index_ids())
+        self.assertEqual(r.index_ids(), set(memories))
+        index = r.index()
+        self.assertEqual(index["metadatas"][index["ids"].index(imported)], memories[imported][1])
+        self.assertIn("SUPPORT-SUCCESS", r.text("support", item_id=imported, episode_time="E2"))
+        self.assertEqual(r.memories()[imported][1]["evidenceEpisodes"], {"E1": "+", "E2": "+"})
+
+
 if __name__ == "__main__":
     unittest.main()
