@@ -31,7 +31,17 @@ label{font-size:11px;color:var(--muted);display:block;margin-bottom:3px;letter-s
 #saveBar.show{opacity:1}
 .back{color:var(--muted);font-size:13px;cursor:pointer;margin-bottom:10px;display:inline-block}
 .back:hover{color:var(--gold)}
-.hist{font-size:12px;color:var(--muted);margin-top:4px;border-left:2px solid var(--line);padding-left:10px}
+ .hist{font-size:12px;color:var(--muted);margin-top:4px;border-left:2px solid var(--line);padding-left:10px}
+.headlines{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:16px;margin:14px 0 20px}
+.headlines h2{margin:0 0 4px}
+.headline-meta{font-size:11px;color:var(--muted);margin-bottom:10px}
+.headline{padding:12px 0;border-top:1px solid var(--line)}
+.headline:first-of-type{border-top:0}
+.headline-title{font-weight:700;font-size:14px;line-height:1.4}
+.headline-title a{color:var(--ink);text-decoration:none}
+.headline-title a:hover{color:var(--gold);text-decoration:underline}
+.headline-summary{font-size:13px;line-height:1.5;margin-top:4px}
+.headline-source{font-size:11px;color:var(--muted);margin-top:5px}
 #pauseControl{margin-left:auto;border:1px solid var(--gold);background:#fff9eb;color:var(--ink);font:600 13px inherit;padding:8px 13px;border-radius:9px;cursor:pointer;white-space:nowrap}
 #pauseControl[aria-pressed="true"]{background:#693d32;color:#fff;border-color:#693d32}
 #pauseState{font-size:12px;color:var(--muted);white-space:nowrap}
@@ -128,6 +138,21 @@ const dd=t=>t?Math.round((new Date(t)-new Date(today()))/864e5):null;
 const dueCls=t=>{const d=dd(t);return(d!==null&&d<0)?'due hot':'due'};
 const dueTxt=t=>{const d=dd(t);return d===null?'&mdash;':d<0?(-d)+'d overdue':d===0?'today':d===1?'tomorrow':d<7?'in '+d+'d':new Date(t).toLocaleDateString(undefined,{month:'short',day:'numeric'})};
 const uid=p=>p+'_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+// Curated from BBC, NPR and Guardian public RSS feeds; snapshot captured 2026-09-30 05:28 UTC.
+const headlinesCapturedAt='2026-09-30T05:28:56Z';
+const headlines=[
+ {source:'BBC World',published:'2026-09-30T04:01:52Z',title:'Three takeaways from Trump’s “Super Intelligence” summit',summary:'The White House meeting came as technology leaders and experts called for tighter rules around AI.',url:'www.bbc.co.uk/news/articles/cme30dz5vkzko?at_medium=RSS&at_campaign=rss'},
+ {source:'BBC World',published:'2026-09-29T22:33:39Z',title:'South Africa to clean up high-risk areas after 12 women killed',summary:'The killings sparked a national outcry about the scale of violence against women.',url:'www.bbc.co.uk/news/articles/c51kx9ze1mdzo?at_medium=RSS&at_campaign=rss'},
+ {source:'NPR World',published:'2026-09-29T17:17:04Z',title:'Potential Taiwan tension sparked “last minute” change in Trump-Xi National Archives visit',summary:'The sudden change followed Chinese displeasure over a document the U.S. had planned to show.',url:'www.npr.org/2026/09/29/nx-s1-5984989/digital-archives-trump-xi'},
+ {source:'The Guardian',published:'2026-09-30T04:40:25Z',title:'Inflation leaps to 4% stoking fears of fifth interest rate hike before Christmas',summary:'Australia’s annual inflation rose from 3.5%; higher global oil prices were cited as a factor.',url:'www.theguardian.com/australia-news/2026/sep/30/australia-inflation-rise-stokes-fears-fifth-interest-rate-hike-before-christmas'},
+ {source:'The Guardian',published:'2026-09-30T04:00:10Z',title:'Missile alerts cost Ukraine $45m for every hour they halt businesses',summary:'Ukraine’s economy minister cited the estimate as Kyiv weighs how to keep businesses operating during Russian strikes.',url:'www.theguardian.com/world/2026/sep/30/missile-alerts-cost-ukraine-businesses-halt'},
+ {source:'The Guardian',published:'2026-09-29T23:27:30Z',title:'Hundreds detained as student protests across France turn violent',summary:'More than 400 people were detained amid school blockades over class sizes, timetables and staff shortages.',url:'www.theguardian.com/world/2026/sep/29/french-students-police-clash-school-blockades-violent'}
+];
+function headlineHref(path){return 'https'+String.fromCharCode(58,47,47)+path}
+function renderHeadlines(){const now=Date.parse(headlinesCapturedAt),cutoff=now-24*60*60*1000;
+ const recent=headlines.filter(h=>{const t=Date.parse(h.published);return Number.isFinite(t)&&t>=cutoff&&t<=now}).sort((a,b)=>Date.parse(b.published)-Date.parse(a.published));
+ return '<section class="headlines" aria-labelledby="headlineHeading"><h2 id="headlineHeading">Top Headlines — Last 24 Hours</h2><div class="headline-meta">Selected briefs from public RSS feeds · captured '+new Date(headlinesCapturedAt).toLocaleString(undefined,{dateStyle:'medium',timeStyle:'short',timeZone:'UTC'})+' UTC</div>'+(recent.length?recent.map(h=>'<article class="headline"><div class="headline-title"><a href="'+esc(headlineHref(h.url))+'" target="_blank" rel="noopener noreferrer">'+esc(h.title)+' ↗</a></div><div class="headline-summary">'+esc(h.summary)+'</div><div class="headline-source">'+esc(h.source)+' · '+new Date(h.published).toLocaleString(undefined,{dateStyle:'medium',timeStyle:'short',timeZone:'UTC'})+' UTC</div></article>').join(''):'<div class="empty">No headlines in the last 24 hours.</div>')+'<div class="headline-meta">Snapshot, not live-updating. Links open the original reporting.</div></section>';
+}
 document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{view=b.dataset.v;openId=null;document.querySelectorAll('nav button').forEach(x=>x.classList.toggle('on',x===b));render()});
 $('#clock').textContent=new Date().toLocaleTimeString([],{hour:'numeric',minute:'2-digit'});
 $('#undo').onclick=undoLast;
@@ -145,7 +170,7 @@ function renderBriefing(m){const cap=D.captures.slice().reverse().slice(0,30);
  const wk=D.tasks.filter(t=>t.status==='open'&&t.due&&dd(t.due)>0&&dd(t.due)<=7);
  const hot=D.contacts.filter(c=>c.next_step_due&&dd(c.next_step_due)<=0);
  const ev=D.events.filter(e=>e.when&&dd(e.when)>=0&&dd(e.when)<=14).sort((a,b)=>(a.when||'').localeCompare(b.when||''));
- m.innerHTML='<h2>Overdue &middot; '+od.length+'</h2>'+(od.length?od.map(t=>taskCard(t,true)).join(''):'<div class="empty">nothing overdue &#10022;</div>')
+ m.innerHTML=renderHeadlines()+'<h2>Overdue &middot; '+od.length+'</h2>'+(od.length?od.map(t=>taskCard(t,true)).join(''):'<div class="empty">nothing overdue &#10022;</div>')
  +'<h2>Today &middot; '+td.length+'</h2>'+(td.length?td.map(t=>taskCard(t,true)).join(''):'<div class="empty">nothing for today</div>')
  +'<h2>This week &middot; '+wk.length+'</h2>'+(wk.length?wk.map(t=>taskCard(t)).join(''):'<div class="empty">quiet week ahead</div>')
  +'<h2>Hot relationships</h2>'+(hot.length?hot.map(c=>'<div class="card" data-person="'+c.id+'"><div class="grow"><div class="name">'+esc(c.name)+'</div><div class="sub">'+esc(c.role||'')+' &middot; next: '+esc(c.next_step||'&mdash;')+'</div></div><span class="'+dueCls(c.next_step_due)+'">'+dueTxt(c.next_step_due)+'</span></div>').join(''):'<div class="empty">no relationships flagged hot &#10022;</div>')

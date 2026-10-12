@@ -421,8 +421,7 @@ code,pre{font-family:var(--mono)}
         '</div>'
         '<script src="vendor/force-graph.js"></script>'
         '<script>'
-        'if(!window._spaceVizInit){if(typeof window.ForceGraph!=="function"){setTimeout(function(){window._spaceVizInit=false;window.location.reload();},1000);}'
-        'else{window._spaceVizInit=true;try{'
+        'if(!window._spaceVizInit){try{'
         'var gData=' + space_graph_data + ';'
         'var graphEl=document.getElementById("space_viz");'
         'var degrees={};'
@@ -500,7 +499,7 @@ code,pre{font-family:var(--mono)}
         '}catch(e){window._spaceVizInit=false;window._spaceVizError=String(e);'
         'var failure=document.createElement("div");failure.className="graph-loading";'
         'failure.textContent="Graph could not load: "+e.message;'
-        'document.getElementById("space_viz").appendChild(failure);}}}'
+        'document.getElementById("space_viz").appendChild(failure);}}'
         '</script>'
         '</div></div></section>'
     )
