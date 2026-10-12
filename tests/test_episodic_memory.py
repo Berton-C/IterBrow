@@ -9,6 +9,7 @@ import importlib.util
 import itertools
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -209,6 +210,49 @@ class CapsKeepNewestTests(EpisodicCase):
         tiered.DEFAULT_BUDGET = 700
         content = tiered.transform([system()], [])[0][0]["content"]
         self.assertIn("E10:", content)
+
+
+# ---------------------------------------------------------------- BUG-5
+TRANSCRIPT_TAIL = "transformations/append_last_transcript_lines.py"
+
+
+class ContextBudgetSectionTests(EpisodicCase):
+    def _episodic_prompt(self, base):
+        self.write_episodes(range(1, 41), text=lambda i: "Episode %d: shipped feature %d" % (i, i))
+        load("tools/rebuild_tiers.py").rebuild()
+        messages = [system(base), user("2026-10-01 10:00:00", "hi")]
+        messages, _ = load("transformations/recap.py").transform(messages, [])
+        messages[0]["content"] += "\n\n## Iter Soul (Active)\nSOUL-BODY\n\n## Skill Bundles\nSKILL-BODY"
+        messages, _ = load("transformations/tiered_memory.py").transform(messages, [])
+        messages[0]["content"] += "\n\n## Stall Detection\nSTALL-BODY"
+        return messages
+
+    def test_bug5_recap_dedup_removes_only_the_recap(self):
+        messages = self._episodic_prompt("prompt.txt:\nYou are Iter.")
+        self.assertIn("## Episode Recap", messages[0]["content"])
+        messages, _ = load("transformations/zz_context_budget.py").transform(messages, [])
+        content = messages[0]["content"]
+        self.assertNotIn("## Episode Recap", content)   # deduplicated against the pyramid
+        for body in ("SOUL-BODY", "SKILL-BODY", "STALL-BODY", "## Tiered Memory Pyramid", "E40:"):
+            self.assertIn(body, content)
+
+    def test_bug5_memory_note_quoting_a_heading_cannot_hijack_a_section(self):
+        base = ("prompt.txt:\nYou are Iter.\n./memory/:\nnotes.txt:\nThe block titled '## Episode Recap' "
+                "repeats the pyramid.\nIMPORTANT-MEMORY-NOTE stays.")
+        messages = self._episodic_prompt(base)
+        messages, _ = load("transformations/zz_context_budget.py").transform(messages, [])
+        self.assertIn("IMPORTANT-MEMORY-NOTE stays.", messages[0]["content"])
+
+    def test_bug5_transcript_tail_is_recognised_as_its_own_section(self):
+        Path("transcript.txt").write_text("[2026-10-01 10:00:00][user] Step 2026-10-01 10:00:00: [electron_ui] TAIL-LINE\n", encoding="utf-8")
+        messages = [system(), user("2026-10-01 10:00:00", "TAIL-LINE")]
+        messages, _ = load(TRANSCRIPT_TAIL).transform(messages, [])
+        messages[0]["content"] += "\n\n## Iter Soul (Active)\nSOUL-BODY"
+        load("transformations/zz_context_budget.py").transform(messages, [])
+        log = Path(".context_budget_log.txt").read_text(encoding="utf-8")
+        self.assertRegex(log, r"Transcript\s+LOW")
+        transcript_size = int(re.search(r"Transcript\s+LOW\s+(\d+) chars", log).group(1))
+        self.assertLess(transcript_size, 200)   # the Soul block after it is not part of the transcript
 
 
 if __name__ == "__main__":

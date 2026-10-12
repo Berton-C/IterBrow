@@ -29,6 +29,7 @@ FLAG_PATH = os.path.join(RECAP_DIR, ".recap_needed")
 RECAP_THRESHOLD = 20
 # Only the NEWEST episodes are injected; older ones live on in the tier pyramid.
 RECAP_INJECT_EPISODES = 10
+RECAP_END = "(end of episode recap)"  # must match zz_context_budget.RECAP_END
 
 def _exists(path):
     try:
@@ -140,6 +141,8 @@ def _format_recap_block(episodes):
                 lines.append("  - {}".format(step))
         lines.append("")
 
+    # End sentinel: zz_context_budget's dedup removes exactly this block.
+    lines.append(RECAP_END)
     return "\n".join(lines)
 
 def transform(messages, tools):

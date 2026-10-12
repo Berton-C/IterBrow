@@ -25,6 +25,7 @@ DESCRIPTION = "Tiered memory pyramid: rolls episode summaries up into era and li
 
 TIER_DIR = "memory/tiers"
 TIERS = ["tier5", "tier4", "tier3", "tier2", "tier1"]
+TIERS_END = "(end of tiered memory pyramid)"  # must match zz_context_budget.TIERS_END
 DEFAULT_BUDGET = 8000  # character budget for assembled memory block
 
 TIER_LABELS = {
@@ -131,7 +132,8 @@ def transform(messages, tools):
         if not assembled_parts and not notes:
             return messages, tools
 
-        memory_block = "## Tiered Memory Pyramid\n\n" + "\n\n".join(notes + assembled_parts)
+        memory_block = ("## Tiered Memory Pyramid\n\n" + "\n\n".join(notes + assembled_parts)
+                        + "\n" + TIERS_END)
 
         # Inject into system message (first message)
         first_msg = messages[0]
