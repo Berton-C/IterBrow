@@ -9,6 +9,8 @@ Test hooks (environment):
                        report a lost reply (uncertain outcome) without waiting.
   CRASH_BEFORE_SEND=1  die (exit 137) when the transaction is about to be sent:
                        the pending entry exists, nothing was committed.
+  FAIL_SAVE=1          the index save raises (disk full / killed after commit):
+                       the authority committed, the index did not advance.
 """
 import importlib.util
 import json
@@ -30,7 +32,7 @@ def _petta():
 
 
 try:
-    hooks = ("CRASH_AFTER_SAVE", "NO_REPLY_AFTER_SEND", "CRASH_BEFORE_SEND")
+    hooks = ("CRASH_AFTER_SAVE", "NO_REPLY_AFTER_SEND", "CRASH_BEFORE_SEND", "FAIL_SAVE")
     if any(os.environ.get(hook) == "1" for hook in hooks):
         import _petta_db as petta  # noqa: F811
         if os.environ.get("CRASH_AFTER_SAVE") == "1":
@@ -40,6 +42,10 @@ try:
                 original_save(db, *args, **kw)
                 os._exit(137)
             petta._save = crash_after_save
+        if os.environ.get("FAIL_SAVE") == "1":
+            def failing_save(db, *args, **kw):
+                raise OSError(28, "No space left on device (test)")
+            petta._save = failing_save
         from iterbrow_runtime import cognitive_events
         original_call = cognitive_events._call_atomspace
 

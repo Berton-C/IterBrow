@@ -24,11 +24,12 @@ def run(item_id, force="false"):
     chroma_client = petta_db.PersistentClient()
     collection = chroma_client.get_or_create_collection(name="memories")
 
-    res = collection.get(ids=[item_id], include=["metadatas", "documents"])
-    if not res.get("ids"):
+    current = petta_db.read_memory(item_id)
+    if current is None:
+        collection.delete(ids=[item_id])  # drops a stale index entry, if any
         return f"ERROR: memory not found: {item_id}"
 
-    metadata = (res.get("metadatas") or [{}])[0] or {}
+    metadata = current[1] or {}
     mem_type = metadata.get("mem_type", "unspecified")
 
     if mem_type in DURABLE_TYPES and not force_bool:

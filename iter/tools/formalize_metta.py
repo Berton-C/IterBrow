@@ -45,19 +45,11 @@ def run(LTM_item, formalization):
                 return f"Error: Extra content after closing paren. Input: {formalization}"
 
     chroma_client = petta_db.PersistentClient()
-    collection = chroma_client.get_or_create_collection(name="memories")
+    chroma_client.get_or_create_collection(name="memories")
 
-    result = collection.get(ids=[LTM_item])
-    if not result.get("ids"):
-        return f"Error: LTM item {LTM_item} not found in chroma_db."
+    def assign(document, metadata):
+        metadata["formalization"] = formalization
+        return document, metadata, f"SUCCESS: Assigned MeTTa statement to LTM item {LTM_item}:\n  {formalization}"
 
-    metadatas = result.get("metadatas", [None])
-    meta = metadatas[0] if metadatas and metadatas[0] else {}
-    if meta is None:
-        meta = {}
-
-    meta["formalization"] = formalization
-
-    collection.update(ids=[LTM_item], metadatas=[meta])
-
-    return f"SUCCESS: Assigned MeTTa statement to LTM item {LTM_item}:\n  {formalization}"
+    result = petta_db.modify_memory(LTM_item, assign)
+    return result if result is not None else f"Error: LTM item {LTM_item} not found in chroma_db."

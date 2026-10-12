@@ -46,6 +46,21 @@ def gauss_vector(seed, dimensions=1024):
     return out[:dimensions]
 
 
+def write_current_index(root, ids, documents, metadatas):
+    """A schema-3 int8 index like the owner's (vectors from the test endpoint)."""
+    from semantic_memory_support import fake_vector
+
+    def pack(vector):
+        low, high = min(vector), max(vector)
+        scale = (high - low) / 255.0
+        return {"q": bytes(int(round((v - low) / scale)) for v in vector).hex(), "s": scale, "o": low}
+    (root / "chroma_db").mkdir(exist_ok=True)
+    (root / "chroma_db" / "memories.json").write_text(json.dumps({
+        "ids": ids, "documents": documents, "metadatas": metadatas,
+        "embeddings": [pack(fake_vector(d)) for d in documents],
+        "embedding_model": "qwen/qwen3-embedding-8b", "embedding_dimensions": 1024, "embedding_schema": 3}))
+
+
 class ServiceTestCase(unittest.TestCase):
     def setUp(self):
         self.r = SemanticRoot(self.id().rsplit(".", 1)[-1][:20])
@@ -326,8 +341,9 @@ class PendingIdentityTests(ServiceTestCase):
 
     def test_remember_forget_remember_after_a_crash_reaches_the_authority(self):
         text = "the user's cat is named Miso"
-        crashed = self.r.tool("remember", text=text, env={"CRASH_AFTER_SAVE": "1"})
-        self.assertIn("runner crash", crashed.get("error", ""))
+        # The commit lands but its reply is lost: the pending entry outlives the commit.
+        lost = self.r.tool("remember", text=text, env={"NO_REPLY_AFTER_SEND": "1"})
+        self.assertEqual((lost.get("execution") or {}).get("state"), "uncertain", lost)
         self.assertEqual(len(self.r.pending_files()), 1)
         item_id = next(iter(self.r.memories()))
         self.assertTrue(self.r.text("forget", item_id=item_id, force="true").startswith("FORGET-SUCCESS"))
@@ -342,7 +358,8 @@ class PendingIdentityTests(ServiceTestCase):
 
     def test_link_unlink_link_after_a_crash_reaches_the_authority(self):
         item_id = self.r.remember("belief with episodes")
-        self.r.tool("link_episode", item_id=item_id, linked_time="E1", env={"CRASH_AFTER_SAVE": "1"})
+        self.r.tool("link_episode", item_id=item_id, linked_time="E1", env={"NO_REPLY_AFTER_SEND": "1"})
+        self.assertEqual(len(self.r.pending_files()), 1)
         self.assertEqual(self.r.memories()[item_id][1].get("linkedEpisodes"), ["E1"])
         self.assertIn("UNLINK-SUCCESS", self.r.text("unlink_episode", item_id=item_id, linked_time="E1"))
         self.assertIsNone(self.r.memories()[item_id][1].get("linkedEpisodes"))
@@ -397,6 +414,115 @@ class ConcurrentWriterTests(ServiceTestCase):
         self.assertTrue(all(o.startswith("REMEMBER-SUCCESS") for o in outs), outs)
         self.assertEqual(len(self.r.memories()), 8)
         self.assertEqual(self.r.index_ids(), set(self.r.memories()))
+
+
+def revised(s1, c1, s2, c2=0.5):
+    """NAL revision exactly as tools/support.py computes it."""
+    w1 = c1 / (1.0 - c1)
+    w2 = c2 / (1.0 - c2)
+    w = w1 + w2
+    f = min(1.0, (w1 * s1 + w2 * s2) / w)
+    c = min(0.99, max(w / (w + 1.0), c1, c2))
+    return round(f, 6), round(c, 6)
+
+
+class AuthoritativeMetadataTests(ServiceTestCase):
+    """B3: metadata tools read the index, computed new metadata from it and
+    upserted that into the authority. After any commit whose index save failed
+    (or a concurrent writer), the next metadata write erased committed evidence."""
+
+    def _stv(self, item_id):
+        metadata = self.r.memories()[item_id][1]
+        return metadata.get("strength", 1.0), metadata.get("confidence", 0.5)
+
+    def test_metadata_writes_build_on_the_authority_not_a_stale_index(self):
+        item_id = self.r.remember("belief under evidence")
+        expected = (1.0, 0.5)
+        for episode in ("E1", "E2", "E3"):
+            self.r.tool("support", item_id=item_id, episode_time=episode, env={"FAIL_SAVE": "1"})
+            expected = revised(expected[0], expected[1], 1.0)
+        self.assertEqual(self._stv(item_id), expected, "the index-save failures lost commits")
+        out = self.r.text("contradict", item_id=item_id, episode_time="E4")
+        self.assertIn("CONTRADICT-SUCCESS", out)
+        expected = revised(expected[0], expected[1], 0.0)
+        metadata = self.r.memories()[item_id][1]
+        self.assertEqual(self._stv(item_id), expected)
+        self.assertEqual(metadata["linkedEpisodes"], ["E1", "E2", "E3", "E4"])
+        self.assertEqual(self.r.pending_files(), [])
+
+    def test_parallel_supports_count_every_episode_once(self):
+        from concurrent.futures import ThreadPoolExecutor
+        item_id = self.r.remember("target belief for support")
+        episodes = ["2026-10-0%d 10:00:00" % i for i in range(1, 7)]
+        with ThreadPoolExecutor(6) as pool:
+            outs = list(pool.map(lambda e: self.r.text("support", item_id=item_id, episode_time=e), episodes))
+        self.assertTrue(all("SUPPORT-SUCCESS" in o for o in outs), outs)
+        expected = (1.0, 0.5)
+        for _ in episodes:
+            expected = revised(expected[0], expected[1], 1.0)
+        metadata = self.r.memories()[item_id][1]
+        self.assertEqual(sorted(metadata["linkedEpisodes"]), episodes)
+        self.assertEqual((metadata["strength"], metadata["confidence"]), expected)
+        index_meta = self.r.index()["metadatas"][self.r.index()["ids"].index(item_id)]
+        self.assertEqual(index_meta, metadata)
+
+
+class EvidenceCountingTests(ServiceTestCase):
+    """B10: linkedEpisodes doubled as 'evidence already counted', but link/unlink
+    edit it without touching truth values: support -> unlink -> support counted an
+    episode twice; link -> support refused real evidence."""
+
+    def test_unlink_then_support_does_not_count_twice(self):
+        item_id = self.r.remember("belief A")
+        self.assertIn("SUPPORT-SUCCESS", self.r.text("support", item_id=item_id, episode_time="E1"))
+        once = self.r.memories()[item_id][1]["confidence"]
+        self.assertIn("UNLINK-SUCCESS", self.r.text("unlink_episode", item_id=item_id, linked_time="E1"))
+        self.assertNotIn("SUCCESS", self.r.text("support", item_id=item_id, episode_time="E1"))
+        self.assertEqual(self.r.memories()[item_id][1]["confidence"], once)
+
+    def test_link_then_support_counts_the_evidence(self):
+        item_id = self.r.remember("belief B")
+        self.assertIn("LINK-SUCCESS", self.r.text("link_episode", item_id=item_id, linked_time="E9"))
+        self.assertEqual(self.r.memories()[item_id][1].get("confidence", 0.5), 0.5)
+        self.assertIn("SUPPORT-SUCCESS", self.r.text("support", item_id=item_id, episode_time="E9"))
+        metadata = self.r.memories()[item_id][1]
+        self.assertEqual(metadata["confidence"], revised(1.0, 0.5, 1.0)[1])
+        self.assertEqual(metadata["linkedEpisodes"], ["E9"])
+        # an episode contributes evidence once, whichever direction
+        self.assertNotIn("SUCCESS", self.r.text("contradict", item_id=item_id, episode_time="E9"))
+
+    def test_link_and_unlink_never_change_truth_or_counted_evidence(self):
+        item_id = self.r.remember("belief C")
+        self.r.text("support", item_id=item_id, episode_time="E1")
+        before = self.r.memories()[item_id][1]
+        self.r.text("link_episode", item_id=item_id, linked_time="E2")
+        self.r.text("unlink_episode", item_id=item_id, linked_time="E2")
+        self.r.text("unlink_episode", item_id=item_id, linked_time="E1")
+        after = self.r.memories()[item_id][1]
+        self.assertEqual((after["strength"], after["confidence"]), (before["strength"], before["confidence"]))
+        self.assertEqual(after.get("evidenceEpisodes"), before.get("evidenceEpisodes"))
+
+
+class LegacyEvidenceMigrationTests(unittest.TestCase):
+    """B10 on the owner's existing memories (no evidenceEpisodes field): linked
+    episodes of a revised memory count as already counted; links of a memory still
+    at the default (1.0, 0.5) were never counted."""
+
+    def test_existing_memories_are_read_with_the_documented_rule(self):
+        r = SemanticRoot("legacy-evidence")
+        self.addCleanup(r.close)
+        write_current_index(
+            r.root, ["revised", "linked-only"], ["a revised belief", "a merely linked belief"],
+            [{"mem_type": "belief", "linkedEpisodes": ["E1"], "strength": 1.0, "confidence": 0.666667},
+             {"mem_type": "belief", "linkedEpisodes": ["E3"]}])
+        r.start()
+        atoms_before = r.atoms()
+        self.assertNotIn("SUCCESS", r.text("support", item_id="revised", episode_time="E1"))
+        self.assertEqual(r.atoms(), atoms_before, "a refused write changed bytes")
+        self.assertIn("SUPPORT-SUCCESS", r.text("support", item_id="revised", episode_time="E2"))
+        self.assertEqual(r.memories()["revised"][1]["evidenceEpisodes"], {"E1": "+", "E2": "+"})
+        self.assertIn("SUPPORT-SUCCESS", r.text("support", item_id="linked-only", episode_time="E3"))
+        self.assertEqual(r.memories()["linked-only"][1]["confidence"], revised(1.0, 0.5, 1.0)[1])
 
 
 if __name__ == "__main__":

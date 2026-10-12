@@ -113,6 +113,152 @@ def discard_pending_remember(text, keep_path=None):
             _remove_if_present(str(path))
 
 
+class MemoryConflict(RuntimeError):
+    """The memory changed between read and commit; nothing was written."""
+    execution_outcome = {"success": False, "state": "not_executed", "scope": "invocation",
+                         "task_fulfillment": "unverified"}
+
+
+def _read_authority(prefix):
+    try:
+        return _call_atomspace("read_atoms", timeout=10, prefix=prefix)
+    except OSError as error:
+        if getattr(error, "atomspace_not_sent", False):
+            raise MemoryAuthorityUnavailable(
+                "The AtomSpace authority is unreachable (%s); semantic memory cannot be read "
+                "or changed until the AtomSpace service is running." % error) from error
+        raise
+
+
+def authority_memories():
+    """(snapshot, {id: (document, metadata, atom)}) for every semantic-memory atom."""
+    snapshot = _read_authority(SEMANTIC_PREFIX)
+    memories = {}
+    for key, atom in snapshot["atoms"].items():
+        try:
+            item_id, document, metadata = parse_semantic_atom(key, atom)
+        except ValueError:
+            continue
+        memories[item_id] = (document, metadata, atom)
+    return snapshot, memories
+
+
+def read_memory(item_id):
+    """The authority's current (document, metadata, atom) for item_id, or None."""
+    key = SEMANTIC_PREFIX + str(item_id)
+    atom = _read_authority(key)["atoms"].get(key)
+    if atom is None:
+        return None
+    _, document, metadata = parse_semantic_atom(key, atom)
+    return document, metadata, atom
+
+
+DEFAULT_STV = (1.0, 0.5)
+
+
+def counted_evidence(metadata):
+    """Episodes already counted in this memory's truth value: {episode: "+"|"-"}.
+
+    linkedEpisodes are pure links; evidenceEpisodes records what truth revision
+    has counted, so each episode contributes evidence at most once and
+    link/unlink never change it.  Memories written before evidenceEpisodes
+    existed used linkedEpisodes for both.  Rule for those (migrate on read):
+    if the memory's stv was ever revised away from the default (1.0, 0.5), every
+    pre-existing linked episode counts as already-counted positive evidence;
+    if it never was, none of its links were counted.
+    """
+    evidence = metadata.get("evidenceEpisodes")
+    if isinstance(evidence, dict):
+        return {str(k): v for k, v in evidence.items()}
+    try:
+        stv = (float(metadata.get("strength", 1.0)), float(metadata.get("confidence", 0.5)))
+    except (TypeError, ValueError):
+        stv = None
+    linked = metadata.get("linkedEpisodes") or []
+    if stv == DEFAULT_STV or not isinstance(linked, list):
+        return {}
+    return {str(episode): "+" for episode in linked}
+
+
+def with_counted_evidence(metadata):
+    """Materialise counted evidence before linkedEpisodes is edited (legacy memories)."""
+    if "evidenceEpisodes" not in metadata:
+        evidence = counted_evidence(metadata)
+        if evidence:
+            metadata["evidenceEpisodes"] = evidence
+    return metadata
+
+
+def _index_put(db, item_id, document, metadata, embedding=None):
+    """Mirror one authoritative memory into the index (vector kept if text unchanged)."""
+    if item_id in db["ids"]:
+        index = db["ids"].index(item_id)
+        if embedding is None and db["documents"][index] != document:
+            _index_drop(db, [item_id])  # stale vector: reconcile re-embeds it
+            return
+        db["documents"][index] = document
+        db["metadatas"][index] = metadata
+        if embedding is not None:
+            db["embeddings"][index] = embedding
+    elif embedding is not None:
+        db["ids"].append(item_id)
+        db["documents"].append(document)
+        db["metadatas"].append(metadata)
+        db["embeddings"].append(embedding)
+
+
+def _index_drop(db, ids):
+    for item_id in ids:
+        while item_id in db["ids"]:
+            index = db["ids"].index(item_id)
+            for field in ("ids", "documents", "metadatas", "embeddings"):
+                del db[field][index]
+
+
+def _conflict_guard(error):
+    if "TransactionConflict" in str(error):
+        return MemoryConflict(
+            "The memory changed while this edit was being made; nothing was written. "
+            "Re-read it and retry.")
+    return None
+
+
+def modify_memory(item_id, mutate, embedding=None):
+    """Read-modify-write one memory against the AUTHORITY.
+
+    mutate(document, metadata) returns a refusal string (nothing written) or
+    (new_document, new_metadata, message).  The commit carries the atom that
+    was read as expected_atoms, so a stale base raises a conflict instead of
+    overwriting committed evidence.  Returns the message, or None when the
+    authority has no such memory.
+    """
+    key = SEMANTIC_PREFIX + str(item_id)
+    with writer_lock():
+        current = read_memory(item_id)
+        if current is None:
+            return None
+        document, metadata, atom = current
+        outcome = mutate(document, json.loads(json.dumps(metadata)))
+        if isinstance(outcome, str):
+            return outcome
+        new_document, new_metadata, message = outcome
+        if new_document == document and new_metadata == metadata:
+            return message
+        try:
+            committed = _commit_memory_change(
+                "memory_updated", [{"id": item_id, "document": new_document, "metadata": new_metadata}],
+                expected_atoms={key: atom})
+        except RuntimeError as error:
+            conflict = _conflict_guard(error)
+            if conflict:
+                raise conflict from error
+            raise
+        db = _load(write=True)
+        _index_put(db, item_id, new_document, new_metadata, embedding)
+        _save_committed_projection(db, committed)
+        return message
+
+
 def memory_status(item_id):
     """Read committed identity without embeddings or repeating the write."""
     key = "state:semantic_memory:" + str(item_id)
@@ -125,10 +271,18 @@ def memory_status(item_id):
 
 
 def _finish_memory_projection(result):
+    """Kept for callers of the old two-step API; pending entries now end at commit."""
     if isinstance(result, dict) and result.get("_pending_path"):
-        path = Path(result["_pending_path"])
-        if path.exists() and json.loads(path.read_text())["operation_id"] == result["_operation_id"]:
+        _settle_pending(result["_pending_path"], result["_operation_id"])
+
+
+def _settle_pending(path, operation_id):
+    path = Path(path)
+    try:
+        if json.loads(path.read_text())["operation_id"] == operation_id:
             path.unlink()
+    except (OSError, ValueError, KeyError):
+        pass
 
 
 def _save_committed_projection(db, committed):
@@ -137,12 +291,11 @@ def _save_committed_projection(db, committed):
     except Exception as error:
         if isinstance(committed, dict):
             raise MemoryProjectionPending(
-                "Durable memory commit %s is confirmed, but its search projection could not be saved. "
-                "Retry the original text/IDs to finish the projection; do not create a replacement."
-                % committed.get("commit")
+                "Durable memory commit %s is confirmed (the memory IS stored), but the search index "
+                "could not be saved (%s). Do not retry or create a replacement: the index is rebuilt "
+                "from the AtomSpace authority automatically." % (committed.get("commit"), error)
             ) from error
         raise
-    _finish_memory_projection(committed)
 
 
 def _memory_atom(item_id, document, metadata):
@@ -208,8 +361,9 @@ def _commit_memory_change(kind, records, remove_ids=None, expected_atoms=None):
             # The AtomSpace answered with a rejection: a definite outcome.
             _remove_if_present(str(pending))
             raise
-        # Keep the recovery entry until the local search index is saved too;
-        # an acknowledged commit followed by a crash is recoverable.
+        # A confirmed commit is a definite outcome.  The index may still lag;
+        # reconcile_index() repairs it from the authority, so no entry is kept.
+        _settle_pending(pending, operation_id)
         return {**result, "_pending_path": str(pending), "_operation_id": operation_id}
 
 
@@ -700,48 +854,54 @@ class Collection:
 
     @_exclusive
     def update(self, ids, documents=None, metadatas=None, embeddings=None):
-        db = _load(write=True)
-        for target_index in range(len(ids)):
-            item_id = ids[target_index]
-            if item_id not in db["ids"]:
+        """Replace fields of existing memories; unspecified fields keep the AUTHORITY's
+        current value, and the commit expects the atoms it read (no stale base)."""
+        _, memories = authority_memories()
+        records, expected = [], {}
+        for position, item_id in enumerate(ids):
+            if item_id not in memories:
                 continue
-            index = db["ids"].index(item_id)
-            if documents is not None:
-                db["documents"][index] = documents[target_index]
-            if metadatas is not None:
-                db["metadatas"][index] = metadatas[target_index]
-            if embeddings is not None:
-                db["embeddings"][index] = embeddings[target_index]
-        records = []
-        for item_id in ids:
-            if item_id in db["ids"]:
-                index = db["ids"].index(item_id)
-                records.append({
-                    "id": item_id,
-                    "document": db["documents"][index],
-                    "metadata": db["metadatas"][index],
-                })
-        committed = _commit_memory_change("memory_updated", records) if records else None
+            document, metadata, atom = memories[item_id]
+            records.append({
+                "id": item_id,
+                "document": documents[position] if documents is not None else document,
+                "metadata": metadatas[position] if metadatas is not None else metadata,
+            })
+            expected[SEMANTIC_PREFIX + item_id] = atom
+        if not records:
+            return
+        try:
+            committed = _commit_memory_change("memory_updated", records, expected_atoms=expected)
+        except RuntimeError as error:
+            conflict = _conflict_guard(error)
+            if conflict:
+                raise conflict from error
+            raise
+        db = _load(write=True)
+        for record in records:
+            vector = embeddings[ids.index(record["id"])] if embeddings is not None else None
+            _index_put(db, record["id"], record["document"], record["metadata"], vector)
         _save_committed_projection(db, committed)
 
     @_exclusive
     def delete(self, ids):
+        """Forget memories in the authority; ids the authority lacks are index orphans
+        and are only dropped from the index."""
+        _, memories = authority_memories()
+        removed = [{"id": item_id, "document": memories[item_id][0], "metadata": memories[item_id][1]}
+                   for item_id in ids if item_id in memories]
         db = _load(write=True)
-        removed = []
-        for item_id in ids:
-            if item_id in db["ids"]:
-                index = db["ids"].index(item_id)
-                removed.append({
-                    "id": item_id,
-                    "document": db["documents"][index],
-                    "metadata": db["metadatas"][index],
-                })
-                del db["ids"][index]
-                del db["documents"][index]
-                del db["metadatas"][index]
-                del db["embeddings"][index]
-        committed = _commit_memory_change("forgotten", removed, remove_ids=[item["id"] for item in removed]) if removed else None
-        _save_committed_projection(db, committed)
+        before = len(db["ids"])
+        committed = None
+        if removed:
+            committed = _commit_memory_change(
+                "forgotten", removed, remove_ids=[item["id"] for item in removed],
+                expected_atoms={SEMANTIC_PREFIX + item["id"]: memories[item["id"]][2] for item in removed})
+        _index_drop(db, ids)
+        if committed is not None:
+            _save_committed_projection(db, committed)
+        elif len(db["ids"]) != before:
+            _save(db)
 
 
 class PersistentClient:
