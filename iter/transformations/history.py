@@ -28,8 +28,25 @@ def _escape_metta(s):
 def _is_control(content):
     return is_runner_control(content)
 
+def _step_timestamp(content):
+    """The event time iter.py stamped on a message ("Step YYYY-MM-DD HH:MM:SS: ...")."""
+    if isinstance(content, str) and content.startswith("Step ") and len(content) >= 24:
+        stamp = content[5:24]
+        if stamp[4:5] == "-" and stamp[10:11] == " " and stamp[13:14] == ":":
+            return stamp
+    return None
+
+
+def _report(messages, text):
+    """Surface a logging failure in the system message instead of swallowing it."""
+    for msg in messages:
+        if isinstance(msg, dict) and msg.get("role") == "system" and isinstance(msg.get("content"), str):
+            msg["content"] = msg["content"].rstrip() + "\n\n" + text
+            return
+
+
 def transform(messages, tools):
-    ts_str = _timestamp()
+    now = _timestamp()
     legacy_state = ""
 
     if _exists(STATE_PATH):
@@ -50,10 +67,25 @@ def transform(messages, tools):
     else:
         logged = set()
 
-    history_lines = []
+    # Records carry the EVENT's time, not the time this transformation ran:
+    # user/tool messages their own Step stamp; an assistant turn (and each of
+    # its tool calls) the time of its result, as transcript.py does.
+    result_times = {}
+    for msg in messages:
+        if isinstance(msg, dict) and msg.get("role") == "tool" and msg.get("tool_call_id"):
+            stamp = _step_timestamp(msg.get("content", ""))
+            if stamp:
+                result_times[str(msg.get("tool_call_id"))] = stamp
+
+    history_lines = []   # (key, record)
+    pending = set()
 
     def seen(key):
-        return key in logged or (legacy_state and "\n" + key + "\n" in legacy_state)
+        return key in logged or key in pending or (legacy_state and "\n" + key + "\n" in legacy_state)
+
+    def add(key, stamp, text):
+        history_lines.append((key, '("' + (stamp or now) + '" "' + text + '")'))
+        pending.add(key)
 
     for msg in messages:
         if not isinstance(msg, dict):
@@ -69,49 +101,45 @@ def transform(messages, tools):
                     continue
                 key = "u:" + content
                 if not seen(key):
-                    history_lines.append(
-                        '("' + ts_str + '" "HUMAN_MESSAGE: ' + _escape_metta(content) + '")'
-                    )
-                    logged.add(key)
+                    add(key, _step_timestamp(content), "HUMAN_MESSAGE: " + _escape_metta(content))
         elif role == "assistant":
+            tool_calls = [tc for tc in msg.get("tool_calls", []) or [] if isinstance(tc, dict)]
+            turn_time = next((result_times[str(tc.get("id"))] for tc in tool_calls
+                              if str(tc.get("id")) in result_times), None)
             if content and isinstance(content, str):
-                tool_ids = [str(tc.get("id", "")) for tc in msg.get("tool_calls", []) if isinstance(tc, dict)]
+                tool_ids = [str(tc.get("id", "")) for tc in tool_calls]
                 key = "a:" + ("|".join(tool_ids) if tool_ids else content)
                 if not seen(key):
-                    history_lines.append(
-                        '("' + ts_str + '" "ASSISTANT: ' + _escape_metta(content) + '")'
-                    )
-                    logged.add(key)
-            tool_calls = msg.get("tool_calls", [])
+                    add(key, turn_time, "ASSISTANT: " + _escape_metta(content))
             for tc in tool_calls:
-                if isinstance(tc, dict):
-                    fn = tc.get("function", {})
-                    name = fn.get("name", "")
-                    args_str = fn.get("arguments", "{}")
-                    key = "t:" + str(tc.get("id", name + " " + args_str))
-                    if not seen(key):
-                        history_lines.append(
-                            '("' + ts_str + '" "TOOL_CALL: ' + name + " " + _escape_metta(args_str) + '")'
-                        )
-                        logged.add(key)
+                fn = tc.get("function", {})
+                name = fn.get("name", "")
+                args_str = fn.get("arguments", "{}")
+                key = "t:" + str(tc.get("id", name + " " + args_str))
+                if not seen(key):
+                    add(key, result_times.get(str(tc.get("id"))) or turn_time,
+                        "TOOL_CALL: " + name + " " + _escape_metta(args_str))
         elif role == "tool":
             if content and isinstance(content, str):
                 key = "r:" + str(msg.get("tool_call_id", content))
                 if not seen(key):
-                    history_lines.append(
-                        '("' + ts_str + '" "TOOL_RESULT: ' + _escape_metta(content) + '")'
-                    )
-                    logged.add(key)
+                    add(key, _step_timestamp(content), "TOOL_RESULT: " + _escape_metta(content))
 
     if history_lines:
         try:
             from iterbrow_runtime.episodic_history import recover_rotation
             recover_rotation(HISTORY)
             with open(HISTORY, "a") as f:
-                for line in history_lines:
+                for _key, line in history_lines:
                     f.write(line + "\n")
-        except Exception:
-            pass
+                f.flush()
+            # Only now are these records logged; a failed append is retried.
+            logged.update(pending)
+        except Exception as error:
+            pending.clear()
+            _report(messages, "[history.py: could not append %d records to %s (%s: %s). They are kept "
+                    "pending and retried next cycle; episodic history is not being recorded until this "
+                    "is repaired.]" % (len(history_lines), HISTORY, type(error).__name__, error))
 
     current = set()
     for msg in messages:
@@ -128,9 +156,9 @@ def transform(messages, tools):
                 current.add("u:" + content)
         elif role == "assistant":
             if content and isinstance(content, str):
-                tool_ids = [str(tc.get("id", "")) for tc in msg.get("tool_calls", []) if isinstance(tc, dict)]
+                tool_ids = [str(tc.get("id", "")) for tc in msg.get("tool_calls", []) or [] if isinstance(tc, dict)]
                 current.add("a:" + ("|".join(tool_ids) if tool_ids else content))
-            for tc in (msg.get("tool_calls", []) if isinstance(msg, dict) else []):
+            for tc in msg.get("tool_calls", []) or []:
                 if isinstance(tc, dict):
                     fn = tc.get("function", {})
                     current.add("t:" + str(tc.get("id", fn.get("name", "") + " " + fn.get("arguments", "{}"))))
@@ -146,8 +174,8 @@ def transform(messages, tools):
             f.flush()
             os.fsync(f.fileno())
         os.replace(temporary, STATE_PATH)
-    except Exception:
-        pass
+    except Exception as error:
+        _report(messages, "[history.py: could not save %s (%s: %s).]" % (STATE_PATH, type(error).__name__, error))
 
     gc.collect()
     return messages, tools
