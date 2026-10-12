@@ -201,7 +201,7 @@ currently call, grouped by what it's for. (A further ~22 tools exist but are dea
 | `record_episode` | Record an episode summary for a span of history (answers a Recap Request); the only sanctioned way to write episodes. |
 | `search_transcript` | Search the communication transcript around a timestamp. Use YYYY-MM-DD HH:MM:SS; returns nearby user and send lines. |
 | `memory_journal` | Append-only audit journal for memory-management actions. action='log' records {actor, action, detail} as a new immutable line (use this whenever you trim, regenerate, forget, or vote on memory content so there is always an audit trail). action='tail' returns the last n entries. |
-| `rebuild_tiers` | Regenerate memory/tiers/tier3.txt, tier4.txt, and tier5.txt from memory/recap/episode_*.json (the source of truth). This is the ONLY sanctioned way to update tier files - direct writes to them from python/shell are blocked. Safe to call any time; always idempotent. Call this instead of hand-editing tier files whenever memory/tiers/.rollup_needed exists or tiers look stale. |
+| `rebuild_tiers` | Regenerate memory/tiers/tier3.txt, tier4.txt, and tier5.txt from memory/recap/episode_*.json (the source of truth). This is the ONLY sanctioned way to update tier files - direct writes are blocked in the python tool (shell checks are best effort). Safe to call any time; always idempotent. Call this instead of hand-editing tier files whenever memory/tiers/.rollup_needed exists or tiers look stale. |
 
 **Reasoning & self-model (MeTTa / Soul)**
 

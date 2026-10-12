@@ -9,7 +9,7 @@ actual mechanism of the memory-lobotomy incident.
 
 This tool is the ONLY sanctioned writer of memory/tiers/*.txt (enforced by
 tools/_memory_guard.py's REGEN_ONLY_PATTERNS - direct writes from agent
-python/shell code are blocked). It always rewrites all three tiers from
+python code are blocked; shell checks are best effort). It always rewrites all three tiers from
 scratch by reading memory/recap/episode_*.json, so re-running it is always
 safe and idempotent; there is no "trim the existing tier file" code path at
 all, by construction.
@@ -35,8 +35,8 @@ from iterbrow_runtime.atomspace_store import _atomic_text
 DESCRIPTION = (
     "Regenerate memory/tiers/tier3.txt, tier4.txt, and tier5.txt from "
     "memory/recap/episode_*.json (the source of truth). This is the ONLY "
-    "sanctioned way to update tier files - direct writes to them from "
-    "python/shell are blocked. Safe to call any time; always idempotent. "
+    "sanctioned way to update tier files - direct writes are blocked in the "
+    "python tool (shell checks are best effort). Safe to call any time; always idempotent. "
     "Call this instead of hand-editing tier files whenever memory/tiers/"
     ".rollup_needed exists or tiers look stale."
 )
