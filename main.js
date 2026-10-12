@@ -434,6 +434,10 @@ async function recoverRevisionBeforeStart() {
   const result = await runHotloadControl('recover-startup');
   if (result.action === 'rolled_back') {
     pushLog(`[recovery] abandoned candidate rolled back before start: ${result.reason}`);
+  } else if (result.action === 'source_upgraded') {
+    pushLog(`[recovery] source tree changed: now running ${result.active.generation_id}; `
+      + `previous generation ${result.superseded_generation_id} kept for rollback`
+      + (result.candidate ? ` (self-revision ${result.candidate.candidate_id} superseded by source)` : ''));
   }
   return result;
 }
