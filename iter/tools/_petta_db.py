@@ -216,9 +216,9 @@ def _read(path):
         db = json.loads(raw)
     except Exception as error:
         raise RuntimeError("Memory database JSON is corrupt at " + path + ": " + str(error))
-    db = _validate(db, path)
-    db["embeddings"] = [_dequantize_embedding(e) for e in db["embeddings"]]
-    return db
+    # Vectors stay in their stored (packed) form; they are decoded only for
+    # scoring, so a load->save cycle writes back exactly the bytes it read.
+    return _validate(db, path)
 
 
 def _remove_if_present(path):
@@ -317,7 +317,7 @@ def _hex(data):
 
 def _quantize_embedding(vec):
     """Convert a float list to int8-packed dict for compact storage."""
-    if not isinstance(vec, list) or not vec:
+    if not isinstance(vec, list) or not vec:  # already packed (or empty): unchanged
         return vec
     mn = min(vec)
     mx = max(vec)
@@ -328,7 +328,7 @@ def _quantize_embedding(vec):
     offset = mn
     packed = bytearray(len(vec))
     for i, v in enumerate(vec):
-        q = int((v - offset) / scale)
+        q = int(round((v - offset) / scale))
         if q < 0:
             q = 0
         if q > 255:
@@ -338,7 +338,11 @@ def _quantize_embedding(vec):
 
 
 def _dequantize_embedding(emb):
-    """Convert int8-packed dict back to float list. Pass-through for float lists."""
+    """Convert int8-packed dict back to float list. Pass-through for float lists.
+
+    Packed vectors are kept as they were stored (see _read) and _quantize_embedding
+    passes them through, so re-saving never re-quantizes an already stored vector.
+    """
     if isinstance(emb, dict) and "q" in emb:
         raw = binascii.unhexlify(emb["q"])
         scale = emb["s"]
@@ -453,9 +457,15 @@ def _index_is_current(db):
     if schema < 2:
         return False
     for vector in db.get("embeddings", []):
-        if not isinstance(vector, list) or len(vector) != EMBEDDING_DIMENSIONS:
+        if _vector_dimensions(vector) != EMBEDDING_DIMENSIONS:
             return False
     return True
+
+
+def _vector_dimensions(vector):
+    if isinstance(vector, dict) and isinstance(vector.get("q"), str):
+        return len(vector["q"]) // 2
+    return len(vector) if isinstance(vector, list) else 0
 
 
 def require_current_index():
@@ -529,7 +539,7 @@ class Collection:
             result["ids"].append(db["ids"][i])
             result["documents"].append(document if "documents" in inc else None)
             result["metadatas"].append(db["metadatas"][i] if "metadatas" in inc else None)
-            result["embeddings"].append(db["embeddings"][i] if "embeddings" in inc else None)
+            result["embeddings"].append(_dequantize_embedding(db["embeddings"][i]) if "embeddings" in inc else None)
             if limit and len(result["ids"]) >= int(limit):
                 break
         return result
@@ -539,7 +549,7 @@ class Collection:
         query_embedding = query_embeddings[0]
         scored = []
         for i in range(len(db["ids"])):
-            similarity = _cosine(query_embedding, db["embeddings"][i])
+            similarity = _cosine(query_embedding, _dequantize_embedding(db["embeddings"][i]))
             if similarity is not None:
                 scored.append((1.0 - similarity, i))
         scored.sort(key=lambda item: item[0])

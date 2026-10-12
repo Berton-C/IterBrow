@@ -5,18 +5,45 @@ Every test drives the real tools in fresh processes against the real AtomSpace
 service (see semantic_memory_support.py); the bug each class guards is named in
 its docstring (B1..B15, S1 from the semantic-memory audit).
 """
+import hashlib
+import importlib.util
 import json
+import os
 import shutil
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from semantic_memory_support import SemanticRoot, ITER_SRC  # noqa: E402
 
 MEMORY_TOOLS = ["remember", "chroma_query", "forget", "memory_update", "support", "contradict",
                 "link_episode", "unlink_episode", "formalize_metta"]
+
+
+def load_petta(test, name="petta_under_test"):
+    """Import tools/_petta_db.py with its index in a private temp directory."""
+    sys.path.insert(0, str(ITER_SRC))
+    temp = tempfile.mkdtemp(prefix="iterbrow-petta-")
+    test.addCleanup(shutil.rmtree, temp, True)
+    with mock.patch.dict(os.environ, {"ITER_DIR": temp}):
+        spec = importlib.util.spec_from_file_location(name, ITER_SRC / "tools" / "_petta_db.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+    module.DB_DIR = str(Path(temp) / "chroma_db")
+    module.DB_FILE = module.DB_DIR + "/memories.json"
+    return module
+
+
+def gauss_vector(seed, dimensions=1024):
+    out, index = [], 0
+    while len(out) < dimensions:
+        digest = hashlib.sha256(("%s:%d" % (seed, index)).encode()).digest()
+        out.extend((b - 127.5) / 127.5 for b in digest)
+        index += 1
+    return out[:dimensions]
 
 
 class ServiceTestCase(unittest.TestCase):
@@ -148,6 +175,44 @@ class LegacyControlCharacterMigrationTests(unittest.TestCase):
         self.assertEqual(status["legacy_migration"]["status"], "migrated", status)
         self.assertTrue(status.get("engine_available", status.get("ready")), status)
         self.assertEqual(r.memories()["legacy-2"][0], "shell said \x1b[32mOK\x1b[0m and \b\f")
+
+
+class QuantizationTests(unittest.TestCase):
+    """B12: every load->save re-quantized decoded vectors with int(), drifting them
+    a little further on each of the many saves a memory sees."""
+
+    def test_load_save_cycles_are_byte_stable(self):
+        petta = load_petta(self)
+        db = petta._empty()
+        for k in range(12):
+            db["ids"].append("m%d" % k)
+            db["documents"].append("doc %d" % k)
+            db["metadatas"].append({"k": k})
+            db["embeddings"].append(gauss_vector(k))
+        petta._save(db)
+        first = Path(petta.DB_FILE).read_bytes()
+        for _ in range(5):
+            petta._save(petta._load())
+        self.assertEqual(Path(petta.DB_FILE).read_bytes(), first)
+
+    def test_quantization_rounds_to_the_nearest_level(self):
+        petta = load_petta(self)
+        vector = gauss_vector("round")
+        packed = petta._quantize_embedding(vector)
+        decoded = petta._dequantize_embedding(packed)
+        worst = max(abs(a - b) for a, b in zip(vector, decoded))
+        self.assertLessEqual(worst, packed["s"] / 2 + 1e-12)
+
+    def test_existing_packed_file_loads_and_scores(self):
+        petta = load_petta(self)
+        vectors = [gauss_vector(k) for k in range(3)]
+        os.makedirs(petta.DB_DIR)
+        Path(petta.DB_FILE).write_text(json.dumps({
+            "ids": ["a", "b", "c"], "documents": ["A", "B", "C"], "metadatas": [{}, {}, {}],
+            "embeddings": [petta._quantize_embedding(v) for v in vectors],
+            "embedding_model": petta.EMBEDDING_MODEL, "embedding_dimensions": 1024, "embedding_schema": 3}))
+        result = petta.Collection().query(query_embeddings=[vectors[1]], n_results=1)
+        self.assertEqual(result["ids"][0], ["b"])
 
 
 if __name__ == "__main__":
