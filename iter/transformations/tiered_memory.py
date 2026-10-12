@@ -1,41 +1,31 @@
 """
-Tiered Memory Pyramid with Context Budget-Fitting + Rollup Detection.
+Tiered Memory Pyramid with Context Budget-Fitting.
 
-Reads pre-computed tier summaries from ./memory/tiers/ and assembles
-them into the system message. Coarser tiers are always included;
-finer tiers are added only if they fit within the context budget.
+Reads the tier summaries in ./memory/tiers/ and assembles them into the
+system message. Coarser tiers are always included; finer tiers are added
+only if they fit within the character budget.
 
-Also checks tier file sizes and signals when rollups are needed by
-writing a flag to ./memory/tiers/.rollup_needed.
+tier3/4/5 are a projection of memory/recap/episode_*.json written ONLY by
+tools/rebuild_tiers.py. When the episodes are newer than the tiers (or the
+tiers are missing/edited/over limit) this transformation calls
+rebuild_tiers.ensure_current() first, so the pyramid always shows the newest
+episode. Sizes are CHARACTERS everywhere (limits come from rebuild_tiers).
 
 Tier files:
-  tier5.txt  â coarsest (whole-life summary, ~300 chars)
-  tier4.txt  â era summaries (~1500 chars)
-  tier3.txt  â episode summaries (~3000 chars)
-  tier2.txt  â fine episode rollups (~5000 chars)
-  tier1.txt  â finest step rollups (~8000 chars)
-
-Rollup thresholds (chars before triggering):
-  tier1 > 8000  â roll up excess into tier2
-  tier2 > 5000  â roll up excess into tier3
-  tier3 > 3000  â roll up excess into tier4
-  tier4 > 1500  â roll up excess into tier5
+  tier5.txt  - coarsest (whole-life summary)
+  tier4.txt  - era summaries (newest eras)
+  tier3.txt  - episode summaries (newest episodes)
+  tier2.txt, tier1.txt - legacy finer tiers, injected if present (no writer)
 """
+import importlib.util
 import os
+from pathlib import Path
 
 DESCRIPTION = "Tiered memory pyramid: rolls episode summaries up into era and life summaries and injects the pyramid."
 
 TIER_DIR = "memory/tiers"
 TIERS = ["tier5", "tier4", "tier3", "tier2", "tier1"]
 DEFAULT_BUDGET = 8000  # character budget for assembled memory block
-
-TIER_LIMITS = {
-    "tier1": 8000,
-    "tier2": 5000,
-    "tier3": 3000,
-    "tier4": 1500,
-    "tier5": 300,
-}
 
 TIER_LABELS = {
     "tier5": "Life Summary",
@@ -59,43 +49,49 @@ def _read_file(path):
     except Exception:
         return ""
 
-def _file_size(path):
-    try:
-        return os.stat(path)[6]
-    except Exception:
-        return 0
+def _load_rebuild_tiers():
+    for base in (Path(__file__).resolve().parent.parent, Path(os.environ.get("ITER_DIR", "."))):
+        path = base / "tools" / "rebuild_tiers.py"
+        if path.exists():
+            spec = importlib.util.spec_from_file_location("_rebuild_tiers_for_tiered_memory", path)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            return module
+    raise FileNotFoundError("tools/rebuild_tiers.py not found")
 
-def _check_rollups():
-    """Check if any tier exceeds its limit. If so, write a flag file."""
+
+def _check_rollups(limits):
+    """Flag any rebuild_tiers tier still over its CHARACTER limit (a rebuild bug:
+    rebuild_tiers always fits them). Cleared as soon as they fit."""
     needed = []
-    for tier in TIERS:
+    for tier, limit in sorted(limits.items()):
         path = os.path.join(TIER_DIR, tier + ".txt")
         if _exists(path):
-            size = _file_size(path)
-            limit = TIER_LIMITS.get(tier, 9999)
+            size = len(_read_file(path))
             if size > limit:
                 needed.append((tier, size, limit))
+    flag_path = os.path.join(TIER_DIR, ".rollup_needed")
     if needed:
-        flag_path = os.path.join(TIER_DIR, ".rollup_needed")
         lines = [f"{t}: {s} chars (limit {l})" for t, s, l in needed]
-        lines.append("Call the rebuild_tiers tool to regenerate from memory/recap/ - never hand-edit tier files directly, direct writes are blocked.")
+        lines.append("Call the rebuild_tiers tool to regenerate from memory/recap/ - never hand-edit tier files directly.")
         with open(flag_path, "w") as f:
             f.write("\n".join(lines))
-    else:
-        flag_path = os.path.join(TIER_DIR, ".rollup_needed")
-        if _exists(flag_path):
-            try:
-                os.remove(flag_path)
-            except Exception:
-                pass
+    elif _exists(flag_path):
+        os.remove(flag_path)
 
 def transform(messages, tools):
     try:
         if not messages:
             return messages, tools
 
-        # Check if rollups are needed (side-effect: may write flag file)
-        _check_rollups()
+        notes = []
+        try:
+            rebuild_tiers = _load_rebuild_tiers()
+            rebuild_tiers.ensure_current(actor="tiered_memory")
+            _check_rollups(rebuild_tiers.TIER_LIMITS)
+        except Exception as error:
+            notes.append("[tiered_memory could not refresh tiers from memory/recap/: %s: %s]"
+                         % (type(error).__name__, error))
 
         # Read all available tiers
         tier_contents = {}
@@ -106,7 +102,7 @@ def transform(messages, tools):
                 if content:
                     tier_contents[tier] = content
 
-        if not tier_contents:
+        if not tier_contents and not notes:
             return messages, tools
 
         # Budget-fitting: greedily include tiers from coarsest to finest
@@ -125,15 +121,17 @@ def transform(messages, tools):
                 budget -= len(block)
             else:
                 if budget > 200:
-                    truncated = content[:budget - 100].rsplit(" ", 1)[0] + "..."
+                    # Keep the NEWEST lines (tier files are oldest-first).
+                    tail = content[-(budget - 100):]
+                    truncated = "..." + (tail.split("\n", 1)[1] if "\n" in tail else tail)
                     assembled_parts.append(header + "\n" + truncated)
                     budget = 0
                 break
 
-        if not assembled_parts:
+        if not assembled_parts and not notes:
             return messages, tools
 
-        memory_block = "## Tiered Memory Pyramid\n\n" + "\n\n".join(assembled_parts)
+        memory_block = "## Tiered Memory Pyramid\n\n" + "\n\n".join(notes + assembled_parts)
 
         # Inject into system message (first message)
         first_msg = messages[0]

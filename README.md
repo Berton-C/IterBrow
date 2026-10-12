@@ -276,7 +276,7 @@ transformations exist but are deactivated.)
 |---|---|
 | `history` | Stores episodes (deduped, restart-safe) |
 | `atom_space_update` | Refresh the legacy/display `space.metta` projection from semantic-memory formalizations; never an authoritative writer |
-| `auto_consolidation` | Auto-consolidation: auto-rolls up tier files when they exceed size limits. |
+| `auto_consolidation` | Auto-consolidation: regenerates the tier pyramid via rebuild_tiers when it is stale or over its limits. |
 | `trajectory` | Trajectory capture: per-cycle tool-call snapshots for self-improvement evidence. |
 | `transcript` | Maintains transcript of textual communication messages only. |
 
@@ -340,9 +340,10 @@ IterBrow runs **two parallel memory systems**, bridged together:
    active chat backend.
 2. **Episodic memory (tiered rollup pyramid).** `tier5.txt` (life summary, ~1 line) →
    `tier4.txt` (era summaries) → `tier3.txt` (episode summaries, 2-3 lines each) →
-   `memory/recap/episode_*.json` (full episode records, the source of truth). When a tier exceeds
-   its character budget, `auto_consolidation` rolls it up; `rebuild_tiers` regenerates the tier
-   files from the episode JSONs on demand. This keeps the agent's context window useful instead of
+   `memory/recap/episode_*.json` (full episode records, the source of truth). `rebuild_tiers` is
+   the only writer of the tier files: it regenerates them from the episode JSONs, keeping the
+   newest episodes and eras within each character limit; `auto_consolidation` and `tiered_memory`
+   call it automatically whenever the episodes are newer than the tiers. This keeps the agent's context window useful instead of
    drowning in raw transcript, while still letting it recall what happened days or weeks ago.
 
 `link_episode` / `unlink_episode` bridge the two systems — connecting a semantic memory item to

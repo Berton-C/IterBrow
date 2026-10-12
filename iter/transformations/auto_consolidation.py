@@ -1,98 +1,45 @@
-"""Auto-Consolidation: automatically roll up tier files when they exceed size limits."""
+"""Auto-Consolidation: keep the tier pyramid regenerated from the episodes.
+
+There is exactly ONE tier writer: tools/rebuild_tiers.py (rebuild()). This
+transformation used to roll "excess" lines from one tier file into the next
+with its own algorithm (keeping the OLDEST half, measuring file BYTES), which
+fought rebuild_tiers (CHARACTER limits) every cycle. It now only triggers the
+sanctioned rebuild when the tiers do not match memory/recap/ - stale, missing,
+edited outside rebuild_tiers, or over a limit - and is a no-op otherwise.
+"""
+import importlib.util
 import os
 from pathlib import Path
-from iterbrow_runtime.episodic_history import archive_text
 
-DESCRIPTION = "Auto-consolidation: auto-rolls up tier files when they exceed size limits."
+DESCRIPTION = "Auto-consolidation: regenerates the tier pyramid via rebuild_tiers when it is stale or over its limits."
 
-TIER_DIR = "memory/tiers"
-TIERS = ["tier5", "tier4", "tier3", "tier2", "tier1"]
-TIER_LIMITS = {"tier1": 8000, "tier2": 5000, "tier3": 3000, "tier4": 1500, "tier5": 300}
-TIER_LABELS = {"tier5": "Life", "tier4": "Era", "tier3": "Episode", "tier2": "Fine", "tier1": "Step"}
 
-def _exists(path):
-    try:
-        os.stat(path)
-        return True
-    except OSError:
-        return False
+def load_rebuild_tiers():
+    """tools/rebuild_tiers.py of this component generation (or ITER_DIR's)."""
+    for base in (Path(__file__).resolve().parent.parent, Path(os.environ.get("ITER_DIR", "."))):
+        path = base / "tools" / "rebuild_tiers.py"
+        if path.exists():
+            spec = importlib.util.spec_from_file_location("_rebuild_tiers_for_" + Path(__file__).stem, path)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            return module
+    raise FileNotFoundError("tools/rebuild_tiers.py not found")
 
-def _read(path):
-    try:
-        with open(path, "r") as f:
-            return f.read().strip()
-    except:
-        return ""
 
-def _write(path, content):
-    try:
-        with open(path, "w") as f:
-            f.write(content)
-        return True
-    except:
-        return False
+def _append_system(messages, block):
+    for msg in messages:
+        if isinstance(msg, dict) and msg.get("role") == "system" and isinstance(msg.get("content"), str):
+            msg["content"] = msg["content"].rstrip() + "\n\n" + block
+            return
 
-def _file_size(path):
-    try:
-        return os.stat(path)[6]
-    except:
-        return 0
-
-def _compress_line(line, max_len=80):
-    if len(line) <= max_len:
-        return line
-    return line[:max_len-3] + "..."
-
-def _consolidate_tier(tier_name):
-    """Roll up excess content from a tier into the next coarser tier."""
-    idx = TIERS.index(tier_name)
-    if idx == 0:
-        return False  # coarsest tier, nowhere to roll up
-    coarser = TIERS[idx - 1]
-    fine_path = os.path.join(TIER_DIR, tier_name + ".txt")
-    coarse_path = os.path.join(TIER_DIR, coarser + ".txt")
-    if not _exists(fine_path):
-        return False
-    fine_size = _file_size(fine_path)
-    fine_limit = TIER_LIMITS.get(tier_name, 9999)
-    if fine_size <= fine_limit:
-        return False
-    fine_content = _read(fine_path)
-    coarse_content = _read(coarse_path) if _exists(coarse_path) else ""
-    # Preserve exact source material before a lossy display rollup. An archive
-    # failure prevents this rollup; the original files remain intact.
-    archive_text(fine_path, Path(fine_path).read_text())
-    if Path(coarse_path).exists():
-        archive_text(coarse_path, Path(coarse_path).read_text())
-    # Split fine content into lines, keep first half in fine, roll up rest
-    fine_lines = [l for l in fine_content.split("\n") if l.strip()]
-    keep_count = max(1, len(fine_lines) // 2)
-    keep_lines = fine_lines[:keep_count]
-    roll_lines = fine_lines[keep_count:]
-    # Compress rolled-up lines and append to coarse tier
-    rolled = [_compress_line(l, 60) for l in roll_lines]
-    new_coarse = coarse_content
-    if rolled:
-        if new_coarse:
-            new_coarse = new_coarse + "\n" + "\n".join(rolled)
-        else:
-            new_coarse = "\n".join(rolled)
-    _write(coarse_path, new_coarse)
-    _write(fine_path, "\n".join(keep_lines))
-    return True
 
 def transform(messages, tools):
     try:
-        consolidated = []
-        for tier in TIERS:
-            if _consolidate_tier(tier):
-                consolidated.append(tier)
-        if consolidated:
-            block = "\n## Auto-Consolidation\nConsolidated tiers: " + ", ".join(consolidated) + "\n"
-            for msg in reversed(messages):
-                if msg.get("role") == "system":
-                    msg["content"] = msg["content"] + block
-                    break
-    except Exception:
-        pass
+        result = load_rebuild_tiers().ensure_current(actor="auto_consolidation")
+        if result and result.get("changed"):
+            _append_system(messages, "## Auto-Consolidation\nTier pyramid regenerated from memory/recap/ ("
+                           + result.get("reason", "stale") + "): " + ", ".join(result["changed"]))
+    except Exception as error:
+        _append_system(messages, "## Auto-Consolidation\n[auto_consolidation could not regenerate tiers: %s: %s]"
+                       % (type(error).__name__, error))
     return messages, tools

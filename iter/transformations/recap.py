@@ -27,6 +27,8 @@ FLAG_PATH = os.path.join(RECAP_DIR, ".recap_needed")
 
 # Minimum lines of new history before triggering a recap
 RECAP_THRESHOLD = 20
+# Only the NEWEST episodes are injected; older ones live on in the tier pyramid.
+RECAP_INJECT_EPISODES = 10
 
 def _exists(path):
     try:
@@ -108,9 +110,13 @@ def _format_recap_block(episodes):
     if not episodes:
         return ""
 
-    lines = ["## Episode Recap ({} episodes)".format(len(episodes))]
-    for ep in episodes:
-        num = ep.get("e", ep.get("id", "?"))
+    shown = episodes[-RECAP_INJECT_EPISODES:]
+    if len(shown) == len(episodes):
+        lines = ["## Episode Recap ({} episodes)".format(len(episodes))]
+    else:
+        lines = ["## Episode Recap (newest {} of {} episodes)".format(len(shown), len(episodes))]
+    for ep in shown:
+        num = ep.get("_n") if ep.get("_n") is not None else ep.get("e", ep.get("id", "?"))
         summary = ep.get("s", ep.get("summary", ""))
         mem_type = ep.get("t", "")
         title = ep.get("title", "")
