@@ -214,11 +214,13 @@ def working_set_start(messages, current_user=None):
 MEMORY_INDEX_PATH = "memory/index (request view only)"
 
 
-def relevant_memory(items, experience):
+def relevant_memory(items, experience, skipped=()):
     """Keep active task/standing context and topic matches; expose omissions.
 
     Semantic retrieval remains available through the existing memory tools. An
     omitted file is indexed by path, never deleted or presented as nonexistent.
+    `skipped` ([(path, reason)], from _memory_projection.projection_skipped)
+    names files that cannot be shown as text; they head the index.
     """
     items = list(items)
     active = experience[active_work_start(experience):]
@@ -299,6 +301,9 @@ def relevant_memory(items, experience):
     for _, path, excerpt in sorted(body_matches, key=lambda row: (-row[0], row[1]))[:2]:
         selected.append((path, "[Local topic excerpt, not the complete memory; read this file "
                          "or use memory search for context.]\n" + excerpt))
+    not_shown = ["%s (not shown: %s)" % (path, reason) for path, reason in skipped]
+    if not_shown:
+        omitted = not_shown + omitted
     if omitted:
         selected.append((MEMORY_INDEX_PATH,
                          "Other memory files, not shown this turn (read them directly; chroma_query "

@@ -723,7 +723,8 @@ while True:
             # bounds each file's read (head + tail), so one bad entry in memory/
             # can neither crash nor block the loop.
             memory_contents = [(Path(p), text) for p, text in _memory_projection.projection_contents("memory")]
-            memory_contents = relevant_memory(memory_contents, experience)
+            memory_contents = relevant_memory(memory_contents, experience,
+                                              skipped=_memory_projection.projection_skipped("memory"))
             MEMORY = memory_context(memory_contents, MAX_MEMORY_CHARS)
             request_messages = [{"role": "system", "content": "prompt.txt:\n" + open("prompt.txt", encoding="utf-8", errors="replace").read().strip() + "\n\n./transformations/:\n" + TRANSFORMATIONS + "\n\n" + MEMORY}] + experience + temporary_message
             for directive in temporary_message:

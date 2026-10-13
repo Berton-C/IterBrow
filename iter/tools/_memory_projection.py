@@ -96,17 +96,60 @@ def _is_projected(rel_parts):
     return True
 
 
-def _is_text_file(full):
-    """Regular, readable, non-binary file. Dangling symlinks, FIFOs, sockets
-    and unreadable entries are skipped instead of crashing or blocking the loop
-    (open() on a FIFO blocks forever; a dangling link raised every cycle)."""
+def _skip_reason(full):
+    """None for a regular, readable UTF-8 text file; otherwise why it is not
+    shown. Dangling symlinks, FIFOs, sockets and unreadable entries are skipped
+    instead of crashing or blocking the loop (open() on a FIFO blocks forever;
+    a dangling link raised every cycle); binary and non-UTF-8 files (images,
+    UTF-16 exports, latin-1) would only reach the prompt as U+FFFD garbage."""
     try:
         if not stat.S_ISREG(os.stat(full).st_mode):
-            return False
+            return "not a regular file"
         with open(full, "rb") as fh:
-            return b"\0" not in fh.read(_SNIFF_BYTES)
+            head = fh.read(_SNIFF_BYTES)
     except OSError:
-        return False
+        return "unreadable"
+    if b"\0" in head:
+        return "binary or UTF-16"
+    try:
+        head.decode("utf-8")
+    except UnicodeDecodeError as error:
+        if error.start < len(head) - 4:  # not merely a character cut at the sniff boundary
+            return "not UTF-8 text"
+    return None
+
+
+def _is_text_file(full):
+    return _skip_reason(full) is None
+
+
+def _walk(memory_dir):
+    """(text files, [(path, reason)] skipped) among the projected paths."""
+    texts, skipped = [], []
+    for root, dirs, files in os.walk(memory_dir):
+        for name in files:
+            full = os.path.join(root, name)
+            rel = os.path.relpath(full, memory_dir)
+            parts = tuple(p for p in rel.split(os.sep) if p)
+            if not _is_projected(parts):
+                continue
+            reason = _skip_reason(full)
+            if reason is None:
+                texts.append(full)
+            else:
+                skipped.append((full, reason))
+    return sorted(texts), sorted(skipped)
+
+
+def projection_skipped(memory_dir=MEMORY_DIR):
+    """[(path, reason)] for files in projected locations that are not shown
+    (binary, UTF-16, non-UTF-8, unreadable, not regular). The prompt index
+    names them as not shown so they never silently vanish. Dot-files and
+    excluded directories (captures/, recap/, tiers/, archive/, ...) are not
+    projected locations: dot-files are transformation bookkeeping
+    (.stall_state.json, .improve_*), whose listing invited hand edits of
+    runtime state, and captures/ is media storage that tools report by path."""
+    return _walk(memory_dir)[1]
 
 
 def _read_bounded(path, max_chars):
@@ -139,16 +182,7 @@ def projection_contents(memory_dir=MEMORY_DIR, max_chars=DEFAULT_READ_CHARS):
 def projection_files(memory_dir=MEMORY_DIR):
     """Sorted list of file paths (str) that iter.py projects into the prompt:
     regular, readable, non-binary files outside the excluded paths."""
-    out = []
-    for root, dirs, files in os.walk(memory_dir):
-        for name in files:
-            full = os.path.join(root, name)
-            rel = os.path.relpath(full, memory_dir)
-            parts = tuple(p for p in rel.split(os.sep) if p)
-            if _is_projected(parts) and _is_text_file(full):
-                out.append(full)
-    out.sort()
-    return out
+    return _walk(memory_dir)[0]
 
 
 def projection_chars(memory_dir=MEMORY_DIR):

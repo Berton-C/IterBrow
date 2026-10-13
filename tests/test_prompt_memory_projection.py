@@ -622,5 +622,42 @@ class LessonsAndCompoundWords(unittest.TestCase):
             self.assertIn("ADDRESSBAR-NOTE", out)
 
 
+class SkippedFilesAreNamed(unittest.TestCase):
+    """Review finding 6: files skipped as binary, non-UTF-8 or unreadable stay
+    visible by name in the index, marked as not shown."""
+
+    def _view(self, m, experience):
+        skipped = _memory_projection.projection_skipped("memory")
+        return memory_context(relevant_memory(m.items(), experience, skipped=skipped), LIMIT)
+
+    def test_binary_utf16_and_unreadable_files_are_listed_as_not_shown(self):
+        with MemoryDir() as m:
+            m.write("tasks/current_tasks.txt", "# Task Content: x")
+            m.write("notes/diagram.png", b"\x89PNG\r\n\x1a\n\x00\x00" + bytes(range(256)))
+            m.write("notes/windows_export.txt", "hello from notepad".encode("utf-16"))
+            m.write("notes/latin1_note.txt", "caf\xe9 cr\xe8me".encode("latin-1") * 10)
+            os.symlink("/nonexistent/target", m.root / "memory" / "notes" / "stale_link.txt")
+            os.mkfifo(m.root / "memory" / "notes" / "pipe.txt")
+            m.write(".stall_state.json", "{}")
+            m.write("captures/capture_1.png", b"\x00" * 50)
+            skipped = dict(_memory_projection.projection_skipped("memory"))
+            for name in ("diagram.png", "windows_export.txt", "latin1_note.txt", "stale_link.txt", "pipe.txt"):
+                self.assertIn(os.path.join("memory", "notes", name), skipped)
+            out = self._view(m, [user("hello")])
+            index = out.split("memory/index (request view only):", 1)[1]
+            for name in ("diagram.png", "windows_export.txt", "latin1_note.txt", "stale_link.txt", "pipe.txt"):
+                self.assertIn("memory/notes/" + name, index)
+            self.assertIn("not shown", index)
+            self.assertNotIn("\ufffd", out)
+            # Documented: dot-files are runtime bookkeeping and captures/ is
+            # media storage; neither is listed (see _memory_projection).
+            self.assertNotIn(".stall_state.json", out)
+            self.assertNotIn("capture_1.png", out)
+
+    def test_iter_passes_skipped_files_to_the_view(self):
+        source = (ITER / "iter.py").read_text()
+        self.assertIn("projection_skipped(", source)
+
+
 if __name__ == "__main__":
     unittest.main()
