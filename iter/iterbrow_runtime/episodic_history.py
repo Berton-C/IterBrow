@@ -261,6 +261,34 @@ def list_episodes(recap_dir=RECAP_DIR):
     return episodes
 
 
+_EPISODE_TIME = re.compile(r"^\d{4}-\d\d-\d\d[ T]\d\d:\d\d:\d\d")
+
+
+def episode_time(episode):
+    """When an episode's period ended: end_time, else start_time, else a
+    timestamp-like "time" (legacy); None when it names no time."""
+    for key in ("end_time", "start_time", "time"):
+        value = episode.get(key)
+        if isinstance(value, str) and _EPISODE_TIME.match(value.strip()):
+            return value.strip().replace("T", " ")[:19]
+    return None
+
+
+def chronological(episodes):
+    """Episodes ordered by the TIME they cover, not by number: an episode
+    written late about an earlier period must not rank as most recent. An
+    episode without a time keeps its place after the episode before it by
+    number (it inherits that one's time); ties keep number order."""
+    keyed, last = [], ""
+    for index, episode in enumerate(episodes):
+        when = episode_time(episode)
+        if when is not None:
+            last = when
+        keyed.append((when if when is not None else last, index, episode))
+    keyed.sort(key=lambda row: (row[0], row[1]))
+    return [episode for _, _, episode in keyed]
+
+
 def load_experience(path="experience.json", log=print):
     """Load saved conversation history without ever refusing to start.
 

@@ -117,6 +117,40 @@ class EpisodeOrderTests(EpisodicCase):
         self.assertEqual(self.tier("tier5"), "49 episodes recorded, E26 to E74.")
 
 
+    def write_timed(self, rows):
+        recap = self.dir / "memory" / "recap"
+        recap.mkdir(parents=True, exist_ok=True)
+        for number, start, end in rows:
+            episode = {"e": number, "s": "summary %d" % number}
+            if start:
+                episode["start_time"] = start
+            if end:
+                episode["end_time"] = end
+            (recap / ("episode_%04d.json" % number)).write_text(json.dumps(episode))
+
+    def test_r2_tiers_and_recap_order_episodes_by_time_not_number(self):
+        # E3 was written late about an earlier period: it is not "most recent".
+        self.write_timed([(1, "2026-10-01 09:00:00", "2026-10-01 10:00:00"),
+                          (2, "2026-10-03 09:00:00", "2026-10-03 10:00:00"),
+                          (3, "2026-09-20 09:00:00", "2026-09-20 10:00:00")])
+        load("tools/rebuild_tiers.py").rebuild()
+        lines = self.tier("tier3").splitlines()
+        self.assertEqual([line.split(":")[0] for line in lines], ["E3", "E1", "E2"])
+        content = load("transformations/recap.py").transform([system()], [])[0][0]["content"]
+        self.assertLess(content.index("### E3"), content.index("### E1"))
+        self.assertLess(content.index("### E1"), content.index("### E2"))
+
+    def test_r2_start_time_and_untimed_episodes_keep_a_sensible_place(self):
+        # E2 has only start_time; E4 (untimed) stays after the episode before it by number.
+        self.write_timed([(1, None, "2026-10-01 10:00:00"),
+                          (2, "2026-09-25 09:00:00", None),
+                          (3, None, "2026-10-05 10:00:00"),
+                          (4, None, None)])
+        load("tools/rebuild_tiers.py").rebuild()
+        order = [line.split(":")[0] for line in self.tier("tier3").splitlines()]
+        self.assertEqual(order, ["E2", "E1", "E3", "E4"])
+
+
 # ---------------------------------------------------------------- BUG-2 / BUG-3
 UNICODE = lambda i: "Sesión %d: añadí pestañas — corrección de diseño ✓ página %d ñññ" % (i, i)
 

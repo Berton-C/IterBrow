@@ -29,7 +29,7 @@ if TOOLS_DIR not in sys.path:
 import _memory_guard as guard
 import memory_journal
 import hashlib
-from iterbrow_runtime.episodic_history import list_episodes, archive_text
+from iterbrow_runtime.episodic_history import list_episodes, archive_text, chronological
 from iterbrow_runtime.atomspace_store import _atomic_text
 
 DESCRIPTION = (
@@ -64,9 +64,11 @@ TIER_NAMES = ("tier3", "tier4", "tier5")
 
 
 def _list_episodes():
-    # Numeric order by episode number ("e", else digits in the file name),
-    # never lexicographic: episode_10 must sort after episode_9.
-    return list_episodes(RECAP_DIR)
+    # Ordered by the time each episode covers (end_time, else start_time;
+    # untimed ones keep their numeric place), so an episode written late about
+    # an earlier period is not "most recent". Numbers are numeric, never
+    # lexicographic: episode_10 sorts after episode_9.
+    return chronological(list_episodes(RECAP_DIR))
 
 
 def _episode_num(ep):

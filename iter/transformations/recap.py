@@ -25,7 +25,7 @@ How it works:
 """
 import os, json
 from iterbrow_runtime.atomspace_store import _atomic_text
-from iterbrow_runtime.episodic_history import list_episodes
+from iterbrow_runtime.episodic_history import list_episodes, chronological
 from iterbrow_runtime import recap_state
 
 DESCRIPTION = "Episode recap: asks the agent to record an episode (record_episode) when enough history is unsummarized, and injects the newest episodes."
@@ -164,6 +164,9 @@ def _format_recap_block(episodes):
     if not episodes:
         return ""
 
+    # Newest by the time they cover, not by number (an episode written late
+    # about an earlier period is not the most recent).
+    episodes = chronological(episodes)
     shown = episodes[-RECAP_INJECT_EPISODES:]
     if len(shown) == len(episodes):
         lines = ["## Episode Recap ({} episodes)".format(len(episodes))]
