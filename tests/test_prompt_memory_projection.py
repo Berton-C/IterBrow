@@ -348,5 +348,52 @@ class StartNewTaskPreservesHistory(unittest.TestCase):
             self.assertEqual(archived, [first])
 
 
+class AlarmsAreDurableInput(unittest.TestCase):
+    """B12: due alarms must survive retries/rollbacks; same-second reminders must not collide."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self._cwd = os.getcwd()
+        os.chdir(self._tmp.name)
+
+    def tearDown(self):
+        os.chdir(self._cwd)
+        self._tmp.cleanup()
+
+    def test_same_second_reminders_do_not_overwrite(self):
+        reminder = _load("reminder_under_test", ITER / "tools" / "reminder.py")
+        when = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time() - 5))
+        first = reminder.run(when, "electron_ui", "Submit paper")
+        second = reminder.run(when, "electron_ui", "Call the bank")
+        self.assertTrue(first.startswith("SUCCESS") and second.startswith("SUCCESS"))
+        bodies = sorted(Path("memory/alarms", n).read_text() for n in os.listdir("memory/alarms"))
+        self.assertEqual(bodies, ["electron_ui\nCall the bank", "electron_ui\nSubmit paper"])
+
+    def test_alarm_transformation_does_not_consume_due_alarm(self):
+        # The transformation edits one attempt's request copy; consuming the
+        # file there loses the alarm on retry or rollback.
+        Path("memory/alarms").mkdir(parents=True)
+        due = Path("memory/alarms", str(int(time.time()) - 5))
+        due.write_text("electron_ui\nSubmit paper")
+        alarms = _load("alarms_under_test", ITER / "transformations" / "alarms.py")
+        alarms.transform([{"role": "system", "content": "x"}], [])
+        self.assertTrue(due.exists(), "the alarm transformation deleted a due alarm from a request copy")
+
+    def test_due_alarms_become_saved_input(self):
+        from iterbrow_runtime.alarm_inbox import take_due_alarms
+        Path("memory/alarms").mkdir(parents=True)
+        now = time.time()
+        Path("memory/alarms", str(int(now) - 5)).write_text("electron_ui\nSubmit paper")
+        Path("memory/alarms", str(int(now) - 5) + ".001").write_text("electron_ui\nCall the bank")
+        Path("memory/alarms", str(int(now) + 3600)).write_text("electron_ui\nLater")
+        text = take_due_alarms("memory/alarms", now=now)
+        self.assertEqual(text, "[electron_ui] [ALARM] Submit paper\n[electron_ui] [ALARM] Call the bank")
+        self.assertEqual(os.listdir("memory/alarms"), [str(int(now) + 3600)])
+        source = (ITER / "iter.py").read_text()
+        receive_at = source.index("event_append = pending_event_append or receive()")
+        self.assertIn("from iterbrow_runtime.alarm_inbox import take_due_alarms", source)
+        self.assertIn("take_due_alarms(", source[receive_at:receive_at + 600])
+
+
 if __name__ == "__main__":
     unittest.main()

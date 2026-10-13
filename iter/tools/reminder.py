@@ -41,7 +41,16 @@ def run(when, channel="terminal", message=""):
         pass
 
     timestamp = _unix_time(when)
-    alarm_file = alarms_dir + "/" + str(timestamp)
-    with open(alarm_file, "w") as file:
-        file.write(channel + "\n" + message)
+    # Never overwrite another reminder due the same second: "<ts>", "<ts>.001", ...
+    # (the name is parsed with float(), so the suffix keeps ordering and dueness).
+    for n in range(1000):
+        alarm_file = alarms_dir + "/" + str(timestamp) + ("" if n == 0 else ".%03d" % n)
+        try:
+            with open(alarm_file, "x") as file:
+                file.write(channel + "\n" + message)
+            break
+        except FileExistsError:
+            continue
+    else:
+        return "ERROR: too many reminders already set for " + str(when)
     return "SUCCESS: Reminder set for " + str(when) + " -> " + alarm_file

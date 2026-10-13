@@ -24,6 +24,7 @@ from iterbrow_runtime.tool_results import capture_tool_output
 from iterbrow_runtime.work_inquiry import question_context
 from iterbrow_runtime.working_handoff import cycle_handoff, runtime_context
 from iterbrow_runtime.loop_continuity import resume_event_wait, complete_interrupted_turn
+from iterbrow_runtime.alarm_inbox import take_due_alarms
 
 # Shared rule for "which memory/ files are prompt memory" (tools/_memory_projection.py).
 # iter.py is the authority on the projection; self_improve.py and auto_improve.py
@@ -387,7 +388,7 @@ def slow_wait_for_input(seconds=SLOW_STEP_DELAY, *, request_error=None):
         for alarm in ([] if request_error else Path("memory/alarms").glob("*")):
             try:
                 if alarm.is_file() and float(alarm.name) <= time.time():
-                    return ""  # The existing alarm transformation delivers it.
+                    return ""  # The next cycle turns it into saved input (alarm_inbox).
             except ValueError:
                 continue
     return ""
@@ -630,6 +631,11 @@ while True:
         time.sleep(DEFAULT_DELAY)
         print("BEFORE RECEIVE")
         event_append = pending_event_append or receive()
+        # Due alarms become durable input (saved to experience below) instead
+        # of a one-shot edit of a single request copy that a retry loses.
+        due_alarms = take_due_alarms("memory/alarms")
+        if due_alarms:
+            event_append = (event_append + "\n" if event_append else "") + due_alarms
         HEARTBEAT.write(
             ACTIVE_COMPONENT_SNAPSHOT["generation_id"], "input_received",
             cycle_number,
