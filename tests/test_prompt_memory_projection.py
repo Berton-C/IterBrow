@@ -659,5 +659,26 @@ class SkippedFilesAreNamed(unittest.TestCase):
         self.assertIn("projection_skipped(", source)
 
 
+class AutoImproveLogsMeasurementErrors(unittest.TestCase):
+    """Review finding 7: a failing memory measurement must be logged, not
+    silently disable the pain signal."""
+
+    def test_selected_chars_failure_is_logged_and_other_signals_survive(self):
+        with MemoryDir() as m:
+            auto = _load("auto_improve_under_test", ITER / "transformations" / "auto_improve.py")
+
+            def broken(*args, **kwargs):
+                raise RuntimeError("relevant_memory exploded (test)")
+            auto._projection = type(sys)("_broken_projection")
+            auto._projection.selected_chars = broken
+            messages = [{"role": "system", "content": "prompt"}, user("hello")]
+            auto.transform(messages, [])
+            log = m.root / "transformations" / ".runtime" / "auto_improve_issues.log"
+            self.assertTrue(log.exists(), "the failure was swallowed without a trace")
+            self.assertIn("relevant_memory exploded", log.read_text())
+            pain, signals, mem_size, _ = auto._compute_pain(messages)
+            self.assertEqual(mem_size, 0)
+
+
 if __name__ == "__main__":
     unittest.main()

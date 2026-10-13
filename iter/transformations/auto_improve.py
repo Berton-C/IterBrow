@@ -37,6 +37,7 @@ FLAG_PATH = os.path.join(ITER_ROOT, "memory", ".improve_needed")
 DISMISS_PATH = os.path.join(ITER_ROOT, "memory", ".improve_dismissed")
 TRANSCRIPT_PATH = os.path.join(ITER_ROOT, "transcript.txt")
 
+ISSUE_LOG = os.path.join(ITER_ROOT, "transformations", ".runtime", "auto_improve_issues.log")
 PAIN_THRESHOLD = 3.0
 MAX_MEMORY_CHARS = 20000  # kept in sync with iter.py's cap
 RECENT_LINES = 30
@@ -190,6 +191,18 @@ def _service_before_growth_active():
         return False
 
 
+def _log_issue(detail):
+    """Best-effort diagnostic trail (same shape as dynamic_tool_budget's) for
+    failures the catch-alls would otherwise absorb. Never raises."""
+    try:
+        import time
+        os.makedirs(os.path.dirname(ISSUE_LOG), exist_ok=True)
+        with open(ISSUE_LOG, "a") as f:
+            f.write(json.dumps({"ts": time.strftime("%Y-%m-%d %H:%M:%S"), "detail": detail}) + "\n")
+    except Exception:
+        pass
+
+
 def _compute_pain(messages=None):
     pain = 0.0
     signals = []
@@ -214,7 +227,13 @@ def _compute_pain(messages=None):
     # 2026-10 audit: measure what the prompt view SELECTS this cycle (omitted
     # notes are indexed, not loaded) -- the same measure dynamic_tool_budget
     # uses (_memory_projection.selected_chars).
-    mem_size = _projection.selected_chars(os.path.join(ITER_ROOT, "memory"), messages)
+    try:
+        mem_size = _projection.selected_chars(os.path.join(ITER_ROOT, "memory"), messages)
+    except Exception as e:
+        # Never silently disable the signal: leave a trace, keep the others.
+        _log_issue("memory measurement (selected_chars) failed; memory pressure not counted this cycle: "
+                   "%s: %s" % (type(e).__name__, e))
+        mem_size = 0
     if mem_size > MAX_MEMORY_CHARS:
         over = (mem_size - MAX_MEMORY_CHARS) / 100.0
         contribution = MEMORY_PRESSURE_WEIGHT * over
@@ -291,6 +310,6 @@ def transform(messages, tools):
                     os.remove(FLAG_PATH)
                 except OSError:
                     pass
-    except Exception:
-        pass
+    except Exception as e:
+        _log_issue("transform failed; no proposal this cycle: %s: %s" % (type(e).__name__, e))
     return messages, tools
