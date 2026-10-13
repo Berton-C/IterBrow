@@ -138,5 +138,28 @@ class ProjectionRobustness(unittest.TestCase):
             self.assertTrue(text.endswith("NEWEST LINE"))
 
 
+class RelevanceSelection(unittest.TestCase):
+    """B2: topic matching runs on the user's words, not the Step/channel wrapper."""
+
+    def test_step_envelope_is_not_a_topic(self):
+        with MemoryDir() as m:
+            m.write("tasks/current_tasks.txt", "# Task Content: toast")
+            m.write("notes/2026-09-14_websearch_outage_postmortem.txt", "W" * 900)
+            m.write("notes/electron_ipc_rewrite_plan.txt", "E" * 900)
+            m.write("notes/step_counter_ideas.txt", "S" * 900)
+            m.write("notes/wedding_toast_ideas.txt", "open with the canoe story")
+            out = m.project([user("please help me with the wedding toast")])
+            self.assertIn("canoe story", out)
+            self.assertNotIn("websearch_outage_postmortem.txt:\n", out)
+            self.assertNotIn("electron_ipc_rewrite_plan.txt:\n", out)
+            self.assertNotIn("step_counter_ideas.txt:\n", out)
+
+    def test_user_word_matching_still_selects_named_note(self):
+        with MemoryDir() as m:
+            m.write("notes/electron_ipc_rewrite_plan.txt", "plan body")
+            out = m.project([user("how is the electron rewrite going?")])
+            self.assertIn("electron_ipc_rewrite_plan.txt:\n", out)
+
+
 if __name__ == "__main__":
     unittest.main()

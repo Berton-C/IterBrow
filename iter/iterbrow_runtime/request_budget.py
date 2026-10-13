@@ -196,7 +196,10 @@ def relevant_memory(items, experience):
     """
     items = list(items)
     active = experience[active_work_start(experience):]
-    inputs = [str(m.get("content", "")) for m in active if is_user_input(m)]
+    # Match the user's words, not the "Step YYYY-MM-DD HH:MM:SS: [channel]"
+    # wrapper: "step", "2026" and "electron" matched every dated, step- or
+    # electron-named note on every turn.
+    inputs = [_input_text(m.get("content", "")) for m in active if is_user_input(m)]
     queries = inputs[:1] + inputs[-2:]
     if not inputs:
         # Existing durable task context is still useful after a legacy rollover.
