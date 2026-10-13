@@ -8,7 +8,7 @@ results preceding the pin in that response are newer evidence.
 import json
 import re
 
-from .request_budget import active_work_start, _input_text, is_user_input
+from .request_budget import active_work_start, _input_text, is_user_input, is_alarm
 from .tool_results import output_excerpt, execution_facts, RESULT_ID
 
 MAX_HANDOFF_CHARS = 4000
@@ -172,7 +172,8 @@ def working_record(experience):
     included.reverse()
     omitted = len(observations) - len(included)
     update_indices = [index for index, message in enumerate(experience)
-                      if account and index > since and is_user_input(message)]
+                      if account and index > since and is_user_input(message)
+                      and not is_alarm(message)]
     changed_request = bool(update_indices)
     updates = [{"experience_index": index, "content_excerpt": output_excerpt(
         str(experience[index].get("content", "")), 700)} for index in update_indices[-3:]]

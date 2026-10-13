@@ -640,18 +640,27 @@ while True:
         # working handoff projected.
         wakeup = not event_append and (timed_wait_ended or bool(due_alarms))
         timed_wait_ended = False
-        if due_alarms:
-            event_append = (event_append + "\n" if event_append else "") + due_alarms
         HEARTBEAT.write(
             ACTIVE_COMPONENT_SNAPSHOT["generation_id"], "input_received",
             cycle_number,
         )
         print("AFTER RECEIVE")
         if event_append:
-            autonomous_steps, new_burst, post_task_mode = 0, False, False
             print("IN FROM CHANNEL " + event_append)
             experience += [{"role": "user", "content": "Step " + get_current_time() + ": " + event_append}]
+        if due_alarms:
+            # Saved and delivered like input, but marked: an alarm is a
+            # scheduled self-note, not the user returning. Deliberately it does
+            # NOT reset autonomous_steps / new_burst / post_task_mode (those
+            # track user turns and the fast-step cap) and does not move the
+            # rotation boundary or count as a user update in the handoff.
+            print("ALARM " + due_alarms)
+            experience += [{"role": "user", "content": "Step " + get_current_time() + ": " + due_alarms,
+                            "_iter_alarm": True}]
+        if event_append or due_alarms:
             save_experience(experience)
+        if event_append:
+            autonomous_steps, new_burst, post_task_mode = 0, False, False
             pending_event_append = ""
             base_temporary_message = []
         elif new_burst:

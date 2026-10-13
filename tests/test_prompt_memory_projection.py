@@ -531,5 +531,45 @@ class ToolDescriptionsFitTheCap(unittest.TestCase):
         self.assertIn("action='close' with that tab_id", text)
 
 
+class AlarmInputIsNotUserInput(unittest.TestCase):
+    """Review finding 3: an alarm saved as input is marked and is not a user turn."""
+
+    OK = {"success": True, "state": "returned", "scope": "invocation", "task_fulfillment": "unverified"}
+
+    def _alarm(self, text="Submit paper"):
+        return {"role": "user", "content": "Step 2026-10-08 13:00:00: [electron_ui] [ALARM] " + text,
+                "_iter_alarm": True}
+
+    def _work(self):
+        return [user("run the benchmark"),
+                {"role": "assistant", "content": "", "tool_calls": [
+                    {"id": "p1", "type": "function", "function": {"name": "pin", "arguments": json.dumps(
+                        {"message": "benchmark running", "handoff": "true"})}}]},
+                {"role": "tool", "tool_call_id": "p1", "content": "Step 2026-10-08 12:00:01: SUCCESS",
+                 "_iter_execution": self.OK}]
+
+    def test_rotation_start_ignores_alarms(self):
+        from iterbrow_runtime.request_budget import rotation_start
+        exp = self._work() + [self._alarm()]
+        self.assertEqual(rotation_start(exp), 0)
+
+    def test_handoff_does_not_list_alarms_as_user_updates(self):
+        from iterbrow_runtime.working_handoff import working_record
+        record = working_record(self._work() + [self._alarm()])
+        self.assertFalse(record["newer_user_input"])
+        self.assertEqual(record["latest_user_updates"], [])
+
+    def test_alarm_marker_never_reaches_the_provider(self):
+        msgs = [{"role": "system", "content": "sys"}] + self._work() + [self._alarm()]
+        out, _, _ = project_request(msgs, [], 45000, msgs[1], input_ceiling=45000)
+        self.assertFalse(any("_iter_alarm" in m for m in out))
+        self.assertTrue(any("[ALARM] Submit paper" in str(m.get("content")) for m in out))
+
+    def test_iter_saves_alarms_marked_and_separately_from_user_input(self):
+        source = (ITER / "iter.py").read_text()
+        self.assertIn('"_iter_alarm": True', source)
+        self.assertNotIn('event_append = (event_append + "\\n" if event_append else "") + due_alarms', source)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -52,6 +52,12 @@ def is_user_input(message):
     return message.get("role") == "user" and not message.get("_iter_runner")
 
 
+def is_alarm(message):
+    """A due reminder saved as input by iter.py: delivered and kept in history,
+    but a scheduled self-note, not the user returning."""
+    return bool(message.get("_iter_alarm"))
+
+
 def _input_text(text):
     text = str(text).strip()
     if re.match(r"^Step \d{4}-\d\d-\d\d \d\d:\d\d:\d\d: ", text):
@@ -129,7 +135,7 @@ def rotation_start(messages):
     latest user input or completed event wait (ordinary conversation has no
     start_new_task anchor; pinning it to the FIRST input meant nothing was
     ever archived)."""
-    users = [i for i, message in enumerate(messages) if is_user_input(message)]
+    users = [i for i, message in enumerate(messages) if is_user_input(message) and not is_alarm(message)]
     explicit = _explicit_task_start(messages, users)
     if explicit is not None:
         return explicit
@@ -537,6 +543,7 @@ trusted reader and stay within input_ceiling (default: input_limit).
         # Local observed execution facts feed transformations, not provider API
         # extensions. Preserve the originals in experience and retained exchanges.
         message.pop("_iter_execution", None)
+        message.pop("_iter_alarm", None)
     projected_tools = copy.deepcopy(tools)
     # Some providers return both a plain reasoning string and an identical
     # structured representation. Send the structured record once, intact.
