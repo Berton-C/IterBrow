@@ -3,6 +3,16 @@
 > Living reference for any agent operating in this environment.
 > Last updated: 2026-09-22. Keep this file current as systems change.
 
+## Prompt memory (memory/ files)
+Each cycle iter.py shows memory/ text files (rule: `tools/_memory_projection.py`), in full or as
+head+tail excerpts within MAX_MEMORY_CHARS: memory/tasks/ (current_tasks.txt first); files whose
+path mentions instruction, preference, standing, policy, user_feedback or lesson; files whose name
+matches words of the current request (anywhere under memory/; `tabstrip` matches "tab strip"); and
+up to two short excerpts of other files whose text matches the request. Every other text file, and
+every file that cannot be shown (binary, non-UTF-8, unreadable), is listed by path in
+`memory/index (request view only)`. Dot-files and storage (archive/, recap/, tiers/, captures/,
+backups/, journals) are never listed. The view never changes anything on disk; read files directly.
+
 ## Authoritative Runtime Architecture (2026-09-21)
 
 ### Direct OpenAI provider — September 24, 2026
@@ -372,14 +382,6 @@ were confirmation.
 | `tool_reliability` | Query NAL truth-weighted tool reliability scores |
 
 ## Memory Architecture
-
-### Prompt memory (memory/ files)
-Each cycle iter.py projects regular text files under memory/ (not captures/, recap/, tiers/,
-archive/, dot- or _-prefixed paths; rule in `tools/_memory_projection.py`). Shown in full or as
-head+tail excerpts within MAX_MEMORY_CHARS: memory/tasks/ (current_tasks.txt first), files whose
-name says instruction/preference/standing/policy/user_feedback, and notes whose file name matches
-words of the current request. Every other file is listed by path in
-`memory/index (request view only)`; read it directly. Nothing on disk is ever changed by this view.
 
 ### Authoritative state with query projections
 

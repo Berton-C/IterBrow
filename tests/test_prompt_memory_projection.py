@@ -680,5 +680,28 @@ class AutoImproveLogsMeasurementErrors(unittest.TestCase):
             self.assertEqual(mem_size, 0)
 
 
+class PromptMemoryDocsAreReachable(unittest.TestCase):
+    """Review finding 9: the memory wording is exactly true and actually reaches the model."""
+
+    def test_prompt_txt_states_the_real_selection_rules(self):
+        text = (ITER / "prompt.txt").read_text()
+        line = next(l for l in text.splitlines() if "./memory/" in l)
+        for fact in ("lesson", "excerpt", "listed by path", "never listed", "cannot be shown"):
+            self.assertIn(fact, line)
+
+    def test_agents_md_prompt_memory_section_is_inside_the_injected_window(self):
+        inject = _load("agents_md_inject_under_test", ITER / "transformations" / "agents_md_inject.py")
+        cwd = os.getcwd()
+        os.chdir(ITER)
+        try:
+            out, _ = inject.transform([{"role": "system", "content": "x"}], [])
+        finally:
+            os.chdir(cwd)
+        injected = out[0]["content"]
+        self.assertIn("## Prompt memory (memory/ files)", injected)
+        section = (ITER / "AGENTS.md").read_text().split("## Prompt memory (memory/ files)", 1)[1].split("\n## ", 1)[0]
+        self.assertIn(section.strip()[-120:], injected, "the section is cut by the auto-include window")
+
+
 if __name__ == "__main__":
     unittest.main()
