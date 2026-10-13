@@ -265,5 +265,45 @@ class TaskBoundary(unittest.TestCase):
         self.assertEqual(active_work_start(self._experience(text, msg)), 3)
 
 
+class HandoffOnTimedWakeup(unittest.TestCase):
+    """B10: the working handoff must reach timed/alarm wake-ups."""
+
+    OK = {"success": True, "state": "returned", "scope": "invocation", "task_fulfillment": "unverified"}
+
+    def _experience(self, with_pin=True):
+        exp = [user("run the benchmark and report")]
+        if with_pin:
+            exp += [{"role": "assistant", "content": "", "tool_calls": [
+                        {"id": "p1", "type": "function", "function": {"name": "pin", "arguments": json.dumps(
+                            {"message": "benchmark PID 4242 running; next read /tmp/bench.log",
+                             "handoff": "true"})}}]},
+                    {"role": "tool", "tool_call_id": "p1", "content": "Step 2026-10-08 12:00:01: SUCCESS",
+                     "_iter_execution": self.OK}]
+        exp += [{"role": "assistant", "content": "", "tool_calls": [
+                    {"id": "n1", "type": "function", "function": {"name": "nop", "arguments": '{"wait_seconds": 3600}'}}]},
+                {"role": "tool", "tool_call_id": "n1", "content": "Step 2026-10-08 12:00:02: SUCCESS",
+                 "_iter_execution": self.OK}]
+        return exp
+
+    def test_handoff_injected_on_timed_wakeup(self):
+        from iterbrow_runtime.work_inquiry import question_context
+        import iterbrow_runtime.working_handoff as wh
+        exp = self._experience()
+        inquiry = question_context(exp, new_input=False, resumed=False)
+        self.assertEqual(inquiry, "")  # a timed wake-up has no question cue
+        self.assertTrue(hasattr(wh, "cycle_handoff"),
+                        "iter.py only projects the handoff when a question cue fires")
+        text, evidence = wh.cycle_handoff(exp, inquiry)
+        self.assertIn("benchmark PID 4242", text)
+        source = (ITER / "iter.py").read_text()
+        self.assertIn("cycle_handoff(experience, inquiry)", source)
+
+    def test_no_account_and_no_cue_adds_nothing(self):
+        import iterbrow_runtime.working_handoff as wh
+        if not hasattr(wh, "cycle_handoff"):
+            self.fail("cycle_handoff missing")
+        self.assertEqual(wh.cycle_handoff(self._experience(with_pin=False), ""), ("", ()))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -213,3 +213,13 @@ def working_context(experience, *, record=None):
         "not silently treated as a complete account. Newer user input may supersede it.\n"
         + json.dumps(record, ensure_ascii=False)
     )
+
+
+def cycle_handoff(experience, inquiry):
+    """(text, evidence ids) to append this cycle. Shown whenever a question cue
+    fires OR a working account exists: a timed nop / alarm wake-up has no cue
+    but is exactly the turn that needs the continuation note."""
+    record = working_record(experience)
+    if not inquiry and not record.get("working_account"):
+        return "", ()
+    return working_context(experience, record=record), record["referenced_evidence_tool_call_ids"]

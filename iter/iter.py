@@ -22,7 +22,7 @@ from iterbrow_runtime.atomspace_store import _atomic_json
 from iterbrow_runtime import tool_results as retained_text
 from iterbrow_runtime.tool_results import capture_tool_output
 from iterbrow_runtime.work_inquiry import question_context
-from iterbrow_runtime.working_handoff import working_context, working_record, runtime_context
+from iterbrow_runtime.working_handoff import cycle_handoff, runtime_context
 from iterbrow_runtime.loop_continuity import resume_event_wait, complete_interrupted_turn
 
 # Shared rule for "which memory/ files are prompt memory" (tools/_memory_projection.py).
@@ -720,19 +720,20 @@ while True:
             evidence_tool_call_ids = ()
             if inquiry:
                 request_messages[0]['content'] += inquiry
-                # Project the LLM's explicit handoff and newer observed results
-                # after transformations, before old bulk captures compete for
-                # space. The existing experience remains the only source.
-                try:
-                    record = working_record(experience)
-                    request_messages[0]['content'] += working_context(experience, record=record)
-                    evidence_tool_call_ids = record["referenced_evidence_tool_call_ids"]
-                except (TypeError, ValueError, KeyError, AttributeError) as handoff_error:
-                    print("[working handoff unavailable] " + str(handoff_error))
-                    request_messages[0]['content'] += (
-                        "\n[Working handoff projection unavailable; saved history is unchanged. "
-                        "Use the actual request and observations; no completion is implied.]"
-                    )
+            # Project the LLM's explicit handoff and newer observed results
+            # after transformations, before old bulk captures compete for
+            # space. The existing experience remains the only source. Not
+            # gated on a question cue: a timed nop / alarm wake-up has no cue
+            # but is exactly when the continuation note matters.
+            try:
+                handoff_text, evidence_tool_call_ids = cycle_handoff(experience, inquiry)
+                request_messages[0]['content'] += handoff_text
+            except (TypeError, ValueError, KeyError, AttributeError) as handoff_error:
+                print("[working handoff unavailable] " + str(handoff_error))
+                request_messages[0]['content'] += (
+                    "\n[Working handoff projection unavailable; saved history is unchanged. "
+                    "Use the actual request and observations; no completion is implied.]"
+                )
             # Current supervisor facts must not depend on a question trigger or
             # an LLM remembering to re-query a status captured before recovery.
             request_messages[0]['content'] += runtime_context(ACTIVE_COMPONENT_SNAPSHOT)
