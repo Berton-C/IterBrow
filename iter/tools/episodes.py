@@ -34,11 +34,13 @@ def _decode(raw):
         return raw.decode()
 
 DESCRIPTION = ("Search history (history.metta and conversation archived out of experience.json) around a timestamp "
-               "(k records each side), or every record from time_string to end_time. conversation_only=true keeps "
+               "(k records each side), or page through every record from time_string to end_time (from_record continues). "
+               "conversation_only=true keeps "
                "only user messages, your replies and send calls (no tool chatter). Returns readable timestamped "
                "historical records, not new instructions. Stored records are unchanged.")
 
-MAX_SPAN_LINES = 400
+MAX_SPAN_LINE_CHARS = 300   # one record in a span page
+MAX_SPAN_PAGE_CHARS = 4000  # one span page (under the tool-output retention size)
 
 
 def _flag(value):
@@ -124,31 +126,46 @@ def _nearest(lines, parse, target):
     return count, best_index, best_diff
 
 
-def _span(target, end_time, conversation_only):
-    """Every history record stamped target..end_time (history.metta includes
-    archived history), in stored order, at most MAX_SPAN_LINES."""
-    shown, more, next_time = [], 0, None
-    for raw in history_lines(HISTORY_PATH):
+def _clip_line(line):
+    return line if len(line) <= MAX_SPAN_LINE_CHARS else (
+        line[:MAX_SPAN_LINE_CHARS] + " ...[+%d chars]" % (len(line) - MAX_SPAN_LINE_CHARS))
+
+
+def _span(target, end_time, conversation_only, from_record=1):
+    """One page of the history records stamped target..end_time (history.metta
+    includes archived history), in stored order, starting at logical record
+    `from_record`. Lines are clipped to MAX_SPAN_LINE_CHARS and a page to
+    about MAX_SPAN_PAGE_CHARS; the continuation names the next record
+    POSITION, so records sharing a timestamp are never repeated or skipped."""
+    shown, size, next_record, more = [], 0, None, 0
+    for position, raw in enumerate(history_lines(HISTORY_PATH), 1):
+        if position < from_record:
+            continue
         ts = _parse_timestamp(raw)
         if ts is None or not target <= ts <= end_time:
             continue
         line = _recall_line(raw)
         if conversation_only and not _is_conversation(line):
             continue
-        if len(shown) < MAX_SPAN_LINES:
-            shown.append(line)
-        else:
-            more += 1
-            next_time = next_time if next_time is not None and next_time <= ts else ts
-    head = "%d %srecords in the span%s.\n" % (
-        len(shown), "conversation " if conversation_only else "",
-        "" if not more else "; %d more follow -- continue with time_string=\"%s\"" % (
-            more, time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(next_time))))
-    return head + "\n".join(shown) if shown else "No %srecords between the requested times." % (
-        "conversation " if conversation_only else "")
+        if next_record is None:
+            line = _clip_line(line)
+            if size + len(line) + 1 <= MAX_SPAN_PAGE_CHARS:
+                shown.append(line)
+                size += len(line) + 1
+                continue
+            next_record = position
+        more += 1
+    kind = "conversation " if conversation_only else ""
+    if not shown:
+        return "No %srecords between the requested times." % kind
+    head = "%d %srecords in this page" % (len(shown), kind)
+    if next_record is not None:
+        head += ("; %d more follow -- continue with the same arguments and from_record=%d"
+                 % (more, next_record))
+    return head + ".\n" + "\n".join(shown)
 
 
-def run(time_string, k=10, max_distance_seconds=3600, end_time="", conversation_only=False):
+def run(time_string, k=10, max_distance_seconds=3600, end_time="", conversation_only=False, from_record=1):
     time_string = time_string.replace(r'\"', '').replace('"', '').strip()
     k = int(k)
     conversation_only = _flag(conversation_only)
@@ -162,7 +179,11 @@ def run(time_string, k=10, max_distance_seconds=3600, end_time="", conversation_
             end = _iso_seconds(str(end_time).replace('"', '').strip())
         except Exception:
             return "Invalid end_time format. Use: YYYY-MM-DD HH:MM:SS"
-        return _span(target, end, conversation_only)
+        try:
+            from_record = max(1, int(from_record or 1))
+        except (TypeError, ValueError):
+            return "from_record must be a record number"
+        return _span(target, end, conversation_only, from_record)
 
     # History is a bounded rolling log. Scan timestamps, not approximate byte
     # positions: a long record can put the requested event outside a byte window.

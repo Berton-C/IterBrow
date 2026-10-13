@@ -336,7 +336,7 @@ were confirmation.
 ### Episodic
 | Tool | Purpose |
 |------|---------|
-| `episodes` | Search history around a timestamp (k records each side) or a whole span with `end_time`; `conversation_only=true` keeps user messages, replies and send calls only |
+| `episodes` | Search history around a timestamp (k records each side) or a whole span with `end_time` (bounded pages; `from_record` continues); `conversation_only=true` keeps user messages, replies and send calls only |
 | `record_episode` | `record_episode(summary, start_time?, end_time?, mem_type?)` answers a Recap Request: writes the next memory/recap/episode_NNNN.json for the span (default: the pending request's), advances the recap cursor and regenerates the tiers. The only sanctioned episode writer |
 | `search_transcript` | Search communication transcript around a timestamp |
 

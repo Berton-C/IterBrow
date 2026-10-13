@@ -581,6 +581,33 @@ class RecapBacklogTests(EpisodicCase):
         request = json.loads((recap / ".recap_request.json").read_text())
         self.assertEqual((request["start"], request["end"]), (101, 300))
 
+    def test_episodes_span_pages_are_bounded_and_cover_each_record_once(self):
+        # Review findings 2 and 8: a 1000-record coarse span returned 166K
+        # chars (cut to ~4.5K by retention), and the continuation was a
+        # timestamp, so records sharing a timestamp repeated the same page.
+        import re as _re
+        rows = []
+        for i in range(1000):
+            ts = "2026-10-01 10:%02d:%02d" % (i // 120, (i // 2) % 60)  # pairs share a timestamp
+            text = ("HUMAN_MESSAGE: [electron_ui] msg-%04d " % i) + ("x" * (900 if i % 7 == 0 else 40))
+            rows.append('("%s" %s)\n' % (ts, json.dumps(text)))
+        (self.dir / "history.metta").write_text("".join(rows))
+        episodes = load("tools/episodes.py")
+        seen, pages, kwargs = [], 0, {}
+        while True:
+            out = str(episodes.run("2026-10-01 10:00:00", end_time="2026-10-01 23:00:00",
+                                   conversation_only=True, **kwargs))
+            pages += 1
+            self.assertLessEqual(len(out), 4500, out[:300])
+            seen += _re.findall(r"msg-(\d{4})", out)
+            nxt = _re.search(r"from_record=(\d+)", out)
+            if not nxt:
+                break
+            kwargs = {"from_record": int(nxt.group(1))}
+            self.assertLess(pages, 400, "paging does not advance")
+        self.assertEqual(sorted(seen), ["%04d" % i for i in range(1000)])
+        self.assertEqual(len(seen), len(set(seen)))
+
     def test_episodes_conversation_only_filters_tool_chatter(self):
         records = [
             ("2026-10-01 10:00:00", "HUMAN_MESSAGE: [electron_ui] please plan the trip"),
