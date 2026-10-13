@@ -12,12 +12,16 @@ How it works:
 2. The cursor advances when episodes covering the requested span exist
    (record_episode stores "lines": [start, end]; any episode numbered at or
    above the requested number also completes the request).
-3. When at least RECAP_THRESHOLD records are unsummarized, a "## Recap
+3. A backlog larger than RECAP_MAX_PENDING_SPANS spans is skipped only once,
+   at the legacy cursor migration; in normal running a large backlog gets a
+   coarser span (up to RECAP_COARSE_MAX_SPAN records or one calendar day),
+   read with episodes(..., conversation_only=true). History is never skipped.
+4. When at least RECAP_THRESHOLD records are unsummarized, a "## Recap
    Request" block naming the episode number/file, the fields and the span by
    TIMESTAMP (the episodes tool searches by time) is appended to the system
    message, and memory/recap/.recap_needed + .recap_request.json are written.
    They are cleared as soon as the cursor catches up.
-4. The newest RECAP_INJECT_EPISODES episodes are injected as a recap block.
+5. The newest RECAP_INJECT_EPISODES episodes are injected as a recap block.
 """
 import os, json
 from iterbrow_runtime.atomspace_store import _atomic_text
@@ -34,13 +38,17 @@ REQUEST_PATH = recap_state.REQUEST_PATH
 
 # Minimum lines of new history before triggering a recap
 RECAP_THRESHOLD = 20
-# One episode covers at most this many history records (a large backlog is
+# One episode normally covers at most this many history records (a backlog is
 # summarized span by span instead of in one unreadable request).
 RECAP_MAX_SPAN = 200
-# At most this many spans are ever pending: an older backlog is skipped (it
-# stays searchable via search_transcript/episodes) instead of costing the
-# agent hundreds of recap requests.
+# Backlog (in spans) above which the ONE-TIME cursor migration may skip older
+# history (it stays searchable via search_transcript/episodes). In normal
+# running nothing is ever skipped: a larger backlog gets a coarser span.
 RECAP_MAX_PENDING_SPANS = 3
+# A coarse span (large backlog during normal running) grows with the backlog,
+# up to this many records or one calendar day, whichever is smaller -- never
+# below RECAP_MAX_SPAN. The agent reads it filtered to the conversation.
+RECAP_COARSE_MAX_SPAN = 1000
 # Only the NEWEST episodes are injected; older ones live on in the tier pyramid.
 RECAP_INJECT_EPISODES = 10
 RECAP_END = "(end of episode recap)"  # must match zz_context_budget.RECAP_END
@@ -65,6 +73,16 @@ def _remove(path):
 def _request_text(request, remaining):
     n = request["next_e"]
     first, last = request.get("start_time") or "?", request.get("end_time") or "?"
+    if request["end"] - request["start"] + 1 > RECAP_MAX_SPAN:
+        read = ("1. This is a large backlog, so the episode is coarse (a whole busy period). Read only the "
+                "conversation of the span: episodes(time_string=\"{t0}\", end_time=\"{t1}\", "
+                "conversation_only=true) -- user messages, your replies and send calls, not tool "
+                "chatter. Summarize what was asked, done and decided.".format(t0=first, t1=last))
+    else:
+        read = ("1. Read the span: episodes(time_string=\"{t0}\", k=40). The episodes tool searches history by "
+                "TIMESTAMP, not by record number; repeat with later timestamps up to {t1} if needed "
+                "(or episodes(time_string=\"{t0}\", end_time=\"{t1}\", conversation_only=true) for just the "
+                "conversation).".format(t0=first, t1=last))
     more = (" %d more unsummarized records follow; they get their own request afterwards." % remaining
             if remaining > 0 else "")
     skipped = request.get("skipped")
@@ -76,8 +94,7 @@ def _request_text(request, remaining):
         "History records {a}-{b} ({t0} to {t1}) are not yet summarized into an episode.{more}".format(
             a=request["start"], b=request["end"], t0=first, t1=last, more=more),
         "When no user request is waiting (user work comes first), write episode E{n}:".format(n=n),
-        "1. Read the span: episodes(time_string=\"{t0}\", k=40). The episodes tool searches history by "
-        "TIMESTAMP, not by record number; repeat with later timestamps up to {t1} if needed.".format(t0=first, t1=last),
+        read,
         "2. Record it: record_episode(summary=\"<2-4 sentences: what was asked, what you did, the outcome>\", "
         "start_time=\"{t0}\", end_time=\"{t1}\", mem_type=\"\")".format(t0=first, t1=last),
         "   It creates memory/recap/episode_{n:04d}.json = {{\"e\": {n}, \"s\": summary, \"t\": mem_type, "
@@ -92,12 +109,14 @@ def _check_recap_needed(episodes):
     """Advance the cursor over recorded episodes; return the request text to
     show the agent, or "" when no recap is due (flag files cleared)."""
     total = recap_state.total_records(HISTORY_PATH)
-    recap_state.migrate_cursor(episodes, HISTORY_PATH)
+    migrated = recap_state.migrate_cursor(episodes, HISTORY_PATH) is not None
     stored = recap_state.read_cursor()
     previous = request = recap_state.read_request()
     cursor = recap_state.advanced_cursor(stored, episodes, request)
     skipped = None
-    if total - cursor > RECAP_MAX_PENDING_SPANS * RECAP_MAX_SPAN:
+    if migrated and total - cursor > RECAP_MAX_PENDING_SPANS * RECAP_MAX_SPAN:
+        # ONE-TIME catch-up when the legacy cursor is first migrated. Never in
+        # normal running: a busy period must not permanently skip history.
         skipped = [cursor + 1, total - RECAP_MAX_PENDING_SPANS * RECAP_MAX_SPAN]
         cursor = skipped[1]
     elif previous and previous.get("skipped") and previous["start"] == cursor + 1:
@@ -110,7 +129,15 @@ def _check_recap_needed(episodes):
         _remove(REQUEST_PATH)
         return ""
 
-    start, end = cursor + 1, min(total, cursor + RECAP_MAX_SPAN)
+    backlog = total - cursor
+    start = cursor + 1
+    if backlog > RECAP_MAX_PENDING_SPANS * RECAP_MAX_SPAN:
+        # Large backlog in normal running: one coarser episode instead of
+        # skipping -- the span grows with the backlog (<= one calendar day).
+        coarse = min(RECAP_COARSE_MAX_SPAN, max(RECAP_MAX_SPAN, backlog // RECAP_MAX_PENDING_SPANS))
+        end = recap_state.span_end(start, total, coarse, RECAP_MAX_SPAN, HISTORY_PATH)
+    else:
+        end = min(total, cursor + RECAP_MAX_SPAN)
     start_time, end_time = recap_state.span_times(start, end, HISTORY_PATH)
     request = {"next_e": recap_state.next_episode_number(episodes), "start": start, "end": end,
                "start_time": start_time, "end_time": end_time}

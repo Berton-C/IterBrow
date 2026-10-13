@@ -486,6 +486,95 @@ class RecapCursorMigrationTests(EpisodicCase):
         self.assertNotIn("not summarized", content)
 
 
+class RecapBacklogTests(EpisodicCase):
+    """R1: the backlog cap was meant as a one-time catch-up at cursor migration,
+    but it fired whenever Iter was busy and permanently skipped history. In
+    normal running nothing is skipped; a large backlog gets a coarser span."""
+
+    def busy(self, covered=100, total=1600, base="2026-10-01 00:00:00", step=20):
+        import datetime
+        recap = self.dir / "memory" / "recap"
+        recap.mkdir(parents=True, exist_ok=True)
+        start = datetime.datetime.strptime(base, "%Y-%m-%d %H:%M:%S")
+        lines = []
+        for i in range(total):
+            when = (start + datetime.timedelta(seconds=step * i)).strftime("%Y-%m-%d %H:%M:%S")
+            lines.append('("%s" "TOOL_RESULT: record %d")\n' % (when, i))
+        (self.dir / "history.metta").write_text("".join(lines))
+        (recap / "episode_0001.json").write_text(json.dumps({"e": 1, "s": "first", "lines": [1, covered]}))
+        (recap / ".recap_state").write_text(str(covered))
+        return recap
+
+    def test_busy_backlog_of_1500_records_is_never_skipped(self):
+        recap = self.busy()
+        recap_t = load("transformations/recap.py")
+        content = recap_t.transform([system()], [])[0][0]["content"]
+        self.assertEqual((recap / ".recap_state").read_text(), "100", "history was skipped during normal running")
+        request = json.loads((recap / ".recap_request.json").read_text())
+        self.assertEqual(request["start"], 101)
+        self.assertNotIn("skipped", request)
+        self.assertNotIn("not summarized into episodes", content)
+        self.assertIn("History records 101-", content)
+
+    def test_busy_backlog_asks_for_a_coarser_episode_and_a_filtered_read(self):
+        recap = self.busy()
+        content = load("transformations/recap.py").transform([system()], [])[0][0]["content"]
+        request = json.loads((recap / ".recap_request.json").read_text())
+        span = request["end"] - request["start"] + 1
+        self.assertGreater(span, 200)
+        self.assertLessEqual(span, 1000)
+        self.assertIn("conversation_only=true", content)
+        self.assertIn('end_time="%s"' % request["end_time"], content)
+        load("tools/record_episode.py").run("coarse busy-day episode")
+        load("transformations/recap.py").transform([system()], [])
+        following = json.loads((recap / ".recap_request.json").read_text())
+        self.assertEqual(following["start"], request["end"] + 1)
+
+    def test_coarse_span_stops_at_one_calendar_day(self):
+        # 3000 records (coarse limit 1000), one every 2 minutes: 720 per day.
+        recap = self.busy(covered=0, total=3000, base="2026-10-01 00:00:00", step=120)
+        (recap / "episode_0001.json").write_text(json.dumps({"e": 1, "s": "none", "lines": [0, 0]}))
+        load("transformations/recap.py").transform([system()], [])
+        request = json.loads((recap / ".recap_request.json").read_text())
+        self.assertEqual(request["start"], 1)
+        self.assertTrue(request["start_time"].startswith("2026-10-01"))
+        self.assertTrue(request["end_time"].startswith("2026-10-01"), request)
+        self.assertEqual(request["end"], 720)
+
+    def test_small_backlog_keeps_the_normal_span(self):
+        recap = self.busy(covered=100, total=500)
+        load("transformations/recap.py").transform([system()], [])
+        request = json.loads((recap / ".recap_request.json").read_text())
+        self.assertEqual((request["start"], request["end"]), (101, 300))
+
+    def test_episodes_conversation_only_filters_tool_chatter(self):
+        records = [
+            ("2026-10-01 10:00:00", "HUMAN_MESSAGE: [electron_ui] please plan the trip"),
+            ("2026-10-01 10:00:01", "TOOL_CALL: websearch {\"q\": \"trains\"}"),
+            ("2026-10-01 10:00:02", "TOOL_RESULT: Step 2026-10-01 10:00:02: 40 results"),
+            ("2026-10-01 10:00:03", "ASSISTANT: thinking about trains"),
+            ("2026-10-01 10:00:04", "TOOL_CALL: send {\"content\": \"Here is the plan\"}"),
+            ("2026-10-01 10:00:05", "TOOL_RESULT: Step 2026-10-01 10:00:05: SUCCESS"),
+            ("2026-10-01 11:30:00", "HUMAN_MESSAGE: [electron_ui] later question"),
+        ]
+        (self.dir / "history.metta").write_text("".join(
+            '("%s" %s)\n' % (ts, json.dumps(text)) for ts, text in records))
+        episodes = load("tools/episodes.py")
+        out = str(episodes.run("2026-10-01 10:00:00", end_time="2026-10-01 10:00:05", conversation_only=True))
+        self.assertIn("please plan the trip", out)
+        self.assertIn("thinking about trains", out)
+        self.assertIn("Here is the plan", out)
+        self.assertNotIn("TOOL_RESULT", out)
+        self.assertNotIn("websearch", out)
+        self.assertNotIn("later question", out)
+        full = str(episodes.run("2026-10-01 10:00:00", k=10))
+        self.assertIn("TOOL_RESULT", full)
+        window = str(episodes.run("2026-10-01 10:00:02", k=1, conversation_only="true"))
+        self.assertNotIn("TOOL_RESULT", window)
+        self.assertNotIn("websearch", window)
+        self.assertIn("thinking about trains", window)
+
+
 # ---------------------------------------------------------------- BUG-15
 class TranscriptLagTests(EpisodicCase):
     def _order(self):

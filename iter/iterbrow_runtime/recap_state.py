@@ -105,6 +105,30 @@ def span_times(start, end, path=HISTORY_PATH):
     return (min(stamps), max(stamps)) if stamps else (None, None)
 
 
+def span_end(start, total, max_records, min_records, path=HISTORY_PATH):
+    """Last logical record of a span that starts at `start`: at most
+    `max_records` records, and -- once `min_records` are in -- it stops before
+    the first record stamped on a later calendar day than the span's first
+    timestamped record (a coarse episode covers at most one day)."""
+    limit = min(total, start + max_records - 1)
+    if limit - start + 1 <= min_records:
+        return limit
+    first_day = None
+    end = start - 1
+    for position, raw in history_lines_from(path, start):
+        if position > limit:
+            break
+        stamp = record_timestamp(raw)
+        if stamp:
+            day = stamp[:10]
+            if first_day is None:
+                first_day = day
+            elif day > first_day and position - start >= min_records:
+                break
+        end = position
+    return max(end, min(limit, start + min_records - 1))
+
+
 def span_for_times(start_time, end_time, path=HISTORY_PATH):
     """(lowest, highest) logical record positions whose timestamps fall in the
     range (out-of-order records included)."""
