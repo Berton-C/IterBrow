@@ -698,8 +698,10 @@ while True:
             # EXCLUDE_NAMES) -- edit them THERE. Same semantics as before plus the
             # on-disk storage that had been silently blowing the budget every cycle
             # (story_journal/ web app, backups/, verification/, probe_log.json, ...).
-            memory_paths = [Path(p) for p in _memory_projection.projection_files("memory")]
-            memory_contents = [(path, path.read_text(encoding="utf-8", errors="replace").strip()) for path in memory_paths]
+            # projection_contents skips unreadable/non-regular/binary entries and
+            # bounds each file's read (head + tail), so one bad entry in memory/
+            # can neither crash nor block the loop.
+            memory_contents = [(Path(p), text) for p, text in _memory_projection.projection_contents("memory")]
             memory_contents = relevant_memory(memory_contents, experience)
             MEMORY = memory_context(memory_contents, MAX_MEMORY_CHARS)
             request_messages = [{"role": "system", "content": "prompt.txt:\n" + open("prompt.txt", encoding="utf-8", errors="replace").read().strip() + "\n\n./transformations/:\n" + TRANSFORMATIONS + "\n\n" + MEMORY}] + experience + temporary_message

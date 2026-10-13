@@ -40,6 +40,7 @@ storage, not prompt memory, and was silently blowing the 20K budget):
                    -- eval.py results log and self_improve test definitions.
 """
 import os
+import stat
 
 MEMORY_DIR = "memory"
 
@@ -54,7 +55,16 @@ EXCLUDE_DIRS = frozenset({
     "backups",
     "verification",
     "chroma_db",
+    "captures",      # device_capture.py photos/audio: binary media, not prompt text
 })
+
+# Bytes sniffed to recognise binary content (images, audio, sqlite, ...).
+_SNIFF_BYTES = 8192
+# Upper bound read per file for the prompt view. memory_context never shows
+# more than MAX_MEMORY_CHARS of anything; reading a multi-MB log in full every
+# cycle only stalls the loop. Oversized files are read head + tail so the
+# newest appended entries stay visible.
+DEFAULT_READ_CHARS = 200_000
 
 # Exact file names.
 EXCLUDE_NAMES = frozenset({
@@ -74,7 +84,8 @@ def _is_projected(rel_parts):
     """rel_parts: path components relative to memory/ (tuple of str)."""
     if not rel_parts:
         return False
-    if any(part.startswith("_") for part in rel_parts):
+    # "_" = private; "." = runtime bookkeeping (.stall_state.json, .improve_*).
+    if any(part.startswith(("_", ".")) for part in rel_parts):
         return False
     if any(part in EXCLUDE_DIRS for part in rel_parts):
         return False
@@ -83,15 +94,56 @@ def _is_projected(rel_parts):
     return True
 
 
+def _is_text_file(full):
+    """Regular, readable, non-binary file. Dangling symlinks, FIFOs, sockets
+    and unreadable entries are skipped instead of crashing or blocking the loop
+    (open() on a FIFO blocks forever; a dangling link raised every cycle)."""
+    try:
+        if not stat.S_ISREG(os.stat(full).st_mode):
+            return False
+        with open(full, "rb") as fh:
+            return b"\0" not in fh.read(_SNIFF_BYTES)
+    except OSError:
+        return False
+
+
+def _read_bounded(path, max_chars):
+    """Text of one file, at most ~max_chars: head + tail when larger."""
+    size = os.path.getsize(path)
+    with open(path, "rb") as fh:
+        if size <= max_chars:
+            data = fh.read(max_chars + 1)
+        else:
+            half = max_chars // 2
+            head = fh.read(half)
+            fh.seek(size - half)
+            data = (head + ("\n...[%d bytes not read]...\n" % (size - 2 * half)).encode()
+                    + fh.read(half))
+    return data.decode("utf-8", errors="replace").strip()
+
+
+def projection_contents(memory_dir=MEMORY_DIR, max_chars=DEFAULT_READ_CHARS):
+    """[(path, stripped text)] for the prompt view. One bad entry never raises
+    (it was a FileNotFoundError every cycle for a dangling symlink)."""
+    out = []
+    for path in projection_files(memory_dir):
+        try:
+            out.append((path, _read_bounded(path, max_chars)))
+        except (OSError, ValueError):
+            continue
+    return out
+
+
 def projection_files(memory_dir=MEMORY_DIR):
-    """Sorted list of file paths (str) that iter.py projects into the prompt."""
+    """Sorted list of file paths (str) that iter.py projects into the prompt:
+    regular, readable, non-binary files outside the excluded paths."""
     out = []
     for root, dirs, files in os.walk(memory_dir):
         for name in files:
             full = os.path.join(root, name)
             rel = os.path.relpath(full, memory_dir)
             parts = tuple(p for p in rel.split(os.sep) if p)
-            if _is_projected(parts):
+            if _is_projected(parts) and _is_text_file(full):
                 out.append(full)
     out.sort()
     return out
@@ -100,11 +152,4 @@ def projection_files(memory_dir=MEMORY_DIR):
 def projection_chars(memory_dir=MEMORY_DIR):
     """Total stripped-text length of the projected files -- the same number
     iter.py compares against MAX_MEMORY_CHARS."""
-    total = 0
-    for path in projection_files(memory_dir):
-        try:
-            with open(path, "r", encoding="utf-8", errors="replace") as f:
-                total += len(f.read().strip())
-        except OSError:
-            pass
-    return total
+    return sum(len(text) for _, text in projection_contents(memory_dir))
