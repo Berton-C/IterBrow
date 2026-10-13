@@ -403,20 +403,44 @@ class AlarmsAreDurableInput(unittest.TestCase):
         alarms.transform([{"role": "system", "content": "x"}], [])
         self.assertTrue(due.exists(), "the alarm transformation deleted a due alarm from a request copy")
 
-    def test_due_alarms_become_saved_input(self):
-        from iterbrow_runtime.alarm_inbox import take_due_alarms
+    def _alarms(self, now):
         Path("memory/alarms").mkdir(parents=True)
-        now = time.time()
         Path("memory/alarms", str(int(now) - 5)).write_text("electron_ui\nSubmit paper")
         Path("memory/alarms", str(int(now) - 5) + ".001").write_text("electron_ui\nCall the bank")
         Path("memory/alarms", str(int(now) + 3600)).write_text("electron_ui\nLater")
-        text = take_due_alarms("memory/alarms", now=now)
+
+    def test_due_alarms_are_read_without_deleting_until_saved(self):
+        # Review finding 12: the file was deleted before save_experience.
+        import iterbrow_runtime.alarm_inbox as inbox
+        now = time.time()
+        self._alarms(now)
+        if not hasattr(inbox, "pending_alarms"):
+            inbox.take_due_alarms("memory/alarms", now=now)
+            self.assertEqual(len(os.listdir("memory/alarms")), 3, "alarms deleted before they were saved")
+        text, ids = inbox.pending_alarms("memory/alarms", (), now=now)
         self.assertEqual(text, "[electron_ui] [ALARM] Submit paper\n[electron_ui] [ALARM] Call the bank")
+        self.assertEqual(len(os.listdir("memory/alarms")), 3)
+        inbox.acknowledge_alarms("memory/alarms", ids)
         self.assertEqual(os.listdir("memory/alarms"), [str(int(now) + 3600)])
+
+    def test_crash_between_save_and_delete_does_not_deliver_twice(self):
+        import iterbrow_runtime.alarm_inbox as inbox
+        now = time.time()
+        self._alarms(now)
+        text, ids = inbox.pending_alarms("memory/alarms", (), now=now)
+        saved = [{"role": "user", "content": "Step x: " + text, "_iter_alarm": True, "_iter_alarm_ids": ids}]
+        # ... crash here: files still on disk; the restarted loop reads them again.
+        again, more = inbox.pending_alarms("memory/alarms", inbox.delivered_alarm_ids(saved), now=now)
+        self.assertEqual((again, more), ("", []))
+        self.assertEqual(os.listdir("memory/alarms"), [str(int(now) + 3600)])
+
+    def test_iter_deletes_alarms_only_after_saving(self):
         source = (ITER / "iter.py").read_text()
         receive_at = source.index("event_append = pending_event_append or receive()")
-        self.assertIn("from iterbrow_runtime.alarm_inbox import take_due_alarms", source)
-        self.assertIn("take_due_alarms(", source[receive_at:receive_at + 600])
+        window = source[receive_at:receive_at + 2500]
+        self.assertIn("pending_alarms(", window)
+        self.assertIn('"_iter_alarm_ids": alarm_ids', window)
+        self.assertLess(window.index("save_experience(experience)"), window.index("acknowledge_alarms("))
 
 
 class PressureSignals(unittest.TestCase):
@@ -538,7 +562,7 @@ class AlarmInputIsNotUserInput(unittest.TestCase):
 
     def _alarm(self, text="Submit paper"):
         return {"role": "user", "content": "Step 2026-10-08 13:00:00: [electron_ui] [ALARM] " + text,
-                "_iter_alarm": True}
+                "_iter_alarm": True, "_iter_alarm_ids": ["1760000000:1"]}
 
     def _work(self):
         return [user("run the benchmark"),
@@ -562,7 +586,7 @@ class AlarmInputIsNotUserInput(unittest.TestCase):
     def test_alarm_marker_never_reaches_the_provider(self):
         msgs = [{"role": "system", "content": "sys"}] + self._work() + [self._alarm()]
         out, _, _ = project_request(msgs, [], 45000, msgs[1], input_ceiling=45000)
-        self.assertFalse(any("_iter_alarm" in m for m in out))
+        self.assertFalse(any(key.startswith("_iter_alarm") for m in out for key in m))
         self.assertTrue(any("[ALARM] Submit paper" in str(m.get("content")) for m in out))
 
     def test_iter_saves_alarms_marked_and_separately_from_user_input(self):

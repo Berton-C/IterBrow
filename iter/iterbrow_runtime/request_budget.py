@@ -576,6 +576,7 @@ trusted reader and stay within input_ceiling (default: input_limit).
         # extensions. Preserve the originals in experience and retained exchanges.
         message.pop("_iter_execution", None)
         message.pop("_iter_alarm", None)
+        message.pop("_iter_alarm_ids", None)
     projected_tools = copy.deepcopy(tools)
     # Some providers return both a plain reasoning string and an identical
     # structured representation. Send the structured record once, intact.

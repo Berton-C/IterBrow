@@ -24,7 +24,7 @@ from iterbrow_runtime.tool_results import capture_tool_output
 from iterbrow_runtime.work_inquiry import question_context
 from iterbrow_runtime.working_handoff import cycle_handoff, runtime_context
 from iterbrow_runtime.loop_continuity import resume_event_wait, complete_interrupted_turn
-from iterbrow_runtime.alarm_inbox import take_due_alarms
+from iterbrow_runtime.alarm_inbox import pending_alarms, acknowledge_alarms, delivered_alarm_ids
 
 # Shared rule for "which memory/ files are prompt memory" (tools/_memory_projection.py).
 # iter.py is the authority on the projection; self_improve.py and auto_improve.py
@@ -634,7 +634,8 @@ while True:
         event_append = pending_event_append or receive()
         # Due alarms become durable input (saved to experience below) instead
         # of a one-shot edit of a single request copy that a retry loses.
-        due_alarms = take_due_alarms("memory/alarms")
+        # Read without deleting: files are removed only after the save below.
+        due_alarms, alarm_ids = pending_alarms("memory/alarms", delivered_alarm_ids(experience))
         # A wake-up: this cycle starts from a timed nop wait or a due alarm,
         # with no new user input. Only then (or on a question cue) is the
         # working handoff projected.
@@ -656,9 +657,11 @@ while True:
             # rotation boundary or count as a user update in the handoff.
             print("ALARM " + due_alarms)
             experience += [{"role": "user", "content": "Step " + get_current_time() + ": " + due_alarms,
-                            "_iter_alarm": True}]
+                            "_iter_alarm": True, "_iter_alarm_ids": alarm_ids}]
         if event_append or due_alarms:
             save_experience(experience)
+        if alarm_ids:
+            acknowledge_alarms("memory/alarms", alarm_ids)  # only after the save succeeded
         if event_append:
             autonomous_steps, new_burst, post_task_mode = 0, False, False
             pending_event_append = ""
