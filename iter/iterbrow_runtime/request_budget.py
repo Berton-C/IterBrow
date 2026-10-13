@@ -285,7 +285,8 @@ def relevant_memory(items, experience):
                          "or use memory search for context.]\n" + excerpt))
     if omitted:
         selected.append((MEMORY_INDEX_PATH,
-                         "Other memory remains available through chroma_query or file reads:\n" + "\n".join(omitted)))
+                         "Other memory files, not shown this turn (read them directly; chroma_query "
+                         "searches only remembered items, not these files):\n" + "\n".join(omitted)))
     return selected
 
 

@@ -300,7 +300,7 @@ were confirmation.
 ├── rollup_helper.py     # Rollup utility functions
 ├── experience.json      # Rolling experience buffer (last N tool calls)
 ├── AGENTS.md            # This file
-├── chroma_db/           # ChromaDB vector store (int8-packed embeddings)
+├── chroma_db/           # memories.json: JSON vector-search index over the AtomSpace semantic authority
 ├── channels/
 │   └── terminal.py      # Terminal communication channel
 ├── tools/              # Agent tools (see Tool Inventory below)
@@ -320,14 +320,13 @@ were confirmation.
 
 ## Tool Inventory
 
-### Memory (ChromaDB / LTM)
+### Semantic memory (AtomSpace authority + JSON search index)
 | Tool | Purpose |
 |------|---------|
-| `remember` | Store a memory in ChromaDB. `provenance_type`: observed/inferred/model_estimated |
+| `remember` | Commit a memory to the AtomSpace authority and refresh its search index. `provenance_type`: observed/inferred/model_estimated |
 | `forget` | Delete a memory by UUID |
 | `memory_update` | Update text + embedding of existing memory (metadata preserved) |
-| `chroma_query` | Semantic search of LTM by text query |
-| `petta_db` | Report ChromaDB status (path, model, dimensions, index state) |
+| `chroma_query` | Semantic search of `remember`ed items by text query (does not search memory/ files; read those directly) |
 | `link_episode` | Link a memory item to an episode timestamp |
 | `unlink_episode` | Remove an episode link from a memory item |
 | `formalize_metta` | Assign a NAL/MeTTa statement to an LTM item |
@@ -338,7 +337,7 @@ were confirmation.
 | Tool | Purpose |
 |------|---------|
 | `episodes` | Search transcript history around a timestamp |
-| `record_episode` | Write the next memory/recap/episode_NNNN.json for a span of history (answers a Recap Request) |
+| `record_episode` | `record_episode(summary, start_time?, end_time?, mem_type?)` answers a Recap Request: writes the next memory/recap/episode_NNNN.json for the span (default: the pending request's), advances the recap cursor and regenerates the tiers. The only sanctioned episode writer |
 | `search_transcript` | Search communication transcript around a timestamp |
 
 ### Reasoning
@@ -357,14 +356,14 @@ were confirmation.
 ### Task Management
 | Tool | Purpose |
 |------|---------|
-| `start_new_task` | Overwrite current_tasks.txt with new task context |
+| `start_new_task` | Register the task in memory/tasks/current_tasks.txt. Default updates the current task (keeps its start time and original message); `new_work=true` starts a new task boundary. The replaced file is archived to memory/tasks/archive/ |
 | `nop` | End current cycle without sending anything |
 
 ### System
 | Tool | Purpose |
 |------|---------|
 | `shell` | Run bash commands in the shared browser filesystem |
-| `screenshot` | Capture current browser viewport |
+| `browser_screenshot` | Capture the current browser viewport |
 | `websearch` | Search the web — 5-backend cascade: DDG IA, Wikipedia search, Wikipedia OpenSearch, HN Algolia, DDG HTML via CORS proxy. Returns JSON results. |
 | `soul_eval` | ClarityOmega 4-channel soul evaluation: person read → verdict+gap detection → aliveness gate → voice |
 | `soul_lock` | Soul namespace mutation lock: begin → verify → commit/rollback |
@@ -374,11 +373,20 @@ were confirmation.
 
 ## Memory Architecture
 
+### Prompt memory (memory/ files)
+Each cycle iter.py projects regular text files under memory/ (not captures/, recap/, tiers/,
+archive/, dot- or _-prefixed paths; rule in `tools/_memory_projection.py`). Shown in full or as
+head+tail excerpts within MAX_MEMORY_CHARS: memory/tasks/ (current_tasks.txt first), files whose
+name says instruction/preference/standing/policy/user_feedback, and notes whose file name matches
+words of the current request. Every other file is listed by path in
+`memory/index (request view only)`; read it directly. Nothing on disk is ever changed by this view.
+
 ### Authoritative state with query projections
 
-1. **Semantic Memory (authoritative records + ChromaDB projection):**
+1. **Semantic Memory (AtomSpace authority + JSON search index):**
    - Semantic identity and changes commit as cognitive events and keyed atoms.
-   - ChromaDB remains the vector-search index/projection with int8-packed embeddings.
+   - `chroma_db/memories.json` is a pure-Python JSON vector-search index (int8-packed embeddings)
+     rebuilt from that authority; it is a projection, never authoritative.
    - Each item has: UUID, timestamp, provenance type, STV (truth value), optional episode links, optional NAL formalization.
    - Truth values use NAL revision: `support` adds positive evidence, `contradict` adds negative.
    - Query with `chroma_query` (text → semantic nearest neighbors).
@@ -396,8 +404,8 @@ were confirmation.
    - `.recap_state` = number of logical history records (archive + history.metta) already summarized.
    - When >= 20 records are unsummarized, `recap.py` appends a `## Recap Request` to the system
      message naming the span by timestamp and the next episode number.
-   - The agent reads the span with `episodes` and writes the episode with `record_episode`
-     (`{"e", "s", "t"?, "start_time", "end_time", "lines": [a, b]}`); the cursor advances, the
+   - The agent reads the span with `episodes` and calls `record_episode(summary, ...)`, which writes
+     `{"e", "s", "t"?, "start_time", "end_time", "lines": [a, b]}`; the cursor advances, the
      request clears and the tiers are regenerated. Episodes are immutable; numbering gaps are fine.
 
 ### Bridge Between Systems
@@ -412,7 +420,7 @@ were confirmation.
 |`_gui_example.py` | Template for DOM-modifying GUI transformations |
 |`agents_md_inject.py` | Auto-inject AGENTS.md content into system message (max 6000 chars) |
 | `_unbounded_log.py` | Deactivated (renamed, was unbounded logging) |
-| `alarms.py` | Alarm clock handling |
+| `alarms.py` | Keeps memory/alarms/ present; iter.py delivers due alarms as saved input right after receive() |
 | `transcript_tail.py` | Appends last 6 transcript lines to system message (runs after `transcript.py`) |
 | `atom_space_update.py` | Refreshes the legacy/display `space.metta` projection; never authoritative |
 | `dashboard_*.py` | Browser dashboards (atomspace, context, gallery, runtime) |

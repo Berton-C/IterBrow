@@ -427,5 +427,44 @@ class PressureSignals(unittest.TestCase):
             self.assertNotIn(word, text)
 
 
+class DocsMatchCode(unittest.TestCase):
+    """B14: prompt.txt, AGENTS.md and the omission index must describe the code."""
+
+    def _tool_inventory(self):
+        text = (ITER / "AGENTS.md").read_text()
+        section = text.split("\n## Tool Inventory", 1)[1].split("\n## ", 1)[0]
+        import re
+        return re.findall(r"^\|\s*`([A-Za-z0-9_]+)`\s*\|", section, re.M)
+
+    def test_every_tool_agents_md_lists_exists(self):
+        names = self._tool_inventory()
+        self.assertGreater(len(names), 10)
+        missing = [n for n in names if not (ITER / "tools" / (n + ".py")).is_file()]
+        self.assertEqual(missing, [], "AGENTS.md lists tools that do not exist in iter/tools/")
+
+    def test_agents_md_describes_the_semantic_store_and_tools_correctly(self):
+        text = (ITER / "AGENTS.md").read_text()
+        self.assertNotIn("ChromaDB", text)
+        rows = {line.split("|")[1].strip().strip("`"): line for line in text.splitlines()
+                if line.startswith("| `")}
+        self.assertNotIn("Overwrite", rows["start_new_task"])
+        self.assertIn("archive", rows["start_new_task"])
+        self.assertIn("recap cursor", rows["record_episode"])
+        self.assertIn("remember", rows["chroma_query"])
+
+    def test_prompt_txt_does_not_promise_every_memory_file(self):
+        text = (ITER / "prompt.txt").read_text()
+        self.assertNotIn("The included files are automatically included in your context", text)
+        self.assertIn("name", text.split("./memory/", 1)[1].split("\n", 1)[0])
+
+    def test_omission_index_does_not_point_at_chroma(self):
+        with MemoryDir() as m:
+            m.write("garden.txt", "tomatoes")
+            out = m.project([user("deploy invoices")])
+            index = out.split("memory/index (request view only):", 1)[1]
+            self.assertIn("garden.txt", index)
+            self.assertNotIn("available through chroma_query", index)
+
+
 if __name__ == "__main__":
     unittest.main()
