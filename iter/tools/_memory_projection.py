@@ -24,7 +24,9 @@ Consequences that were live before this fix:
     .improve_needed every cycle. Iter's own dismissal note (2026-09-15)
     prescribed exactly this fix and deferred it under service-before-growth.
 
-All three now call projection_files() / projection_chars() below. Changing
+All three now call projection_files() / projection_chars() below; the
+memory-pressure signals (auto_improve, dynamic_tool_budget) use
+selected_chars(), the same selection the prompt carries. Changing
 the rule here changes it everywhere at once.
 
 Exclusions added here beyond iter.py's original list (each is on-disk
@@ -153,3 +155,21 @@ def projection_chars(memory_dir=MEMORY_DIR):
     """Total stripped-text length of the projected files -- the same number
     iter.py compares against MAX_MEMORY_CHARS."""
     return sum(len(text) for _, text in projection_contents(memory_dir))
+
+
+def selected_chars(memory_dir=MEMORY_DIR, experience=None):
+    """THE memory-pressure measure: source characters of the files the prompt
+    view actually selects this cycle (relevance-filtered; the omission index
+    and headers excluded). This -- not every projected file on disk -- is what
+    MAX_MEMORY_CHARS bounds: omitted notes are indexed, not loaded, and are no
+    pressure on the prompt. Without cycle messages it falls back to all
+    projected files (an upper bound)."""
+    if experience is None:
+        return projection_chars(memory_dir)
+    from iterbrow_runtime.request_budget import relevant_memory, MEMORY_INDEX_PATH
+    # Relevance rules look at path parts ("tasks", names); keep paths relative
+    # to memory/ so an absolute ITER_DIR cannot leak into the decision.
+    items = [(os.path.join("memory", os.path.relpath(p, memory_dir)), t)
+             for p, t in projection_contents(memory_dir)]
+    return sum(len(text) for path, text in relevant_memory(items, experience)
+               if str(path) != MEMORY_INDEX_PATH)

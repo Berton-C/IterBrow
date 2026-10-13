@@ -395,5 +395,37 @@ class AlarmsAreDurableInput(unittest.TestCase):
         self.assertIn("take_due_alarms(", source[receive_at:receive_at + 600])
 
 
+class PressureSignals(unittest.TestCase):
+    """B13: one measure of what the prompt carries; never advise deleting memory."""
+
+    def _fill(self, m):
+        m.write("tasks/current_tasks.txt", "# Task Content: tune scheduler")
+        for i in range(30):
+            m.write("old/unrelated_%d.txt" % i, "z" * 1000)
+        return [{"role": "system", "content": "prompt"}, user("tune the scheduler")]
+
+    def test_auto_improve_and_tool_budget_use_the_selected_measure(self):
+        with MemoryDir() as m:
+            messages = self._fill(m)
+            self.assertGreater(_memory_projection.projection_chars("memory"), LIMIT)
+            auto = _load("auto_improve_under_test", ITER / "transformations" / "auto_improve.py")
+            budget = _load("dynamic_tool_budget_under_test", ITER / "transformations" / "dynamic_tool_budget.py")
+            try:
+                _, _, auto_size, _ = auto._compute_pain(messages)
+            except TypeError:
+                _, _, auto_size, _ = auto._compute_pain()
+            budget_size, _ = budget._memory_chars(messages)
+            expected = len("# Task Content: tune scheduler")
+            self.assertEqual(auto_size, expected, "auto_improve counts files the prompt does not carry")
+            self.assertEqual(budget_size, expected, "dynamic_tool_budget counts the omission index")
+            self.assertEqual(_memory_projection.selected_chars("memory", messages), expected)
+
+    def test_proposal_never_suggests_deleting_or_archiving_memory(self):
+        auto = _load("auto_improve_under_test", ITER / "transformations" / "auto_improve.py")
+        text = auto._build_proposal(10.0, ["memory: 30000 chars"], 30000, {}).lower()
+        for word in ("archive", "delete", "remove", "consolidate", "trim"):
+            self.assertNotIn(word, text)
+
+
 if __name__ == "__main__":
     unittest.main()

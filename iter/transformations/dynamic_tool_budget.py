@@ -75,8 +75,9 @@ def _memory_chars(messages=None):
     truth from the 2026-09-17 audit that iter.py, self_improve.py, and
     auto_improve.py already use.
 
-    When cycle messages are available, use the host's relevance selection too:
-    omitted old notes are not pressure on this cycle's working memory.
+    When cycle messages are available, use the host's relevance selection too
+    (_memory_projection.selected_chars, shared with auto_improve): omitted old
+    notes are not pressure on this cycle's working memory.
 
     Fail-open: if the projection module can't be imported or raises, fall
     back to the old raw walk (an overestimate, never zero) rather than
@@ -88,15 +89,8 @@ def _memory_chars(messages=None):
                                 os.pardir, "tools")
         if proj_dir not in sys.path:
             sys.path.insert(0, proj_dir)
-        from _memory_projection import projection_chars, projection_files
-        if messages is not None:
-            from iterbrow_runtime.request_budget import relevant_memory
-            items = []
-            for path in projection_files(MEMORY_DIR):
-                with open(path, "r", encoding="utf-8", errors="replace") as source:
-                    items.append((os.path.normpath(path), source.read().strip()))
-            return sum(len(content) for _, content in relevant_memory(items, messages)), 0
-        return projection_chars(MEMORY_DIR), 0
+        from _memory_projection import selected_chars
+        return selected_chars(MEMORY_DIR, messages), 0
     except Exception as e:
         _log_issue("projection_chars() unavailable, falling back to raw walk: %s: %s" % (type(e).__name__, e))
         return _memory_chars_raw()

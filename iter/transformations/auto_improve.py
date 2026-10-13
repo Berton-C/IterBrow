@@ -190,7 +190,7 @@ def _service_before_growth_active():
         return False
 
 
-def _compute_pain():
+def _compute_pain(messages=None):
     pain = 0.0
     signals = []
     reliability = _read_json(RELIABILITY_FILE)
@@ -211,7 +211,10 @@ def _compute_pain():
     # re-arming .improve_needed every cycle. Iter diagnosed and prescribed
     # exactly this fix in memory/.improve_dismissed on 2026-09-15 (deferred
     # under service-before-growth). Rule: tools/_memory_projection.py.
-    mem_size = _projection.projection_chars(os.path.join(ITER_ROOT, "memory"))
+    # 2026-10 audit: measure what the prompt view SELECTS this cycle (omitted
+    # notes are indexed, not loaded) -- the same measure dynamic_tool_budget
+    # uses (_memory_projection.selected_chars).
+    mem_size = _projection.selected_chars(os.path.join(ITER_ROOT, "memory"), messages)
     if mem_size > MAX_MEMORY_CHARS:
         over = (mem_size - MAX_MEMORY_CHARS) / 100.0
         contribution = MEMORY_PRESSURE_WEIGHT * over
@@ -239,8 +242,9 @@ def _build_proposal(pain, signals, mem_size, reliability):
     if mem_size > MAX_MEMORY_CHARS:
         lines.append("")
         lines.append("Suggested action:")
-        lines.append("  Prompt-projected memory is %d chars (limit %d). Archive resolved items or call rebuild_tiers." % (
-            mem_size, MAX_MEMORY_CHARS))
+        lines.append("  Selected prompt memory is %d chars (limit %d); the prompt shows head+tail excerpts "
+                     "and names what did not fit. Nothing on disk needs to change -- prefer shorter, "
+                     "topic-named notes going forward." % (mem_size, MAX_MEMORY_CHARS))
     log = _read_log()
     lines.append("")
     lines.append("Lineage: %d entries. Check before proposing to avoid repeats." % len(log))
@@ -267,7 +271,7 @@ def transform(messages, tools):
                     "resume once send-discipline stabilizes. ---\n"
                 )
             return messages, tools
-        pain, signals, mem_size, reliability = _compute_pain()
+        pain, signals, mem_size, reliability = _compute_pain(messages)
         if pain >= PAIN_THRESHOLD:
             proposal = _build_proposal(pain, signals, mem_size, reliability)
             with open(FLAG_PATH, "w") as f:
