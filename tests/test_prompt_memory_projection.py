@@ -286,24 +286,47 @@ class HandoffOnTimedWakeup(unittest.TestCase):
                  "_iter_execution": self.OK}]
         return exp
 
+    def _send(self, call_id, text, ts="2026-10-08 12:00:03"):
+        return [{"role": "assistant", "content": "", "tool_calls": [
+                    {"id": call_id, "type": "function", "function": {"name": "send", "arguments": json.dumps(
+                        {"channel": "electron_ui", "content": text})}}]},
+                {"role": "tool", "tool_call_id": call_id, "content": "Step %s: SUCCESS" % ts,
+                 "_iter_execution": self.OK}]
+
+    def test_ordinary_cycle_after_a_send_has_no_handoff(self):
+        # Review finding 1: the latest send stood in for a working account, so
+        # the handoff was added to nearly every cycle (~13K chars each).
+        import iterbrow_runtime.working_handoff as wh
+        exp = [user("fix the tab strip")] + self._send("s1", "working on it") + [
+            {"role": "assistant", "content": "", "tool_calls": [
+                {"id": "sh1", "type": "function", "function": {"name": "shell", "arguments": '{"cmd": "ls"}'}}]},
+            {"role": "tool", "tool_call_id": "sh1", "content": "Step 2026-10-08 12:00:04: main.js",
+             "_iter_execution": self.OK}]
+        self.assertEqual(wh.cycle_handoff(exp, ""), ("", ()))
+
     def test_handoff_injected_on_timed_wakeup(self):
         from iterbrow_runtime.work_inquiry import question_context
         import iterbrow_runtime.working_handoff as wh
         exp = self._experience()
         inquiry = question_context(exp, new_input=False, resumed=False)
         self.assertEqual(inquiry, "")  # a timed wake-up has no question cue
-        self.assertTrue(hasattr(wh, "cycle_handoff"),
-                        "iter.py only projects the handoff when a question cue fires")
-        text, evidence = wh.cycle_handoff(exp, inquiry)
+        text, evidence = wh.cycle_handoff(exp, inquiry, wakeup=True)
         self.assertIn("benchmark PID 4242", text)
+
+    def test_wakeup_never_presents_a_completion_send_as_the_account(self):
+        import iterbrow_runtime.working_handoff as wh
+        exp = [user("run the benchmark")] + self._send("s1", "Done! Benchmark finished.") + \
+            self._experience(with_pin=False)[1:]
+        text, _ = wh.cycle_handoff(exp, "", wakeup=True)
+        self.assertNotIn("Done! Benchmark finished.", text)
+
+    def test_iter_passes_an_explicit_wakeup_flag(self):
         source = (ITER / "iter.py").read_text()
-        self.assertIn("cycle_handoff(experience, inquiry)", source)
+        self.assertIn("cycle_handoff(experience, inquiry, wakeup=", source)
 
     def test_no_account_and_no_cue_adds_nothing(self):
         import iterbrow_runtime.working_handoff as wh
-        if not hasattr(wh, "cycle_handoff"):
-            self.fail("cycle_handoff missing")
-        self.assertEqual(wh.cycle_handoff(self._experience(with_pin=False), ""), ("", ()))
+        self.assertEqual(wh.cycle_handoff(self._experience(with_pin=False), "", wakeup=True), ("", ()))
 
 
 class StartNewTaskPreservesHistory(unittest.TestCase):

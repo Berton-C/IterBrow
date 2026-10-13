@@ -600,6 +600,7 @@ post_task_mode, autonomous_steps, new_burst, pending_event_append = False, 0, Tr
 silent_streak = 0  # work cycles without send(); deliberate nop-only waiting is not silent work
 HARD_SEND_STREAK = 3  # retain prompt check-ins during actual work, not repeated idle pings
 cycle_number = 0
+timed_wait_ended = False  # the last cycle ended in a timed nop wait that ran out
 while True:
     # PORT: Preserve unfinished work across rollover/restart. Completed earlier
     # task history goes to the existing exact archive before leaving the tail.
@@ -634,6 +635,11 @@ while True:
         # Due alarms become durable input (saved to experience below) instead
         # of a one-shot edit of a single request copy that a retry loses.
         due_alarms = take_due_alarms("memory/alarms")
+        # A wake-up: this cycle starts from a timed nop wait or a due alarm,
+        # with no new user input. Only then (or on a question cue) is the
+        # working handoff projected.
+        wakeup = not event_append and (timed_wait_ended or bool(due_alarms))
+        timed_wait_ended = False
         if due_alarms:
             event_append = (event_append + "\n" if event_append else "") + due_alarms
         HEARTBEAT.write(
@@ -728,11 +734,11 @@ while True:
                 request_messages[0]['content'] += inquiry
             # Project the LLM's explicit handoff and newer observed results
             # after transformations, before old bulk captures compete for
-            # space. The existing experience remains the only source. Not
-            # gated on a question cue: a timed nop / alarm wake-up has no cue
-            # but is exactly when the continuation note matters.
+            # space. The existing experience remains the only source. Shown on
+            # a question cue, or on a wake-up (timed nop / alarm, no new user
+            # input) when an explicit pin(handoff=true) account exists.
             try:
-                handoff_text, evidence_tool_call_ids = cycle_handoff(experience, inquiry)
+                handoff_text, evidence_tool_call_ids = cycle_handoff(experience, inquiry, wakeup=wakeup)
                 request_messages[0]['content'] += handoff_text
             except (TypeError, ValueError, KeyError, AttributeError) as handoff_error:
                 print("[working handoff unavailable] " + str(handoff_error))
@@ -1007,6 +1013,7 @@ while True:
             except (ValueError, TypeError, AttributeError):
                 wait_seconds = SLOW_STEP_DELAY
             pending_event_append = slow_wait_for_input(wait_seconds)
+            timed_wait_ended = bool(wait_seconds) and not pending_event_append
         elif autonomous_steps >= MAX_FAST_STEPS:
             autonomous_steps = 0
             pending_event_append = slow_wait_for_input()

@@ -215,11 +215,21 @@ def working_context(experience, *, record=None):
     )
 
 
-def cycle_handoff(experience, inquiry):
-    """(text, evidence ids) to append this cycle. Shown whenever a question cue
-    fires OR a working account exists: a timed nop / alarm wake-up has no cue
-    but is exactly the turn that needs the continuation note."""
-    record = working_record(experience)
-    if not inquiry and not record.get("working_account"):
+def cycle_handoff(experience, inquiry, wakeup=False):
+    """(text, evidence ids) to append this cycle.
+
+    Shown when a question cue fires (as before), or on a WAKE-UP -- the cycle
+    starts from a timed nop wait or a due alarm with no new user input -- when
+    an explicit pin(handoff=true) account exists. Not on ordinary cycles: the
+    latest send stands in for an account almost always, which put the whole
+    handoff in nearly every system message. On a wake-up a send fallback (often
+    a "Done!" completion message) is never presented as the working account
+    next to "resume unfinished user work"."""
+    if not inquiry and not wakeup:
         return "", ()
+    record = working_record(experience)
+    if not inquiry:
+        account = record.get("working_account") or {}
+        if account.get("provenance") != "explicit LLM working handoff":
+            return "", ()
     return working_context(experience, record=record), record["referenced_evidence_tool_call_ids"]
