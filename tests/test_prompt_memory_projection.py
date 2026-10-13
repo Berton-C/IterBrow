@@ -226,5 +226,44 @@ class MemoryContextBounds(unittest.TestCase):
                 self.fail("memory projection alone blocked the request: %s" % error)
 
 
+class TaskBoundary(unittest.TestCase):
+    """B5: advisory prefixes and retained-output envelopes hide a new task."""
+
+    def _experience(self, result_text, new_msg):
+        call = {"id": "c1", "type": "function", "function": {"name": "start_new_task", "arguments": json.dumps({
+            "person": "B", "requestchannel": "electron_ui", "taskcontent": "x",
+            "completionsendcriterium": "y", "originalUserMessage": new_msg, "new_work": "true"})}}
+        return [user("build me a garden planner", "2026-10-01 09:00:00"),
+                {"role": "assistant", "content": "", "tool_calls": [
+                    {"id": "c0", "type": "function", "function": {"name": "send", "arguments": "{}"}}]},
+                {"role": "tool", "tool_call_id": "c0", "content": "Step 2026-10-01 09:00:01: SUCCESS"},
+                user(new_msg),
+                {"role": "assistant", "content": "", "tool_calls": [call]},
+                {"role": "tool", "tool_call_id": "c1", "content": "Step 2026-10-08 12:00:01: " + result_text}]
+
+    def test_plain_result_advances_boundary(self):
+        msg = "now write the invoice parser"
+        result = "SUCCESS, RETURN: New task started at 2026-10-08 12:00:01.\n  Person: B"
+        self.assertEqual(active_work_start(self._experience(result, msg)), 3)
+
+    def test_nace_advisory_prefix_does_not_hide_new_task(self):
+        msg = "now write the invoice parser"
+        result = ("[NACE advisory: capability 'start_new_task' is trust_stage=candidate (no "
+                  "cap-efficacy belief data yet) -- always surfaced] "
+                  "SUCCESS, RETURN: New task started at 2026-10-08 12:00:01.\n  Person: B")
+        self.assertEqual(active_work_start(self._experience(result, msg)), 3)
+
+    def test_retained_long_result_does_not_hide_new_task(self):
+        from iterbrow_runtime.tool_results import capture_tool_output
+        msg = "spec:\n" + "field: value\n" * 400
+        raw = ("[NACE advisory: low confidence] SUCCESS, RETURN: New task started at "
+               "2026-10-08 12:00:01.\n  Original message: " + msg)
+        with tempfile.TemporaryDirectory() as tmp:
+            text = capture_tool_output(tmp, raw, tool_call_id="c1", tool_name="start_new_task",
+                                       generation_id="g", raw_result=raw, max_chars=4500)
+        self.assertNotEqual(text, raw)  # really retained
+        self.assertEqual(active_work_start(self._experience(text, msg)), 3)
+
+
 if __name__ == "__main__":
     unittest.main()

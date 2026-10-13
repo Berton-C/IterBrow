@@ -66,6 +66,23 @@ def _anchor_text(text):
     return " ".join(_input_text(text).split()).casefold()
 
 
+_ADVISORY_PREFIX = re.compile(r"^\[NACE advisory: .*?\] (?=SUCCESS, RETURN: )", re.S)
+
+
+def _tool_result_text(content):
+    """The tool's own return text: without iter.py's Step timestamp, without
+    a retained-output envelope (oversized results keep only a preview) and
+    without the NACE advisory prefix iter.py puts in front of the result."""
+    text = _input_text(content)
+    try:
+        envelope = json.loads(text)
+        if isinstance(envelope, dict) and envelope.get("kind") == "retained_tool_output":
+            text = str(envelope.get("preview", ""))
+    except (ValueError, TypeError, RecursionError):
+        pass
+    return _ADVISORY_PREFIX.sub("", text, count=1)
+
+
 def _explicit_task_start(messages, users):
     """Index of the input named by the latest successful start_new_task(new_work=true), or None."""
     results = {m.get("tool_call_id"): m for m in messages if m.get("role") == "tool"}
@@ -74,7 +91,7 @@ def _explicit_task_start(messages, users):
             if call.get("function", {}).get("name") != "start_new_task":
                 continue
             result = results.get(call.get("id"), {})
-            if not _input_text(result.get("content", "")).startswith("SUCCESS, RETURN: New task started"):
+            if not _tool_result_text(result.get("content", "")).startswith("SUCCESS, RETURN: New task started"):
                 continue
             try:
                 arguments = json.loads(call["function"]["arguments"])
