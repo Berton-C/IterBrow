@@ -161,5 +161,70 @@ class RelevanceSelection(unittest.TestCase):
             self.assertIn("electron_ipc_rewrite_plan.txt:\n", out)
 
 
+class MemoryContextBounds(unittest.TestCase):
+    """B3 (everything charged), B4 (nothing silently dropped), B8, B9."""
+
+    def test_block_respects_limit_including_headers(self):
+        items = [("memory/tasks/sub_%04d_with_a_long_descriptive_name.txt" % i, "x" * 40)
+                 for i in range(400)]
+        out = memory_context(items, LIMIT)
+        self.assertLessEqual(len(out), LIMIT)
+
+    def test_large_index_is_charged_and_bounded(self):
+        with MemoryDir() as m:
+            m.write("tasks/current_tasks.txt", "# Task Content: hello")
+            for i in range(2500):
+                m.write("daily/%05d_unrelated_standup_log_entry.txt" % i, "ok")
+            out = m.project([user("hi there")])
+            self.assertLessEqual(len(out), LIMIT)
+            self.assertIn("# Task Content: hello", out)
+            self.assertIn("memory/index (request view only):", out)
+
+    def test_files_after_an_oversized_one_are_named_not_vanished(self):
+        with MemoryDir() as m:
+            m.write("tasks/current_tasks.txt", "# Task Content: deploy the invoice app")
+            m.write("invoice_app_design.txt", "D" * 25000)
+            m.write("invoice_deploy_credentials_location.txt", "creds in ~/.config/invoice/env")
+            m.write("unrelated_garden.txt", "tomatoes")
+            out = m.project([user("deploy the invoice app now")])
+            self.assertLessEqual(len(out), LIMIT)
+            self.assertIn("invoice_deploy_credentials_location", out)
+            self.assertIn("unrelated_garden", out)
+            self.assertIn("memory/index (request view only):", out)
+
+    def test_names_every_file_that_did_not_fit(self):
+        items = [("memory/standing_%d_preference.txt" % i, "p" * 9000) for i in range(6)]
+        out = memory_context(items, LIMIT)
+        self.assertLessEqual(len(out), LIMIT)
+        for i in range(6):
+            self.assertIn("memory/standing_%d_preference.txt" % i, out)
+
+    def test_excerpt_keeps_newest_tail(self):
+        content = "\n".join("old entry %d" % i for i in range(3000)) + "\nNEWEST ENTRY"
+        out = memory_context([("memory/user_preferences.txt", content)], LIMIT)
+        self.assertLessEqual(len(out), LIMIT)
+        self.assertIn("old entry 0", out)
+        self.assertIn("NEWEST ENTRY", out)
+
+    def test_current_tasks_survives_large_sibling_in_tasks(self):
+        with MemoryDir() as m:
+            m.write("tasks/current_tasks.txt", "# Task Content: migrate DB to postgres")
+            m.write("tasks/backlog.txt", "- idea\n" * 3400)
+            self.assertIn("migrate DB to postgres", m.project([user("continue")]))
+
+    def test_many_matching_notes_do_not_block_request(self):
+        with MemoryDir() as m:
+            m.write("tasks/current_tasks.txt", "# Task Content: hello")
+            for i in range(3500):
+                m.write("tasks/sub/%05d_standup_log_entry_for_the_daily_sync.txt" % i, "ok")
+            mem = m.project([user("hi there")])
+            cur = user("hi there")
+            msgs = [{"role": "system", "content": "prompt.txt:\n...\n\n" + mem}, cur]
+            try:
+                project_request(msgs, [], working_input_limit(msgs, [], 45000, cur), cur, input_ceiling=45000)
+            except RequestBudgetExceeded as error:
+                self.fail("memory projection alone blocked the request: %s" % error)
+
+
 if __name__ == "__main__":
     unittest.main()

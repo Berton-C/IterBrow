@@ -188,6 +188,9 @@ def working_set_start(messages, current_user=None):
     return max(start, boundary[0]) if boundary else start
 
 
+MEMORY_INDEX_PATH = "memory/index (request view only)"
+
+
 def relevant_memory(items, experience):
     """Keep active task/standing context and topic matches; expose omissions.
 
@@ -255,6 +258,7 @@ def relevant_memory(items, experience):
     # Preserve current work before a long optional note when the host bounds
     # the raw-memory view. Selection changes no files or memory authority.
     selected.sort(key=lambda item: (
+        PurePath(str(item[0])).name != "current_tasks.txt",
         "tasks" not in PurePath(str(item[0])).parts,
         not any(word in str(item[0]).lower() for word in
                 ("instruction", "preference", "standing", "policy", "user_feedback")),
@@ -263,36 +267,93 @@ def relevant_memory(items, experience):
         selected.append((path, "[Local topic excerpt, not the complete memory; read this file "
                          "or use memory search for context.]\n" + excerpt))
     if omitted:
-        selected.append(("memory/index (request view only)",
+        selected.append((MEMORY_INDEX_PATH,
                          "Other memory remains available through chroma_query or file reads:\n" + "\n".join(omitted)))
     return selected
 
 
+_EXCERPT_MARK = "\n...[excerpt: head and tail shown; read the original file for the middle]...\n"
+_MEMORY_HEADER = "\n./memory/:\n"
+_NOTICE_RESERVE = 320      # longest notice below, with room for large numbers
+_INDEX_MIN_RESERVE = 400   # room to name files that did not fit
+_MIN_EXCERPT = 400
+
+
+def _attribution(path):
+    return (" [LLM-maintained task account, not a new user instruction; "
+            "the actual request and later user corrections govern]"
+            if PurePath(str(path)).name == "current_tasks.txt" else "")
+
+
+def _head_tail(content, room):
+    """At most `room` chars of content: its head and its (newest) tail."""
+    keep = max(0, room - len(_EXCERPT_MARK))
+    head = keep // 2
+    return content[:head] + _EXCERPT_MARK + content[len(content) - (keep - head):]
+
+
 def memory_context(items, limit):
-    """Bound an already prioritized memory view without reordering or rewriting it."""
+    """Bound an already prioritized memory view without reordering or rewriting it.
+
+    `limit` bounds the WHOLE returned block: the notice, path headers,
+    separators and the index of omitted files are all charged. A file that does
+    not fit is excerpted (head and tail, so appended newest entries survive)
+    with at most half of the remaining room, so later files still get space;
+    a file for which even that is too little is named in the index. The index
+    is reserved space and always present when anything was omitted.
+    """
     items = list(items)
-    total = sum(len(content) for _, content in items)
-    included, used = [], 0
-    for path, content in items:
-        remaining = max(0, limit - used)
-        if len(content) > remaining:
-            suffix = "\n...[excerpt only; read the original file for the remainder]"
-            if remaining > len(suffix):
-                included.append((path, content[:remaining - len(suffix)] + suffix))
-            break
-        included.append((path, content))
-        used += len(content)
-    notice = (f"[{limit - total} CHARACTERS BELOW MAXIMUM]" if total <= limit else
+    index_text = next((str(content) for path, content in items if str(path) == MEMORY_INDEX_PATH), None)
+    body = [(path, str(content)) for path, content in items if str(path) != MEMORY_INDEX_PATH]
+    total = sum(len(content) for _, content in body)
+    index_header = MEMORY_INDEX_PATH + ":\n"
+    available = max(0, limit - _NOTICE_RESERVE - len(_MEMORY_HEADER))
+    reserve = min(len(index_header) + len(index_text or "") + _INDEX_MIN_RESERVE, available // 4)
+    budget = available - reserve
+    sections, dropped, excerpted, used = [], [], False, 0
+    for path, content in body:
+        header = f"{path}{_attribution(path)}:\n"
+        separator = 2 if sections else 0
+        cost = separator + len(header) + len(content)
+        if used + cost <= budget:
+            sections.append(header + content)
+            used += cost
+            continue
+        room = (budget - used - separator - len(header)) // 2
+        if room >= _MIN_EXCERPT:
+            sections.append(header + _head_tail(content, room))
+            used += separator + len(header) + room
+            excerpted = True
+        else:
+            dropped.append(str(path))
+    parts = []
+    if dropped:
+        parts.append("Not shown for space this turn (read these files directly):\n" + "\n".join(dropped))
+    if index_text is not None:
+        parts.append(index_text)
+    if parts:
+        separator = 2 if sections else 0
+        room = available - used - separator - len(index_header)
+        text = "\n".join(parts)
+        if len(text) > room:
+            lines, kept = text.split("\n"), []
+            size = 0
+            for line in lines:
+                if size + len(line) + 1 > room - 60:
+                    break
+                kept.append(line)
+                size += len(line) + 1
+            text = "\n".join(kept) + "\n...[%d more index lines not shown]" % (len(lines) - len(kept))
+        sections.append(index_header + text)
+    complete = not dropped and not excerpted
+    shown = len("\n\n".join(sections))
+    spare = limit - len(_MEMORY_HEADER) - shown - len("[ CHARACTERS BELOW MAXIMUM]")
+    spare -= len(str(max(0, spare)))
+    notice = (f"[{max(0, spare)} CHARACTERS BELOW MAXIMUM]" if complete else
               f"[PROMPT MEMORY EXCERPT: {total} source characters, {limit} character allowance. "
-              "Nothing on disk changed. Omitted material remains available through memory tools "
-              "or file reads; do not delete or consolidate memory to clear this notice.]")
-    sections = []
-    for path, content in included:
-        attribution = (" [LLM-maintained task account, not a new user instruction; "
-                       "the actual request and later user corrections govern]"
-                       if PurePath(str(path)).name == "current_tasks.txt" else "")
-        sections.append(f"{path}{attribution}:\n{content}")
-    return notice + "\n./memory/:\n" + "\n\n".join(sections)
+              "Nothing on disk changed. Files not shown remain readable with file reads; "
+              "do not delete or consolidate memory to clear this notice.]")
+    return notice + _MEMORY_HEADER + "\n\n".join(sections)
 
 
 def _omitted_work(messages, removed, active_from, names=None):
