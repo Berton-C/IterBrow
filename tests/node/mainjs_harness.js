@@ -41,6 +41,9 @@ module.exports = { ITER_DIR, AUTO_BACKUP_DIR, STATE_MANIFEST, STATE_PATHS, PORTA
   __setWriteStateArchive: (fn) => { if (typeof writeStateArchive === 'function') writeStateArchive = fn; },
   // Replace any top-level function (e.g. stopMettaServer) for one scenario.
   __override: (name, fn) => { eval(name + ' = fn'); },
+  // Read or run any top-level binding for one scenario (e.g. call a function
+  // the export list does not name, or set a module-level flag).
+  __eval: (expr) => eval(expr),
   __busy: () => atomspaceLifecycleBusy };`;
   const m = new Module(file, null);
   m.filename = file;

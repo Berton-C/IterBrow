@@ -215,5 +215,41 @@ class MainJsStateLifecycleTests(unittest.TestCase):
         self.assertEqual(self.content(".runtime/hotload"), "ORIGINAL .runtime/hotload\n")
 
 
+
+@unittest.skipUnless(NODE, "needs node")
+class SuperviseIterRevisionLogTests(unittest.TestCase):
+    """R3: auto-resuming a desired-running Iter at app launch is not a crash recovery."""
+
+    setUp = MainJsStateLifecycleTests.setUp
+    tearDown = MainJsStateLifecycleTests.tearDown
+    run_js = MainJsStateLifecycleTests.run_js
+
+    SCENARIO = """
+        const started = [];
+        api.__override('runHotloadControl', async () => ({ action: 'none', active: { status: 'stable' } }));
+        api.__override('startIterWithAtomspace', async () => { started.push('start'); return { started: true }; });
+        api.__eval('iterDesiredRunning = true');
+        api.__eval('iterProcess = null');
+        %s
+        await api.__eval('superviseIterRevision')();
+        return { started, logs: api.__calls.filter((c) => c[0] === 'log').map((c) => c[1]) };
+    """
+
+    def test_launch_resume_is_not_reported_as_a_crash(self):
+        result = self.run_js(self.SCENARIO % "")
+        self.assertEqual(result["started"], ["start"])
+        self.assertIn("[iter] resuming (was running when the app last closed)", result["logs"])
+        self.assertFalse(any("exited unexpectedly" in line for line in result["logs"]), result["logs"])
+
+    def test_exit_after_a_start_in_this_session_is_a_recovery(self):
+        result = self.run_js(self.SCENARIO % "api.__eval('iterStartedThisSession = true');")
+        self.assertEqual(result["started"], ["start"])
+        self.assertIn("[recovery] Iter exited unexpectedly; restarting last-known-good generation", result["logs"])
+
+    def test_spawning_iter_marks_it_started_this_session(self):
+        source = (ROOT / "main.js").read_text()
+        spawn_at = source.index("iterProcess = spawn(")
+        self.assertIn("iterStartedThisSession = true", source[spawn_at:spawn_at + 300])
+
 if __name__ == "__main__":
     unittest.main()

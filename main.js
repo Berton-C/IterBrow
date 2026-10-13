@@ -158,6 +158,9 @@ let mettaStartPromise = null;
 let atomspaceLifecycleBusy = false;
 let iterStartPromise = null;
 let iterDesiredRunning = false;
+// True once this app session has spawned Iter: an Iter that is desired-running
+// but was never started here is being resumed at launch, not recovered from a crash.
+let iterStartedThisSession = false;
 let appQuitting = false;
 let quitReady = false;
 let quitPromise = null;
@@ -488,6 +491,7 @@ function startIterProcess() {
     PYTHONUNBUFFERED: '1',
   };
   iterProcess = spawn(pythonBin(), ['iter.py'], { cwd: ITER_DIR, env });
+  iterStartedThisSession = true;
   iterStartedAt = Date.now() / 1000;
   pushLog(`[iter] started (pid ${iterProcess.pid}) provider=${settings.provider} model=${cfg.model} base_url=${cfg.endpoint}`);
   iterProcess.stdout.on('data', (d) => pushLog(d.toString()));
@@ -605,7 +609,9 @@ async function superviseIterRevision() {
       iterDesiredRunning && !iterProcess
       && result.active && result.active.status === 'stable'
     ) {
-      pushLog('[recovery] Iter exited unexpectedly; restarting last-known-good generation');
+      pushLog(iterStartedThisSession
+        ? '[recovery] Iter exited unexpectedly; restarting last-known-good generation'
+        : '[iter] resuming (was running when the app last closed)');
       await startIterWithAtomspace();
     }
   } catch (error) {
