@@ -597,5 +597,30 @@ class MemoryContextProperty(unittest.TestCase):
         self.assertEqual(failures[:10], [], "%d of 1500 cases broke the property" % len(failures))
 
 
+class LessonsAndCompoundWords(unittest.TestCase):
+    """Review finding 5: lesson notes are always selected; compound names match split words."""
+
+    def test_lesson_notes_are_always_selected(self):
+        with MemoryDir() as m:
+            m.write("tasks/current_tasks.txt", "# Task Content: fix the tab strip pin bug")
+            m.write("notes/lesson_cdp_click_needs_scroll.txt", "LESSON-CDP body")
+            m.write("notes/2026-09-20_soul_gate_lessons.txt", "LESSON-DATED-SOUL body")
+            m.write("notes/step_budget_lessons.txt", "LESSON-STEP body")
+            m.write("notes/misc_topic_01.txt", "MISC body")
+            out = m.project([user("can you continue fixing the pin bug?")])
+            for marker in ("LESSON-CDP", "LESSON-DATED-SOUL", "LESSON-STEP"):
+                self.assertIn(marker, out)
+            self.assertNotIn("MISC body", out)
+
+    def test_compound_file_name_matches_split_request_words(self):
+        with MemoryDir() as m:
+            m.write("notes/2026-09-15_tabstrip_fix.txt", "TABSTRIP-NOTE")
+            m.write("notes/address_bar_quirks.txt", "ADDRESSBAR-NOTE")
+            out = m.project([user("the tab strip pins are broken again")])
+            self.assertIn("TABSTRIP-NOTE", out)
+            out = m.project([user("the addressbar loses focus")])
+            self.assertIn("ADDRESSBAR-NOTE", out)
+
+
 if __name__ == "__main__":
     unittest.main()

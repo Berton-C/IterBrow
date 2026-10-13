@@ -240,6 +240,10 @@ def relevant_memory(items, experience):
     terms -= {"the", "and", "for", "not", "all", "its", "use", "has", "any",
               "that", "this", "with", "have", "from", "please", "what", "your",
               "when", "would", "should"}
+    # Compound names: "tabstrip" in a file name matches "tab strip" in the
+    # request, and "tab_strip" in a name matches "tabstrip" in the request.
+    words = re.findall(r"[a-z0-9]+", " ".join(queries).lower())
+    joined_terms = {a + b for a, b in zip(words, words[1:]) if len(a + b) >= 5}
     selected, omitted, body_matches = [], [], []
     # A bounded lexical fallback finds poorly named notes without admitting a
     # whole historical plan on generic words such as work/build/code/data.
@@ -261,8 +265,13 @@ def relevant_memory(items, experience):
         # Apply the same topic rule to root-level memory as to notes/. A long
         # historical reasoning file almost inevitably contains a generic task
         # word; body intersection was admitting it on virtually every turn.
-        match = bool(topic & terms)
-        if not bookkeeping and ("tasks" in parts or standing or match):
+        stem_words = re.findall(r"[a-z0-9]+", PurePath(name).stem)
+        joined_topic = {a + b for a, b in zip(stem_words, stem_words[1:]) if len(a + b) >= 5}
+        match = bool(topic & terms) or bool(topic & joined_terms) or bool(joined_topic & terms)
+        # Lessons are standing knowledge: selected on every turn (within the
+        # memory budget), whatever date or topic their name carries.
+        lesson = "lesson" in name
+        if not bookkeeping and ("tasks" in parts or standing or lesson or match):
             selected.append((path, content))
         else:
             omitted.append(str(path))
@@ -285,6 +294,7 @@ def relevant_memory(items, experience):
         "tasks" not in PurePath(str(item[0])).parts,
         not any(word in str(item[0]).lower() for word in
                 ("instruction", "preference", "standing", "policy", "user_feedback")),
+        "lesson" not in str(item[0]).lower(),
     ))
     for _, path, excerpt in sorted(body_matches, key=lambda row: (-row[0], row[1]))[:2]:
         selected.append((path, "[Local topic excerpt, not the complete memory; read this file "
