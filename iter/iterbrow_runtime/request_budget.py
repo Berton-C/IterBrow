@@ -299,7 +299,6 @@ def relevant_memory(items, experience):
 _EXCERPT_MARK = "\n...[excerpt: head and tail shown; read the original file for the middle]...\n"
 _MEMORY_HEADER = "\n./memory/:\n"
 _NOTICE_RESERVE = 320      # longest notice below, with room for large numbers
-_INDEX_MIN_RESERVE = 400   # room to name files that did not fit
 _MIN_EXCERPT = 400
 
 
@@ -316,25 +315,12 @@ def _head_tail(content, room):
     return content[:head] + _EXCERPT_MARK + content[len(content) - (keep - head):]
 
 
-def memory_context(items, limit):
-    """Bound an already prioritized memory view without reordering or rewriting it.
+_DROPPED_HEADING = "Not shown for space this turn (read these files directly):"
 
-    `limit` bounds the WHOLE returned block: the notice, path headers,
-    separators and the index of omitted files are all charged. A file that does
-    not fit is excerpted (head and tail, so appended newest entries survive)
-    with the room later files do not need, but at most half of the remaining
-    room when they need more, so later files still get space;
-    a file for which even that is too little is named in the index. The index
-    is reserved space and always present when anything was omitted.
-    """
-    items = list(items)
-    index_text = next((str(content) for path, content in items if str(path) == MEMORY_INDEX_PATH), None)
-    body = [(path, str(content)) for path, content in items if str(path) != MEMORY_INDEX_PATH]
-    total = sum(len(content) for _, content in body)
-    index_header = MEMORY_INDEX_PATH + ":\n"
-    available = max(0, limit - _NOTICE_RESERVE - len(_MEMORY_HEADER))
-    reserve = min(len(index_header) + len(index_text or "") + _INDEX_MIN_RESERVE, available // 4)
-    budget = available - reserve
+
+def _place(body, budget):
+    """Fit body files into `budget` chars in priority order: whole, else a
+    head+tail excerpt, else named. Returns (sections, dropped, used, excerpted)."""
     sections, dropped, excerpted, used = [], [], False, 0
     costs = [2 + len(f"{path}{_attribution(path)}:\n") + len(content) for path, content in body]
     later = [sum(costs[i + 1:]) for i in range(len(costs))]
@@ -356,9 +342,40 @@ def memory_context(items, limit):
             excerpted = True
         else:
             dropped.append(str(path))
+    return sections, dropped, used, excerpted
+
+
+def memory_context(items, limit):
+    """Bound an already prioritized memory view without reordering or rewriting it.
+
+    `limit` bounds the WHOLE returned block: the notice, path headers,
+    separators and the index of omitted files are all charged. A file that does
+    not fit is excerpted (head and tail, so appended newest entries survive)
+    with the room later files do not need, but at most half of the remaining
+    room when they need more, so later files still get space; a file for which
+    even that is too little is NAMED under "Not shown for space". Room for
+    those names is reserved first (excerpts shrink instead), so every selected
+    file is shown or named. The index of unselected files gets what is left.
+    """
+    items = list(items)
+    index_text = next((str(content) for path, content in items if str(path) == MEMORY_INDEX_PATH), None)
+    body = [(path, str(content)) for path, content in items if str(path) != MEMORY_INDEX_PATH]
+    total = sum(len(content) for _, content in body)
+    index_header = MEMORY_INDEX_PATH + ":\n"
+    available = max(0, limit - _NOTICE_RESERVE - len(_MEMORY_HEADER))
+    index_reserve = min(len(index_header) + len(index_text or "") + 2, available // 4) if index_text is not None else 0
+    names_reserve = 0
+    for _ in range(12):
+        budget = max(0, available - index_reserve - names_reserve)
+        sections, dropped, used, excerpted = _place(body, budget)
+        needed = (len(_DROPPED_HEADING) + 1 + sum(len(name) + 1 for name in dropped)
+                  + len(index_header) + 2) if dropped else 0
+        if needed <= names_reserve:
+            break
+        names_reserve = needed + 64  # names of files the smaller budget drops too
     parts = []
     if dropped:
-        parts.append("Not shown for space this turn (read these files directly):\n" + "\n".join(dropped))
+        parts.append(_DROPPED_HEADING + "\n" + "\n".join(dropped))
     if index_text is not None:
         parts.append(index_text)
     if parts:

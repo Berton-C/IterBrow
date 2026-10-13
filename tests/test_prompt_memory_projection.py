@@ -571,5 +571,31 @@ class AlarmInputIsNotUserInput(unittest.TestCase):
         self.assertNotIn('event_append = (event_append + "\\n" if event_append else "") + due_alarms', source)
 
 
+class MemoryContextProperty(unittest.TestCase):
+    """Review finding 4: every selected file is shown or named; the block fits."""
+
+    def test_every_selected_file_is_shown_or_named_fuzz(self):
+        import random
+        rng = random.Random(20261013)
+        failures = []
+        for case in range(1500):
+            count = rng.choice([1, 3, 10, 40, 60, 90])
+            items = []
+            for i in range(count):
+                name = "memory/%s/%s_%03d.txt" % (rng.choice(["tasks", "notes", "standing", "x" * rng.randint(1, 40)]),
+                                                  "n" * rng.randint(1, 30), i)
+                size = rng.choice([0, 10, 500, 3000, 9000, 25000])
+                items.append((name, "c" * size))
+            if rng.random() < 0.6:
+                omitted = ["memory/old/other_%04d.txt" % j for j in range(rng.choice([1, 50, 400]))]
+                items.append(("memory/index (request view only)", "Other memory files:\n" + "\n".join(omitted)))
+            out = memory_context(items, LIMIT)
+            body_paths = [p for p, _ in items if not p.startswith("memory/index")]
+            missing = [p for p in body_paths if p not in out]
+            if len(out) > LIMIT or missing:
+                failures.append((case, len(out), len(missing)))
+        self.assertEqual(failures[:10], [], "%d of 1500 cases broke the property" % len(failures))
+
+
 if __name__ == "__main__":
     unittest.main()
