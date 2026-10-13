@@ -33,7 +33,7 @@ def _mkdirs(path):
         except OSError:
             pass
 
-DESCRIPTION = "Register the current task in durable memory and memory/tasks/current_tasks.txt. Default updates or continues existing work without moving its history boundary. Set new_work=true only for a genuinely separate user goal, not a clarification, repair, restart or continuation. Required fields: person, requestchannel, taskcontent, completionsendcriterium, originalUserMessage."
+DESCRIPTION = "Register the current task in durable memory and memory/tasks/current_tasks.txt. Default updates or continues existing work without moving its history boundary (keeps its start time and original message; the previous file is archived to memory/tasks/archive/). Set new_work=true only for a genuinely separate user goal, not a clarification, repair, restart or continuation. Required fields: person, requestchannel, taskcontent, completionsendcriterium, originalUserMessage."
 
 def _send_to_channel(channel, content):
     """Send a message through a channel module, loaded the same way tools/send.py
@@ -71,8 +71,22 @@ def run(person, requestchannel, taskcontent, completionsendcriterium, originalUs
 
     now = time.localtime()
     now_str = "%04d-%02d-%02d %02d:%02d:%02d" % (now[0], now[1], now[2], now[3], now[4], now[5])
+    try:
+        with open(TASK_FILE, "r", encoding="utf-8", errors="replace") as f:
+            previous = f.read()
+    except OSError:
+        previous = ""
+    started_str = now_str
+    if previous and not new_work:
+        # An update continues the same task: keep its start time and the
+        # original request unless the caller supplies a new one.
+        m = re.search(r"^# Current Task \(started ([^)]*)\)", previous, re.M)
+        started_str = m.group(1) if m else now_str
+        if not str(originalUserMessage).strip():
+            m = re.search(r"^# Original User Message: (.*?)\n# =+[ \t]*$", previous, re.M | re.S)
+            originalUserMessage = m.group(1) if m else originalUserMessage
 
-    content = f"""# Current Task (started {now_str})
+    content = f"""# Current Task (started {started_str})
 # =============================================
 # Person:               {person}
 # Request Channel:      {requestchannel}
@@ -90,7 +104,7 @@ def run(person, requestchannel, taskcontent, completionsendcriterium, originalUs
                 "task_content": taskcontent,
                 "completion_criterion": completionsendcriterium,
                 "original_user_message": originalUserMessage,
-                "started_at": now_str,
+                "started_at": started_str,
                 "new_work": new_work,
             },
             state_atom="(current-task %s %s %s)" % (
@@ -99,6 +113,14 @@ def run(person, requestchannel, taskcontent, completionsendcriterium, originalUs
             ),
             source="tools.start_new_task",
         )
+        if previous and previous != content:
+            # Never destroy the prior task account. memory/tasks/archive/ is
+            # excluded from the prompt projection (EXCLUDE_DIRS "archive") and
+            # covered by the state manifest as part of memory/.
+            archive_dir = TASKS_DIR + "/archive"
+            _mkdirs(archive_dir)
+            with open("%s/%d-current_tasks.txt" % (archive_dir, time.time_ns()), "x") as f:
+                f.write(previous)
         tmp = TASK_FILE + ".tmp"
         with open(tmp, 'w') as f:
             f.write(content)
@@ -114,7 +136,7 @@ def run(person, requestchannel, taskcontent, completionsendcriterium, originalUs
         f"**Channel:** {requestchannel}\n"
         f"**Task:** {taskcontent}\n"
         f"**Completion Criterion:** {completionsendcriterium}\n"
-        f"**Started:** {now_str}"
+        f"**Started:** {started_str}"
     )
 
     send_status = "not sent"

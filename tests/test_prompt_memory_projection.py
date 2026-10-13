@@ -305,5 +305,48 @@ class HandoffOnTimedWakeup(unittest.TestCase):
         self.assertEqual(wh.cycle_handoff(self._experience(with_pin=False), ""), ("", ()))
 
 
+class StartNewTaskPreservesHistory(unittest.TestCase):
+    """B11: an update must not erase the original request, start time or prior account."""
+
+    def _run_in(self, tmp, calls):
+        cwd = os.getcwd()
+        os.chdir(tmp)
+        try:
+            module = _load("start_new_task_under_test", ITER / "tools" / "start_new_task.py")
+            module.commit_event = lambda *a, **k: {"ok": True}
+            texts = []
+            for args in calls:
+                module.run(*args)
+                texts.append(Path("memory/tasks/current_tasks.txt").read_text())
+                time.sleep(1.05)
+            archived = sorted(Path("memory/tasks/archive").glob("*")) if Path("memory/tasks/archive").exists() else []
+            return texts, [p.read_text() for p in archived], _memory_projection.projection_files("memory")
+        finally:
+            os.chdir(cwd)
+
+    def test_update_keeps_original_request_and_start_and_archives_previous(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            (first, second), archived, projected = self._run_in(tmp, [
+                ("B", "nochannel", "Build garden planner", "send link",
+                 "Please build a garden planner\nwith Seattle frost dates", "true"),
+                ("B", "nochannel", "Garden planner: add dark mode", "send screenshot"),
+            ])
+            self.assertIn("with Seattle frost dates", second)
+            self.assertIn("add dark mode", second)
+            self.assertEqual(first.splitlines()[0], second.splitlines()[0])  # start time kept
+            self.assertEqual(archived, [first])
+            self.assertFalse(any("archive" in p for p in projected))
+
+    def test_new_work_starts_fresh_but_archives_previous(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            (first, second), archived, _ = self._run_in(tmp, [
+                ("B", "nochannel", "Build garden planner", "send link", "garden planner please", "true"),
+                ("B", "nochannel", "Write invoice parser", "send file", "now the invoice parser", "true"),
+            ])
+            self.assertNotIn("garden planner please", second)
+            self.assertNotEqual(first.splitlines()[0], second.splitlines()[0])
+            self.assertEqual(archived, [first])
+
+
 if __name__ == "__main__":
     unittest.main()
