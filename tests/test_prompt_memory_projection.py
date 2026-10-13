@@ -703,5 +703,38 @@ class PromptMemoryDocsAreReachable(unittest.TestCase):
         self.assertIn(section.strip()[-120:], injected, "the section is cut by the auto-include window")
 
 
+class StartNewTaskArchiveSafety(unittest.TestCase):
+    """Review finding 10: an archive failure never reports 'not committed';
+    tasks/archive/ is bounded."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self._cwd = os.getcwd()
+        os.chdir(self._tmp.name)
+        self.module = _load("start_new_task_archive_test", ITER / "tools" / "start_new_task.py")
+        self.commits = []
+        self.module.commit_event = lambda *a, **k: self.commits.append(a) or {"ok": True}
+
+    def tearDown(self):
+        os.chdir(self._cwd)
+        self._tmp.cleanup()
+
+    def test_archive_failure_is_reported_as_committed(self):
+        self.module.run("B", "nochannel", "first task", "done", "first", "true")
+        Path("memory/tasks/archive").write_text("not a directory")  # archiving must fail
+        result = self.module.run("B", "nochannel", "second task", "done", "second", "true")
+        self.assertTrue(result.startswith("SUCCESS"), result)
+        self.assertIn("archive failed", result)
+        self.assertIn("second task", Path("memory/tasks/current_tasks.txt").read_text())
+        self.assertEqual(len(self.commits), 2)
+
+    def test_archive_keeps_the_newest_200(self):
+        for i in range(206):
+            self.module.run("B", "nochannel", "task %03d" % i, "done", "msg %03d" % i, "true")
+        names = sorted(os.listdir("memory/tasks/archive"))
+        self.assertEqual(len(names), 200)
+        self.assertIn("task 204", Path("memory/tasks/archive", names[-1]).read_text())
+
+
 if __name__ == "__main__":
     unittest.main()

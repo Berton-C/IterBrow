@@ -35,6 +35,21 @@ def _mkdirs(path):
 
 DESCRIPTION = "Register the current task in durable memory and memory/tasks/current_tasks.txt. Default updates or continues existing work without moving its history boundary (keeps its start time and original message; the previous file is archived to memory/tasks/archive/). Set new_work=true only for a genuinely separate user goal, not a clarification, repair, restart or continuation. Required fields: person, requestchannel, taskcontent, completionsendcriterium, originalUserMessage."
 
+ARCHIVE_KEEP = 200
+
+
+def _archive(archive_dir, previous):
+    _mkdirs(archive_dir)
+    with open("%s/%d-current_tasks.txt" % (archive_dir, time.time_ns()), "x") as f:
+        f.write(previous)
+    names = sorted(n for n in os.listdir(archive_dir) if n.endswith("-current_tasks.txt"))
+    for name in names[:-ARCHIVE_KEEP]:
+        try:
+            os.remove(os.path.join(archive_dir, name))
+        except OSError:
+            pass
+
+
 def _send_to_channel(channel, content):
     """Send a message through a channel module, loaded the same way tools/send.py
     does it (importlib module-from-spec) so __file__ and package context are set
@@ -95,6 +110,17 @@ def run(person, requestchannel, taskcontent, completionsendcriterium, originalUs
 # Original User Message: {originalUserMessage}
 # =============================================
 """
+    # Never destroy the prior task account: archive it BEFORE committing, so
+    # an archive failure can never be reported as an uncommitted task.
+    # memory/tasks/archive/ is excluded from the prompt projection (EXCLUDE_DIRS
+    # "archive"), covered by the state manifest as part of memory/, and keeps
+    # the newest ARCHIVE_KEEP files.
+    archive_note = ""
+    if previous and previous != content:
+        try:
+            _archive(TASKS_DIR + "/archive", previous)
+        except Exception as e:
+            archive_note = "\n  Task committed; archive failed: %s" % e
     try:
         commit_event(
             "current_task", "active", "task_started",
@@ -113,14 +139,6 @@ def run(person, requestchannel, taskcontent, completionsendcriterium, originalUs
             ),
             source="tools.start_new_task",
         )
-        if previous and previous != content:
-            # Never destroy the prior task account. memory/tasks/archive/ is
-            # excluded from the prompt projection (EXCLUDE_DIRS "archive") and
-            # covered by the state manifest as part of memory/.
-            archive_dir = TASKS_DIR + "/archive"
-            _mkdirs(archive_dir)
-            with open("%s/%d-current_tasks.txt" % (archive_dir, time.time_ns()), "x") as f:
-                f.write(previous)
         tmp = TASK_FILE + ".tmp"
         with open(tmp, 'w') as f:
             f.write(content)
@@ -146,4 +164,4 @@ def run(person, requestchannel, taskcontent, completionsendcriterium, originalUs
         send_status = f"send failed: {e}"
 
     status = "New task started" if new_work else "Current task updated"
-    return f"SUCCESS, RETURN: {status} at {now_str}.\n  Person: {person}\n  Channel: {requestchannel}\n  Task: {taskcontent}\n  Completion criterion: {completionsendcriterium}\n  Original message: {originalUserMessage}\n  Written to: {TASK_FILE}\n  Channel notification: {send_status}"
+    return f"SUCCESS, RETURN: {status} at {now_str}.\n  Person: {person}\n  Channel: {requestchannel}\n  Task: {taskcontent}\n  Completion criterion: {completionsendcriterium}\n  Original message: {originalUserMessage}\n  Written to: {TASK_FILE}\n  Channel notification: {send_status}" + archive_note
