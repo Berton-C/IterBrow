@@ -24,13 +24,11 @@ from _browser_bridge import call
 import _component_museum as museum
 
 DESCRIPTION = (
-    "Live-DOM co-pilot with built-in vision feedback: inject CSS and/or JS into the REAL, "
-    "currently-attached browser tab (via CDP/eval - not a sandboxed preview) and immediately "
-    "screenshot the result so you can see whether the patch looks right. Pass patch_id to "
-    "replace/iterate on a previous patch in place instead of stacking duplicates. Every call "
-    "auto-saves the patch (css/js/html snapshot/screenshot) into the component museum so it "
-    "survives even if the tab later closes or navigates away. Pass tab_id to target any open "
-    "tab without switching to it."
+    "Inject CSS and/or JS into the REAL attached browser tab (CDP/eval, not a sandboxed "
+    "preview) and screenshot the result so you can see whether the patch looks right. "
+    "Pass patch_id to replace/iterate a previous patch in place instead of stacking "
+    "duplicates; tab_id targets any open tab without switching to it. Every call saves the "
+    "patch (css/js/html snapshot/screenshot) to the component museum."
 )
 
 _INJECT_JS_TEMPLATE = """

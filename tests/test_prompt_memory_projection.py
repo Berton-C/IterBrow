@@ -466,5 +466,46 @@ class DocsMatchCode(unittest.TestCase):
             self.assertNotIn("available through chroma_query", index)
 
 
+class ToolDescriptionsFitTheCap(unittest.TestCase):
+    """B17: iter.py truncates DESCRIPTIONs over MAX_TOOL_DESCRIPTION_CHARS."""
+
+    @staticmethod
+    def _imported_description(path):
+        """DESCRIPTION computed at import time: load the module the way
+        iter.py's tool runner does, in a throwaway ITER_DIR."""
+        import subprocess
+        code = ("import importlib.util,sys,json;sys.path.insert(0,%r);sys.path.insert(0,%r);"
+                "s=importlib.util.spec_from_file_location('t',%r);m=importlib.util.module_from_spec(s);"
+                "s.loader.exec_module(m);print(json.dumps(str(m.DESCRIPTION)))"
+                % (str(path.parent), str(ITER), str(path)))
+        with tempfile.TemporaryDirectory() as tmp:
+            out = subprocess.run([sys.executable, "-c", code], cwd=tmp, capture_output=True, text=True,
+                                 env={**os.environ, "ITER_DIR": tmp}, timeout=60)
+        if out.returncode:
+            raise AssertionError("cannot read DESCRIPTION of %s: %s" % (path.name, out.stderr[-500:]))
+        return json.loads(out.stdout.strip().splitlines()[-1])
+
+    def test_no_public_tool_description_exceeds_the_cap(self):
+        import re
+        from _metadata_static import static_description
+        cap = int(re.search(r"^MAX_TOOL_DESCRIPTION_CHARS = (\d+)", (ITER / "iter.py").read_text(), re.M).group(1))
+        over = {}
+        for path in sorted((ITER / "tools").glob("*.py")):
+            if path.name.startswith("_"):
+                continue
+            try:
+                description = static_description(path)
+            except Exception:
+                description = self._imported_description(path)
+            if len(description) > cap:
+                over[path.stem] = len(description)
+        self.assertEqual(over, {}, "these tools lose the end of their DESCRIPTION in the prompt")
+
+    def test_device_capture_keeps_close_tab_instruction(self):
+        from _metadata_static import static_description
+        text = static_description(ITER / "tools" / "device_capture.py")[:500]  # what the prompt shows
+        self.assertIn("action='close' with that tab_id", text)
+
+
 if __name__ == "__main__":
     unittest.main()

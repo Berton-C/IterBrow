@@ -3,13 +3,10 @@ import urllib.request
 import urllib.error
 
 DESCRIPTION = (
-    "Send a chat completion request to LM Studio's local LLM server, as a side call independent of your own "
-    "main model (which is configured separately via BASE_URL/LLM_MODEL). "
-    "Accepts: messages (list of {role, content} dicts, or a JSON string), model (default 'qwen/qwen3.8-27b'), "
-    "temperature (default 0.7), max_tokens (default 1024), stream (default False). "
-    "Returns the assistant's response text, or full JSON if raw=True. "
-    "LM Studio base URL defaults to http://127.0.0.1:1234 (loopback, works with or without a network) but can "
-    "be overridden via base_url."
+    "Side call to LM Studio's local LLM server, independent of your own main model. "
+    "messages: list of {role, content} (or JSON string); model (default 'qwen/qwen3.8-27b'); "
+    "temperature (0.7); max_tokens (1024); stream (False); raw=True returns full JSON instead of "
+    "the reply text. base_url defaults to http://127.0.0.1:1234 (loopback, works offline)."
 )
 
 # NOTE: this is the native-Python rewrite of the browser/WASM version of

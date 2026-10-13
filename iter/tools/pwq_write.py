@@ -21,14 +21,12 @@ from iterbrow_runtime.pwq_protocol import PWQStore
 STORE = PWQStore(ROOT / ".runtime" / "pwq", ROOT / ".runtime" / "pwq.json")
 
 DESCRIPTION = (
-    "Agent client for the canonical PWQ human-agency protocol. Iter may propose, "
-    "modify/counter-propose, read, start approved work with the current "
-    "dispatch_authorization, append a scope-bound Tracking update, pause, or complete. "
-    "Tracking is optional progress reporting, not permission to build; it cannot "
-    "change consent or scope. Atlas labels are optional. Approve/reject/reorder are "
-    "human-only decisions and this tool cannot mint them. command_id makes a "
-    "retry idempotent. The event ledger is authoritative; .runtime/pwq.json is "
-    "a read-only projection."
+    "Agent client for the PWQ human-agency protocol: propose, modify/counter-propose, read, "
+    "start approved work with the current dispatch_authorization, append a scope-bound "
+    "Tracking update (progress only, never consent or scope), pause, or complete. "
+    "Approve/reject/reorder are human-only; this tool cannot mint them. command_id makes a "
+    "retry idempotent. The event ledger is authoritative; .runtime/pwq.json is a read-only "
+    "projection."
 )
 
 

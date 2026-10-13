@@ -32,15 +32,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _browser_bridge import call
 
 DESCRIPTION = (
-    "Take a photo with the camera or record a clip with the microphone, using a "
-    "visible browser tab the user can see. Args: action (str: 'photo'|'record'|"
-    "'close'), duration (float, optional, seconds to record audio for -- only "
-    "used by 'record', default 5, max 30), tab_id (int, optional -- required for "
-    "'close', pass the tab_id a previous call returned to close a capture tab "
-    "instead of leaving it open). Returns a dict; 'photo' and 'record' include "
-    "'saved_path' (file under memory/captures/) and 'tab_id' (the capture tab, "
-    "left open so the user can see the result -- close it yourself with action "
-    "'close' once you're done with it, or leave it for the user)."
+    "Take a photo (camera) or record audio (microphone) in a visible browser tab. "
+    "action: 'photo'|'record'|'close'. duration: seconds for 'record' (default 5, max 30). "
+    "'photo'/'record' return saved_path (under memory/captures/) and tab_id; the capture tab "
+    "stays open so the user sees the result. Close it yourself when done: "
+    "action='close' with that tab_id (or leave it for the user)."
 )
 
 _TOOLS_DIR = Path(__file__).resolve().parent
