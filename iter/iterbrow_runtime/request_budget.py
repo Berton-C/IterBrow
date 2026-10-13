@@ -316,7 +316,8 @@ def memory_context(items, limit):
     `limit` bounds the WHOLE returned block: the notice, path headers,
     separators and the index of omitted files are all charged. A file that does
     not fit is excerpted (head and tail, so appended newest entries survive)
-    with at most half of the remaining room, so later files still get space;
+    with the room later files do not need, but at most half of the remaining
+    room when they need more, so later files still get space;
     a file for which even that is too little is named in the index. The index
     is reserved space and always present when anything was omitted.
     """
@@ -329,7 +330,9 @@ def memory_context(items, limit):
     reserve = min(len(index_header) + len(index_text or "") + _INDEX_MIN_RESERVE, available // 4)
     budget = available - reserve
     sections, dropped, excerpted, used = [], [], False, 0
-    for path, content in body:
+    costs = [2 + len(f"{path}{_attribution(path)}:\n") + len(content) for path, content in body]
+    later = [sum(costs[i + 1:]) for i in range(len(costs))]
+    for index, (path, content) in enumerate(body):
         header = f"{path}{_attribution(path)}:\n"
         separator = 2 if sections else 0
         cost = separator + len(header) + len(content)
@@ -337,7 +340,10 @@ def memory_context(items, limit):
             sections.append(header + content)
             used += cost
             continue
-        room = (budget - used - separator - len(header)) // 2
+        free = budget - used - separator - len(header)
+        # Leave the later files their full room when they are small, but
+        # never less than half of what remains.
+        room = max(free // 2, free - later[index])
         if room >= _MIN_EXCERPT:
             sections.append(header + _head_tail(content, room))
             used += separator + len(header) + room

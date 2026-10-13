@@ -203,6 +203,7 @@ class MemoryContextBounds(unittest.TestCase):
         content = "\n".join("old entry %d" % i for i in range(3000)) + "\nNEWEST ENTRY"
         out = memory_context([("memory/user_preferences.txt", content)], LIMIT)
         self.assertLessEqual(len(out), LIMIT)
+        self.assertGreater(len(out), LIMIT * 0.9, "a lone oversized file should use the room nobody else needs")
         self.assertIn("old entry 0", out)
         self.assertIn("NEWEST ENTRY", out)
 
