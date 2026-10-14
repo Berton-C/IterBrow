@@ -17,8 +17,9 @@
 #     ./install.sh uninstall    # remove code after preserving state externally
 #
 #  The same file may be downloaded and run outside a checkout. In that mode it
-#  acquires TheWholeEnchilada into ~/Applications/IterBrow, then continues
-#  there. Override with ITERBROW_INSTALL_DIR or ITERBROW_BRANCH.
+#  acquires the `stable` branch (tested releases) into ~/Applications/IterBrow,
+#  then continues there. Override with ITERBROW_INSTALL_DIR or ITERBROW_BRANCH
+#  (e.g. ITERBROW_BRANCH=main for the newest, less-tested code).
 #
 #  Optional developer environments:
 #     ./install.sh --developer-extras
@@ -76,7 +77,7 @@ fi
 
 if [[ ! -f "$ROOT_DIR/package.json" || ! -f "$ROOT_DIR/scripts/requirements.txt" ]]; then
   INSTALL_DIR="${ITERBROW_INSTALL_DIR:-$HOME/Applications/IterBrow}"
-  INSTALL_BRANCH="${ITERBROW_BRANCH:-TheWholeEnchilada}"
+  INSTALL_BRANCH="${ITERBROW_BRANCH:-stable}"
   if [[ -f "$INSTALL_DIR/package.json" && -f "$INSTALL_DIR/install.sh" ]]; then
     ok "Using existing IterBrow source at $INSTALL_DIR."
     exec /bin/bash "$INSTALL_DIR/install.sh" "${INSTALL_ARGS[@]}"
@@ -114,7 +115,7 @@ cd "$ROOT_DIR"
 
 if [[ "$INSTALL_MODE" == "update" || "$INSTALL_MODE" == "uninstall" ]]; then
   exec /bin/bash "$ROOT_DIR/scripts/iterbrow_lifecycle.sh" \
-    "$INSTALL_MODE" "$ROOT_DIR" "${ITERBROW_BRANCH:-TheWholeEnchilada}" "$LAUNCH_AFTER_INSTALL"
+    "$INSTALL_MODE" "$ROOT_DIR" "${ITERBROW_BRANCH:-stable}" "$LAUNCH_AFTER_INSTALL"
 fi
 
 if [[ "$INSTALL_MODE" == "repair" ]]; then
@@ -233,8 +234,8 @@ npm ci --cache "$NPM_INSTALL_CACHE"
 ok "npm ci complete."
 
 # ------------------------------------------------------------------------------
-# 6/6 -- TheWholeEnchilada extras (COS CRM + NodeQuest). No-op on the vanilla
-# main branch, where iter/crm/ doesn't exist. These files are deliberately
+# 6/6 -- CRM + NodeQuest extras. No-op on a checkout where iter/crm/ doesn't
+# exist. These files are deliberately
 # gitignored (personal contact/task data, local-only config) so a fresh clone
 # never has them -- without this step, opening the CRM page or letting Iter
 # call crm:write for the first time fails with a missing-directory error

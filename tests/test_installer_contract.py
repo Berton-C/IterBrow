@@ -31,7 +31,8 @@ class InstallerContractTests(unittest.TestCase):
         source = (ROOT / "install.sh").read_text(encoding="utf-8")
         self.assertIn("ITERBROW_INSTALL_DIR", source)
         self.assertIn("ITERBROW_BRANCH", source)
-        self.assertIn("TheWholeEnchilada", source)
+        self.assertIn('ITERBROW_BRANCH:-stable', source)
+        self.assertNotIn("TheWholeEnchilada", source)  # deleted branch; installs must not depend on it
         self.assertIn("exec /bin/bash", source)
 
     def test_explicit_lifecycle_commands_are_exposed(self):
@@ -167,6 +168,12 @@ class InstallerContractTests(unittest.TestCase):
             self.assertIn("force-graph.js", atomspace)
             self.assertIn("_spaceVizGraph", gallery)
             self.assertGreater(result["gallery_bytes"], result["atomspace_bytes"])
+
+
+    def test_lifecycle_update_defaults_to_the_stable_branch(self):
+        lifecycle = (ROOT / "scripts" / "iterbrow_lifecycle.sh").read_text(encoding="utf-8")
+        self.assertIn("ITERBROW_BRANCH:-stable", lifecycle)
+        self.assertNotIn("TheWholeEnchilada", lifecycle)
 
 
 if __name__ == "__main__":
