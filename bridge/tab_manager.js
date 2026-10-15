@@ -36,6 +36,7 @@ class TabManager {
     this.attachedId = null; // bookkeeping only, mirrors the old extension's "attached tab" concept
     this.onTabsChanged = null; // set by main.js to push updates to the sidebar UI
     this.onTabClosed = null; // set by main.js: (snapshot) => void, fired just before a tab is actually removed
+    this.onTabCreated = null; // set by main.js: (webContents, tab) => void, for per-tab wiring (context menu)
   }
 
   _notify() {
@@ -147,6 +148,7 @@ class TabManager {
       allowedUrl: opts.restrictNavigation ? url : null,
     };
     this.tabs.set(id, tab);
+    if (this.onTabCreated) this.onTabCreated(view.webContents, tab);
     view.webContents.on('page-title-updated', (_e, title) => {
       tab.title = title;
       this._notify();

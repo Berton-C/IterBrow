@@ -16,6 +16,7 @@ if (!hasSingleInstanceLock) app.quit();
 
 const { TabManager } = require('./bridge/tab_manager');
 const { inspectSocketPath, startBridgeServer } = require('./bridge/browser_bridge_server');
+const contextMenu = require('./bridge/context_menu');
 const { makeChatBridge } = require('./bridge/chat_bridge');
 const { retirePreviousIter } = require('./bridge/iter_process_owner');
 const OPENAI_CATALOG = require('./iter/iterbrow_runtime/openai_models.json');
@@ -439,6 +440,11 @@ async function superviseAppRevision() {
 // window from them. A link clicked there opens as a browser tab instead.
 function pinUiViewToItsPage(view, name) {
   const contents = view.webContents;
+  // Two-finger click anywhere in the UI views: spelling suggestions, edit
+  // actions, link/selection actions. Links still open as tabs, never in-view.
+  contextMenu.attach(contents, {
+    openLinkInNewTab: (url) => { if (/^https?:\/\//i.test(url) && tabs) tabs.createTab(url); },
+  }, () => win);
   const openAsTab = (url) => {
     if (/^https?:\/\//i.test(url) && tabs) tabs.createTab(url);
     else pushLog(`[ui] ${name} refused navigation to ${String(url).slice(0, 120)}`);
@@ -2308,6 +2314,16 @@ async function createWindow() {
   tabstripView.webContents.loadFile(path.join(__dirname, 'renderer', 'tabstrip.html'));
 
   tabs = new TabManager(win, { getContentBounds: contentBounds, pwqPath: path.join(ITER_DIR, 'pwq.html') });
+  // Every browser tab gets the full context menu: spelling, edit, link,
+  // selection search, back/forward/reload, inspect. The person's own clicks
+  // are never subject to the tab lock (the lock refuses the agent, not them).
+  tabs.onTabCreated = (contents, tab) => contextMenu.attach(contents, {
+    openLinkInNewTab: (url) => { if (/^https?:\/\//i.test(url)) tabs.createTabAfter(tab.id, url); },
+    searchSelection: (text) => tabs.createTabAfter(tab.id, 'https://www.google.com/search?q=' + encodeURIComponent(text)),
+    back: () => { if (contents.navigationHistory.canGoBack()) contents.navigationHistory.goBack(); },
+    forward: () => { if (contents.navigationHistory.canGoForward()) contents.navigationHistory.goForward(); },
+    reload: () => contents.reload(),
+  }, () => win);
   tabs.onTabsChanged = (list) => {
     tabstripView.webContents.send('tabs:update', list);
     toolbarView.webContents.send('tabs:update', list);
