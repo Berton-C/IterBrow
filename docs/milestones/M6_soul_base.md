@@ -1,0 +1,206 @@
+# Milestone 6 — Soul base: honest ground and the choice plumbing
+
+Status: **scoped, tests written, implementation pending.** Roadmap:
+`docs/soul/SOUL_IN_THE_FOUNDRY.md`. Audit: `docs/soul/SOUL_FIDELITY_AUDIT.md`.
+Tests: `tests/test_m6_*.py`, `tests/e2e/test_m6_loop.py`; helpers in `tests/m6_support.py`
+(the render tests use the system Python's Playwright against the real `renderer/index.html`
+with `window.iterApi` stubbed, and skip when Playwright is absent).
+Every test is `@pending("M6-xx")` (= `unittest.expectedFailure`); implementing an item means
+removing its decorator, as in M5. Service-backed tests fail fast without starting a service
+until `iter/iterbrow_runtime/soul_settings.py` exists.
+
+## Why
+
+Every later Soul feature (forks, the person-read, wonder, the margin) needs three things
+that do not exist: a way to **ask the person something in the sidebar and get the answer
+back as data**, a place to **turn features on/off and tune them per person**, and the Soul's
+**own atoms in the AtomSpace** read through a lens that is not keyword lists. M6 builds
+those three and removes the theater the audit found, so that from M7 on everything that
+calls itself the Soul is real.
+
+Nothing in M6 gates, pauses or vetoes anything. Nothing in M6 talks to the person on its
+own; it only makes talking possible.
+
+## A. Interactive sidebar cards
+
+Today the chat bridge accepts only `{role: user|iter, content: string}`
+(`bridge/chat_bridge.js:validMessage`); the renderer pipes content through Markdown.
+Cards extend this without changing text messages.
+
+- **Outbox message** (written by Iter through a new channel function
+  `channels/electron_ui.py:send_card(card)`, reached by the tool `tools/card.py`):
+  ```json
+  {"schema_version": 1, "id": "iter-…", "role": "iter", "at": 1700000000000,
+   "content": "<markdown fallback: title + body + numbered choices>",
+   "card": {"id": "card-…", "kind": "fork|brief|read|offer|note", "title": "…", "body": "…",
+            "choices": [{"id": "a", "label": "…", "hint": "…"}, …],  // 1–3
+            "links": [{"label": "…", "url": "https://…"}],           // optional, 0–3
+            "expires_at": 1700000600000}}                           // optional
+  ```
+  `content` is always present so an older sidebar, the journal and the transcript still show
+  the card as text. `validMessage` accepts an optional `card` object with exactly this
+  shape (a malformed card is dropped with a log line; the text still goes through).
+- **Rendering** (`renderer/renderer.js`): a message with `card` renders a bordered card:
+  title, Markdown body, one button per choice (label, hint as title), links as anchors
+  (which open as tabs like every link). A choice button, once clicked, disables the card's
+  buttons and marks the picked one; the journal entry is unchanged.
+- **The answer** (`chat_bridge.js:sendChoice(cardId, choiceId, person)`): writes to the
+  inbox a message Iter receives like any user message, with a fixed prefix so the loop and
+  the model can recognise it without parsing JSON:
+  `[choice card=<card-id> pick=<choice-id> by=<person>] <choice label>`;
+  the journal records `{role: "user", content: <that line>, choice: {card, pick, by}}`.
+  Reset clears cards with the chat (they live in `messages.jsonl`), as M2 decided.
+- **Dismissal**: a card may be dismissed (×) → `[choice card=<id> pick=dismiss by=<person>]`.
+- **Calibration atom**: main.js commits, in the AtomSpace, on every pick or dismissal:
+  key `state:soul_choice:<card-id>`, atom
+  `(soul-choice "<person>" "<kind>" "<card-id>" "<pick>" <at-ms>)` (one atom per card: a
+  second click is not possible; a dismissal after a pick is ignored). Written through the
+  existing `transact` socket call with `actor: "person"`, `source: "sidebar"`. If the
+  service is unreachable the pick still reaches Iter; the atom is written on the next
+  successful card event (a small retry queue in `iter/.runtime/soul_choice_pending.jsonl`).
+- Read by: the dashboard (counts), M7+ features, and nothing that changes Soul content.
+
+## B. Soul settings, per person
+
+- File: `iter/.runtime/soul_settings.json` (mode 0600, `reset: false`, `portable: true`
+  in the state manifest, role `application_state`). Shape:
+  ```json
+  {"schema_version": 1, "person": "berton",
+   "people": {"berton": {"features": {"forks": true, "brief": true, "read": false,
+                                       "wonder": false, "felt": false, "browsing_ally": false,
+                                       "margin": false},
+                         "frequency": "occasional",   // whisper | occasional | chatty
+                         "tone": "warm",               // warm | plain | playful
+                         "budget_per_cycle": 1}}}       // max Soul model calls per cycle
+  ```
+  Defaults: `forks` and `brief` on, everything else off; `occasional`; `warm`; budget 1.
+  An unknown person gets the defaults (a `guest` profile is never written until changed).
+- **Who is here**: the sidebar Soul panel has a selector (Berton / Bright / Haley / guest);
+  main.js stores `person` and every card answer and calibration atom carries it. Iter reads
+  `person` from the same file.
+- **Panel** (`renderer/index.html` dock panel `soul`, registered in `DOCK_PANEL_INFO` /
+  `DOCK_DEFAULT_ORDER` after `settings`): the selector, one row per feature with a switch and
+  a one-line description, the frequency and tone selects, the budget. Saves through a new IPC
+  `soul:save` / loads through `soul:load` (not through `settings:save`, so model keys and Soul
+  tuning never share a file).
+- **Python side** (`iter/iterbrow_runtime/soul_settings.py`): `load() -> dict`,
+  `person() -> str`, `enabled(feature) -> bool`, `frequency() -> str`, `tone() -> str`,
+  `budget() -> int`, `for_person(name) -> dict`. Pure file read; no env plumbing; missing file
+  → defaults. A feature that is off contributes **nothing** to the prompt (tested).
+
+## C. Soul kernel atoms in their own view
+
+- `iter/seeds/soul_kernel.metta`, declared `source_seed`/`metta` in the manifest, **ported
+  verbatim** from ClarityOmega `soul/soul_kernel.metta` as plain atoms (no `!(add-atom …)`
+  wrappers): 5 `priority`, 9 patterns × 9 facets (`soul-pattern`, `-pole+`, `-pole-`,
+  `-signal`, `-felt`, `-moat`, `-anti`, `-proxy`, `-gap`), 7 `soul-pattern-related`,
+  6 `soul-pattern-degrades-without`, 4 `soul-paraconsistent-pair`, 5 `tension-vector`,
+  7 `threatens`, 9 `soul-will-threshold`, 3 `soul-autonomy-component`, 33 `soul-causal`.
+  The reference's accessor functions (`soul-all-patterns`, `soul-paraconsistent?`,
+  `soul-pattern-gap-signature`, …) are ported as `(= …)` rules. Nothing else from the
+  reference (no gates, no mutation lock, no output verdict).
+- **View**: `metta_server.query(view="soul")` evaluates the soul seed plus the
+  `state:soul_choice:*` atoms, and nothing else; `full`/`current`/`kb` views never include
+  the soul seed's atoms (the seed is loaded only when the view is `soul`; the Hyperon
+  index-corruption finding from M5 applies). `tools/_metta_substrate.run_query(view=…)` and
+  the test helper accept `"soul"`.
+- **Lens text**: `iterbrow_runtime/soul_lens.py: lens_text(patterns=None) -> str` renders
+  the nine patterns' gap signatures (and, on request, the other facets) from the atoms, for
+  the M7+ channels to put in a prompt. It reads the atoms through the `soul` view; it is
+  the ONLY place pattern text enters Python, so the prompt can never drift from the seed.
+- **Reflection tool**: `tools/soul_reflect.py` (replaces the model-facing `soul_eval`):
+  given a short description of a situation, returns the lens text for the patterns whose
+  tension vectors `threatens` match, plus the declared pair for any two named patterns.
+  No verdict, no gate, no keywords beyond matching pattern *names* the model itself used.
+  Description ≤ 500 chars.
+
+## D. Theater removed; honest surfaces
+
+- `tools/soul_eval.py`, `tools/_test_soul_*.py`, `tools/_test_all_stages_combined.py`,
+  `tools/test_soul_absent.py`, `tools/_test_stage4_lock.py` are deleted;
+  `tools/soul_skill_registry.py` / `_soul_skill_registry.py` are deleted (a static JSON
+  seed list nothing acted on); `memory/soul_state.json` / `soul_gate_log.json` /
+  `soul_calibration.json` are removed from the manifest and deleted by the migration
+  below (a backup copy goes to `backups/soul-legacy-<ts>/`).
+- `transformations/soul_check.py` and `soul_voice.py` are deleted. The prompt no longer
+  contains "## Soul", value keyword lists, or the ALIVE/SILENT directive. A new
+  `transformations/soul_presence.py` appends **at most one short block**, and only when a
+  feature is on for the current person: which features are on, the person's name, the
+  frequency and tone, and one line reminding the model that cards return the person's
+  choice (`[choice …]` lines). When every feature is off it appends nothing.
+- `tools/soul_lock.py` stays (it protects the courier's belief write; AGENTS.md says what
+  it protects, nothing more).
+- The nine compass bridges and the courier's `pattern-efficacy` beliefs stay as they are
+  but are **documented as NACE telemetry**; no file calls them the Soul.
+- **Dashboard** (`dashboard_atomspace.py`): a Soul card from the authority: features on
+  for the current person, `soul-choice` counts by kind, the last choice (kind, pick, when),
+  and `no Soul activity yet` when there are none. Numbers from atoms; `authority
+  unreachable` behaviour as in M5. Also the M5 follow-up: the derived count is recomputed
+  only when a `state:kb_statement:*` atom changed, not on every commit (cache keyed by the
+  statement-atoms digest) so the per-cycle cost returns to ~0 when NACE is the only writer.
+- **AGENTS.md** "## Soul System" rewritten to describe exactly A–D and to point at the
+  roadmap and audit; no claim without code behind it (tested by a checklist of phrases that
+  must be absent, e.g. "4-Channel Evaluation Engine", "Aliveness Gate", "Paraconsistency
+  HALT", "space.metta").
+- **Migration**: on first start after M6, the AtomSpace service (where M5's backfill runs)
+  moves the legacy soul files aside and logs `soul migration: legacy files archived to …`;
+  idempotent.
+
+## Interfaces the tests pin (exact)
+
+- Card JSON as in A; `content` fallback format:
+  `**<title>**\n\n<body>\n\n1. <label> — <hint>\n2. …` (hint omitted when absent).
+- Choice line: `[choice card=<card-id> pick=<choice-id> by=<person>] <label>`; dismissal uses
+  `pick=dismiss` and no label.
+- Journal entry for a choice: `{"role":"user","content":"[choice …] …","choice":{"card":…,"pick":…,"by":…},"id":…,"at":…}`.
+- Calibration atom: `(soul-choice "<person>" "<kind>" "<card-id>" "<pick>" <at-ms>)`, key
+  `state:soul_choice:<card-id>`; `at-ms` is an integer.
+- `tools/card.py: run(kind, title, body, choices, links=None, expires_in_s=None)`;
+  `choices` is a list of `{"id","label","hint"?}` or a list of labels (ids `a`,`b`,`c`);
+  returns `CARD-SENT: <card-id>` or `ERROR: …` (0 or >3 choices, unknown kind, empty title).
+- `soul_settings.py` functions as in B; file shape as in B.
+- Seed counts as in C (81 facet atoms + 5 + 7 + 6 + 4 + 5 + 7 + 9 + 3 + 33).
+- `soul_lens.lens_text()` contains all nine pattern names and all nine gap-signature texts
+  exactly as the seed holds them.
+- `soul_presence` block header: `## Soul (<person>)`; absent when all features are off.
+- Sidebar → main: `preload.js` exposes `sendChoice(cardId, choiceId, label)` → IPC
+  `chat:choice`; main.js takes the person from `loadSoulSettings()` (never from the renderer),
+  calls `chatBridge.sendChoice(cardId, choiceId, person, label)` and
+  `recordSoulChoice(...)`. Rendered card DOM: `.row > .card` with `.card-title`, `.card-body`
+  (Markdown-rendered), `button.choice[data-choice]` (hint as `title`; `.picked` on the one
+  chosen; all disabled after a pick), `a[href]` links, `.dismiss`.
+- `bridge/soul_choice.js: recordSoulChoice({socket, iterDir, person, kind, cardId, pick, at})
+  -> Promise<{written: bool, queued?: bool}>`: one atom per card (a later pick or dismissal
+  for the same card returns `written: false`); unreachable service → appended to
+  `<iterDir>/.runtime/soul_choice_pending.jsonl` and `queued: true`; the next successful call
+  flushes the queue first. Used by main.js on `chat:choice`.
+- `preload.js` exposes `loadSoulSettings()` / `saveSoulSettings(settings)` → IPC `soul:load` /
+  `soul:save`; main.js writes `iter/.runtime/soul_settings.json` with mode 0o600 and never
+  merges it into `settings.json`.
+- Dashboard: `authority_counts` gains `soul_choices` (int or None) and `soul_last`
+  (`{kind, pick, at}` or None); the page embeds them in the existing `<!--counts:…-->`.
+
+## Out of scope
+
+Any Soul feature that speaks on its own (M7+); gates; NACE consuming anything new;
+episodic memory; judging Iter's promoted code.
+
+## Test map
+
+| id | test | asserts |
+|---|---|---|
+| M6-A1 | `test_m6_cards.CardMessageTests` | outbox card accepted by the real chat bridge; journal keeps `card`; malformed card dropped, text kept; text messages unchanged |
+| M6-A2 | `…CardRenderTests` (Playwright) | card renders title/body/buttons/links; click disables buttons and sends the choice; dismissal |
+| M6-A3 | `…ChoiceRoundTripTests` | `sendChoice` → inbox line format → `electron_ui.receive()` returns it; journal `choice` field |
+| M6-A4 | `…CalibrationAtomTests` | pick writes `state:soul_choice:<id>` atom with the exact shape; second click impossible; unreachable service → pending file → written later |
+| M6-A5 | `…CardToolTests` | `card` tool: fallback content format, ids, validation, description ≤ 500 |
+| M6-B1 | `test_m6_settings.SettingsFileTests` | defaults; per-person scoping; unknown person = defaults; 0600; manifest entry |
+| M6-B2 | `…PanelTests` | dock panel registered after `settings`; `soul:load`/`soul:save` IPC; model keys never in the soul file |
+| M6-B3 | `…PromptTests` | feature off → nothing in prompt; on → exactly one `## Soul (<person>)` block |
+| M6-C1 | `test_m6_seed.SeedTests` | atom counts; verbatim facet texts vs reference; manifest entry |
+| M6-C2 | `…ViewTests` | `soul` view answers `soul-paraconsistent?`; `current`/`kb` views do not see soul atoms; NACE reads unchanged with the seed present |
+| M6-C3 | `…LensTests` | `lens_text` content; `soul_reflect` tool output and description length |
+| M6-D1 | `test_m6_honest.RemovalTests` | legacy files gone; migration archived them once; prompt free of old blocks |
+| M6-D2 | `…AgentsMdTests` | forbidden phrases absent; roadmap/audit referenced |
+| M6-D3 | `…DashboardTests` | Soul card counts from atoms; kb derived cache keyed by statement digest |
+| M6-E1 | `e2e/test_m6_loop.py` | real loop: Iter sends a card → simulated click → Iter's next request contains the `[choice …]` line → `soul-choice` atom exists |
