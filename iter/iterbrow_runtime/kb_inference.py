@@ -25,9 +25,10 @@ class Derivations(list):
 
 
 def service_query(code, timeout=60):
-    """Evaluate MeTTa in the AtomSpace service's isolated query path (current view)."""
+    """Evaluate MeTTa in the AtomSpace service's isolated "kb" view: source seeds plus the
+    kb statement atoms only (see metta_server.query for why kb atoms never share a space)."""
     from iterbrow_runtime.cognitive_events import _call_atomspace
-    return _call_atomspace("query", timeout=timeout, code=code, view="current")["result"]
+    return _call_atomspace("query", timeout=timeout, code=code, view="kb")["result"]
 
 
 def _stv(tree):

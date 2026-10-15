@@ -78,6 +78,31 @@ class StatementAtomTests(unittest.TestCase):
         self.assertEqual(kb_atoms(self.r, "statement"), {})
 
 
+class ViewIsolationTests(unittest.TestCase):
+    """kb atoms are evaluated only in the "kb" query view and never share a space with
+    NACE/gate atoms: Hyperon 0.2.10 corrupted index reads when the owner's real kb atoms
+    were loaded among the rest (39 of 65 NACE beliefs and 260 of 272 statements read wrong)."""
+
+    def setUp(self):
+        self.r = kb_root("kbview")
+        self.addCleanup(self.r.close)
+        self.r.start()
+
+    def test_kb_and_nace_atoms_never_share_a_query_space(self):
+        raven = self.r.remember("ravens are birds", mem_type="fact")
+        self.assertIn("SUCCESS", self.r.text("formalize_metta", LTM_item=raven, formalization="(--> raven bird)"))
+        self.r.call("transact", {"operations": [{"op": "upsert", "key": "state:nace_belief:cap-efficacy:shell",
+                                                 "atom": "(cap-efficacy shell (stv 0.9 0.8))"}],
+                                 "actor": "test", "source": "test"})
+        for view in ("current", "full"):
+            self.assertNotIn("raven", query(self.r, "!(match &self (kb $s $t) $s)", view=view), view)
+            self.assertIn("(stv 0.9 0.8)", query(self.r, "!(match &self (cap-efficacy shell $v) $v)", view=view), view)
+        self.assertIn("(--> raven bird)", query(self.r, "!(match &self (kb $s $t) $s)", view="kb"))
+        self.assertNotIn("stv 0.9", query(self.r, "!(match &self (cap-efficacy shell $v) $v)", view="kb"))
+        # Seed rules are present in every view (kb reasoning needs kb_inference.metta).
+        self.assertIn("0.45", query(self.r, "!(Truth_Deduction (stv 1.0 0.5) (stv 1.0 0.9))", view="kb"))
+
+
 class LifecycleTests(unittest.TestCase):
     """M5-B2: evidence follows the memory; statements live exactly as long as their evidence."""
 

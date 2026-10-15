@@ -51,6 +51,33 @@ QUERY_WORKER_PATH = (ITER_DIR / "metta_query_worker.py").resolve()
 QUERY_TIMEOUT_S = int(os.environ.get("ITER_METTA_QUERY_TIMEOUT", "30"))
 
 
+KB_PREFIX = "state:kb_"
+KB_STATEMENT_PREFIX = "state:kb_statement:"
+SERVICE_CODE_FILES = ("metta_server.py", "metta_query_worker.py")
+
+
+def service_code_hash(iter_dir=None):
+    """Fingerprint of the code this service runs: metta_server.py,
+    metta_query_worker.py and iterbrow_runtime/*.py (sorted relative path,
+    NUL, bytes, NUL).  main.js computes the same over the files on disk and
+    restarts a service whose fingerprint differs (it outlives the app, so it
+    would otherwise keep running old code until the computer restarts).
+    """
+    root = Path(iter_dir) if iter_dir else ITER_DIR
+    relatives = [name for name in SERVICE_CODE_FILES if (root / name).is_file()]
+    runtime = root / "iterbrow_runtime"
+    if runtime.is_dir():
+        relatives += ["iterbrow_runtime/" + item.name for item in runtime.iterdir()
+                      if item.name.endswith(".py") and item.is_file()]
+    digest = hashlib.sha256()
+    for relative in sorted(relatives):
+        digest.update(relative.encode("utf-8") + b"\0" + (root / relative).read_bytes() + b"\0")
+    return digest.hexdigest()
+
+
+SERVICE_CODE_HASH = service_code_hash()
+
+
 def _log(message):
     print("[atomspace] %s" % message, flush=True)
 
@@ -249,15 +276,27 @@ class MettaSpace:
         if not code:
             raise ValueError("empty MeTTa code")
         snapshot = self.store.state_copy()
-        if view not in ("full", "current"):
-            raise ValueError("query view must be full or current")
-        # Explicit internal working view; historical queries keep full access.
-        # No stored atom is removed. All non-event atoms and source rules remain.
-        query_snapshot = snapshot
-        if view == "current":
+        if view not in ("full", "current", "kb"):
+            raise ValueError("query view must be full, current or kb")
+        # Knowledge-base atoms (state:kb_*) are evaluated ONLY in the "kb" view
+        # (source seeds + kb statements).  Hyperon 0.2.10 corrupts index reads
+        # depending on insertion order: with the owner's real space, loading
+        # the kb atoms among the rest made 39 of 65 NACE cap-efficacy reads and
+        # 260 of 272 kb statements come back wrong, while each set alone is
+        # exact.  Keeping them apart protects NACE and the gate (full/current)
+        # and keeps kb reasoning exact.  The atoms stay in the same durable
+        # journal and transactions; only query evaluation is separated.
+        if view == "kb":
             query_snapshot = {**snapshot, "atoms": {
                 key: atom for key, atom in snapshot["atoms"].items()
-                if not key.startswith("event:")
+                if key.startswith(KB_STATEMENT_PREFIX)
+            }}
+        else:
+            # "current" is the explicit internal working view (no event atoms);
+            # historical "full" queries keep every other atom.
+            query_snapshot = {**snapshot, "atoms": {
+                key: atom for key, atom in snapshot["atoms"].items()
+                if not key.startswith(KB_PREFIX) and not (view == "current" and key.startswith("event:"))
             }}
         view_hash = hashlib.sha256(json.dumps(query_snapshot["atoms"], sort_keys=True).encode()).hexdigest()
         if ("\n" not in code and code.startswith("(") and code.endswith(")")
@@ -412,6 +451,7 @@ class MettaSpace:
             "manifest_path": str(MANIFEST_PATH),
             "legacy_migration": self.legacy_migration,
             "kb_backfill": getattr(self, "kb_backfill", None),
+            "code_hash": SERVICE_CODE_HASH,
             "pid": os.getpid(),
             "das": self.das_projection.status(),
         }

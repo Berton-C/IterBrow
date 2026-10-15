@@ -86,8 +86,8 @@ def kb_atoms(root, kind):
     return root.call("read_atoms", {"prefix": "state:kb_%s:" % kind})["atoms"]
 
 
-def query(root, code, view="current"):
-    """Evaluate MeTTa against the test root's service; returns the result text."""
+def query(root, code, view="kb"):
+    """Evaluate MeTTa against the test root's service ("kb" view: seeds + kb statements); returns the result text."""
     return root.call("query", {"code": code, "view": view}, timeout=60)["result"]
 
 

@@ -8,6 +8,18 @@ evidence consistent in its own transaction. Premises are reported as the *stored
 (Hyperon prints them instantiated; `kb_inference._premise` maps them back by one-way matching).
 Two test assertions written before the seed vocabulary existed assumed an empty registry and
 were narrowed to non-seed terms (`bird` is a seed term, loaded `known` at service start).
+
+**Change after the first run on the owner's real data (2026-10-15): kb atoms get their own query
+view.** Loading the 1,025 backfilled kb atoms into the same Hyperon space as everything else made
+**39 of 65 NACE `cap-efficacy` reads** and **260 of 272 kb statements** come back wrong (Hyperon
+0.2.10 index corruption that depends on insertion order; the worker already warns about it). Each
+set alone was exact. So the authority still stores kb atoms in the same journal and transactions,
+but `metta_server.query` evaluates `state:kb_*` atoms only in `view="kb"` (source seeds + kb
+statements), and the `full`/`current` views that NACE and the gate use exclude them.
+`kb_inference.service_query` uses the kb view. Pinned by
+`test_kb_statements.ViewIsolationTests`. Also from that run: the AtomSpace service outlives the
+app, so main.js now restarts it when its code fingerprint (`status.code_hash`) differs from the
+code on disk, before Iter starts (`test_state_lifecycle_mainjs.AtomspaceServiceCodeUpgradeTests`).
 Tests: `tests/test_kb_*.py` (unit + real AtomSpace service) and
 `tests/e2e/test_kb_loop.py`; helpers in `tests/kb_support.py`. Every test is
 decorated `@pending("M5-xx")`, which is `unittest.expectedFailure`.
@@ -246,7 +258,7 @@ derived statements are drawn as a distinct node type. The unloaded
   `  [derived] <statement> (stv f c) ⇐ <premise>, <premise>` lines and, when more exist,
   `  (+N more derived; use kb_query)`. Memories without a formalization get no `Derived:` section.
 - `kb_inference.derive(run_query, depth=2, limit=64, budget_s=None) -> Derivations`:
-  `run_query(code: str) -> str` evaluates MeTTa in the isolated query path (the caller
+  `run_query(code: str) -> str` evaluates MeTTa in the isolated query path, `view="kb"` (the caller
   wraps `tools/_metta_substrate.run_query` or the service socket); `Derivations` is a
   `list` of dicts `{"statement", "stv": (f, c), "premises": [...], "depth"}` with a
   `.truncated: bool` attribute. Engine errors propagate (never swallowed into `[]`).

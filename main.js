@@ -818,6 +818,40 @@ async function waitForProcessExit(pid, timeoutMs = 5000) {
   return false;
 }
 
+// The AtomSpace service outlives the app (it owns the durable state), so a
+// code update would otherwise keep running the old service until the computer
+// restarts.  The service reports a fingerprint of its code (metta_server.py
+// service_code_hash: sorted relative path, NUL, bytes, NUL); this computes
+// the same over the files on disk.
+const SERVICE_CODE_FILES = ['metta_server.py', 'metta_query_worker.py'];
+
+function serviceCodeHash(iterDir = ITER_DIR) {
+  const isFile = (target) => { try { return fs.statSync(target).isFile(); } catch (_) { return false; } };
+  const relatives = SERVICE_CODE_FILES.filter((name) => isFile(path.join(iterDir, name)));
+  try {
+    for (const name of fs.readdirSync(path.join(iterDir, 'iterbrow_runtime'))) {
+      if (name.endsWith('.py') && isFile(path.join(iterDir, 'iterbrow_runtime', name))) {
+        relatives.push('iterbrow_runtime/' + name);
+      }
+    }
+  } catch (_) {}
+  relatives.sort();
+  const digest = crypto.createHash('sha256');
+  for (const relative of relatives) {
+    digest.update(Buffer.from(relative + '\0', 'utf8'));
+    digest.update(fs.readFileSync(path.join(iterDir, relative)));
+    digest.update(Buffer.from('\0', 'utf8'));
+  }
+  return digest.digest('hex');
+}
+
+// Restart only while Iter is not running: a restart drops in-flight memory
+// calls (they fail closed and are retryable, but there is no reason to cause it).
+function serviceRunsStaleCode(status) {
+  if (!status || iterProcess) return false;
+  return status.code_hash !== serviceCodeHash();
+}
+
 async function startMettaServerOwned() {
   await retireOwnedLegacyMettaServer();
   let currentStatus = null;
@@ -828,7 +862,16 @@ async function startMettaServerOwned() {
     return { error: `AtomSpace socket belongs to another checkout: ${currentStatus.state_dir}` };
   }
   if (currentStatus && currentStatus.ready && currentStatus.epoch && Number.isInteger(currentStatus.commit)) {
-    return { already: true, status: currentStatus };
+    if (!serviceRunsStaleCode(currentStatus)) return { already: true, status: currentStatus };
+    const running = currentStatus.code_hash ? String(currentStatus.code_hash).slice(0, 12) : 'a pre-fingerprint build';
+    pushLog(`[atomspace] service code changed on disk (running ${running}, on disk ${serviceCodeHash().slice(0, 12)}); restarting the service to load it`);
+    try {
+      await stopMettaServer();
+    } catch (error) {
+      pushLog('[atomspace] could not restart the service; keeping the running one: ' + error.message);
+      return { already: true, status: currentStatus };
+    }
+    currentStatus = null;
   }
   if (currentStatus) {
     pushLog('[atomspace] replacing pre-journal or unready service');
