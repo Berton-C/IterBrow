@@ -63,5 +63,21 @@ class ChatRenderingTests(unittest.TestCase):
         self.assertIn("var(--font-ui)", body)
 
 
+    def test_links_never_navigate_the_sidebar_including_the_preview(self):
+        js = (ROOT / "renderer" / "renderer.js").read_text(encoding="utf-8")
+        main = (ROOT / "main.js").read_text(encoding="utf-8")
+        # one capture-phase handler covers the chat, the composer preview and every panel
+        self.assertIn("document.addEventListener('click', (event) => {\n  const anchor = event.target.closest('a[href]');\n  if (!anchor) return;\n  event.preventDefault();", js)
+        self.assertNotIn("chat.addEventListener('click'", js)
+        self.assertIn("if (event.target.closest('a')) return; // the link opened as a tab; keep previewing", js)
+        # and the main process refuses any navigation of the three UI views
+        self.assertIn("function pinUiViewToItsPage(view, name)", main)
+        self.assertIn("contents.on('will-navigate', (event, url) => {", main)
+        self.assertIn("contents.setWindowOpenHandler(({ url }) => { openAsTab(url); return { action: 'deny' }; });", main)
+        for view in ("sidebarView", "toolbarView", "tabstripView"):
+            self.assertIn("pinUiViewToItsPage(%s," % view, main)
+            self.assertLess(main.index("pinUiViewToItsPage(%s," % view), main.index("%s.webContents.loadFile" % view))
+
+
 if __name__ == "__main__":
     unittest.main()

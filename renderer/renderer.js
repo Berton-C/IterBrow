@@ -81,14 +81,16 @@ function renderChatMessages() {
   if (stickToBottom) chat.scrollTop = chat.scrollHeight;
 }
 
-// Links in chat open as browser tabs; the sidebar itself never navigates.
-chat.addEventListener('click', (event) => {
+// A link anywhere in the sidebar (chat, composer preview, panels) opens as a
+// browser tab; the sidebar page itself never navigates. main.js enforces the
+// same rule at the process level in case a click slips past this handler.
+document.addEventListener('click', (event) => {
   const anchor = event.target.closest('a[href]');
-  if (!anchor || !chat.contains(anchor)) return;
+  if (!anchor) return;
   event.preventDefault();
   const href = window.IterMarkdown.safeHref(anchor.getAttribute('href'));
   if (href && /^https?:/i.test(href)) window.iterApi.newTab(href);
-});
+}, true);
 
 function mergeChatMessage(message) {
   const normalized = typeof message === 'string'
@@ -246,7 +248,8 @@ function togglePreview(force) {
 }
 btnPreview.addEventListener('click', () => togglePreview());
 composerPreview.addEventListener('click', (event) => {
-  if (!event.target.closest('a')) togglePreview(false);
+  if (event.target.closest('a')) return; // the link opened as a tab; keep previewing
+  togglePreview(false);
 });
 
 chatInput.addEventListener('keydown', (e) => {

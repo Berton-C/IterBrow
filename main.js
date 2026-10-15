@@ -433,6 +433,24 @@ async function superviseAppRevision() {
   }
 }
 
+// The sidebar, toolbar and tab strip are app UI, not browser tabs. Nothing
+// may navigate them away from their own page (a link in a chat preview once
+// loaded github.com into the sidebar, which has no way back) or open a
+// window from them. A link clicked there opens as a browser tab instead.
+function pinUiViewToItsPage(view, name) {
+  const contents = view.webContents;
+  const openAsTab = (url) => {
+    if (/^https?:\/\//i.test(url) && tabs) tabs.createTab(url);
+    else pushLog(`[ui] ${name} refused navigation to ${String(url).slice(0, 120)}`);
+  };
+  contents.on('will-navigate', (event, url) => {
+    if (url === contents.getURL()) return; // reload of its own page
+    event.preventDefault();
+    openAsTab(url);
+  });
+  contents.setWindowOpenHandler(({ url }) => { openAsTab(url); return { action: 'deny' }; });
+}
+
 async function recoverRevisionBeforeStart() {
   const result = await runHotloadControl('recover-startup');
   if (result.action === 'rolled_back') {
@@ -2209,6 +2227,7 @@ async function createWindow() {
   chatBridge = makeChatBridge(ITER_DIR, (message) => {
     if (sidebarView) sidebarView.webContents.send('chat:incoming', message);
   }, { log: pushLog });
+  pinUiViewToItsPage(sidebarView, 'sidebar');
   sidebarView.webContents.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   powerMonitor.on('unlock-screen', () => reconcileSidebarAfterSystemResume('unlock-screen'));
   powerMonitor.on('resume', () => reconcileSidebarAfterSystemResume('resume'));
@@ -2225,6 +2244,7 @@ async function createWindow() {
   win.contentView.addChildView(toolbarView);
   toolbarView.setBackgroundColor(SIDEBAR_BG);
   toolbarView.setBounds(toolbarBounds());
+  pinUiViewToItsPage(toolbarView, 'toolbar');
   toolbarView.webContents.loadFile(path.join(__dirname, 'renderer', 'toolbar.html'));
 
   // Full-width tab strip, sitting above everything -- sidebar, toolbar, and
@@ -2241,6 +2261,7 @@ async function createWindow() {
   win.contentView.addChildView(tabstripView);
   tabstripView.setBackgroundColor(SIDEBAR_BG);
   tabstripView.setBounds(tabstripBounds());
+  pinUiViewToItsPage(tabstripView, 'tabstrip');
   tabstripView.webContents.loadFile(path.join(__dirname, 'renderer', 'tabstrip.html'));
 
   tabs = new TabManager(win, { getContentBounds: contentBounds, pwqPath: path.join(ITER_DIR, 'pwq.html') });
