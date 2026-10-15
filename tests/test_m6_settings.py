@@ -32,7 +32,6 @@ class SettingsFileTests(unittest.TestCase):
         path.write_text(json.dumps(payload))
         return path
 
-    @pending("M6-B1")
     def test_missing_file_means_defaults_forks_and_brief_on_everything_else_off(self):
         s = soul_settings()
         settings = s.load()
@@ -45,7 +44,6 @@ class SettingsFileTests(unittest.TestCase):
         self.assertEqual(s.budget(), 1)
         self.assertFalse((Path(self.temp) / ".runtime" / "soul_settings.json").exists(), "reading never writes")
 
-    @pending("M6-B1")
     def test_settings_are_scoped_to_the_current_person(self):
         self._write({"schema_version": 1, "person": "bright",
                      "people": {"bright": {"features": {"forks": False, "read": True}, "frequency": "whisper",
@@ -67,7 +65,6 @@ class SettingsFileTests(unittest.TestCase):
         self.assertEqual(unknown["features"]["forks"], True)
         self.assertEqual(unknown["features"]["read"], False)
 
-    @pending("M6-B1")
     def test_corrupt_values_fall_back_without_raising(self):
         self._write({"schema_version": 1, "person": "berton",
                      "people": {"berton": {"features": "nope", "frequency": "loud", "tone": 7, "budget_per_cycle": -3}}})
@@ -79,7 +76,6 @@ class SettingsFileTests(unittest.TestCase):
         (Path(self.temp) / ".runtime" / "soul_settings.json").write_text("{not json")
         self.assertEqual(soul_settings().person(), "guest")
 
-    @pending("M6-B1")
     def test_manifest_declares_the_file_as_portable_application_state_not_reset(self):
         entries = {e["path"]: e for e in read_manifest()["entries"]}
         entry = entries.get(".runtime/soul_settings.json")
@@ -92,7 +88,6 @@ class SettingsFileTests(unittest.TestCase):
 class PanelTests(unittest.TestCase):
     """M6-B2: the sidebar Soul panel and its own IPC."""
 
-    @pending("M6-B2")
     def test_dock_panel_is_registered_after_settings(self):
         js = (REPO / "renderer" / "renderer.js").read_text(encoding="utf-8")
         html = (REPO / "renderer" / "index.html").read_text(encoding="utf-8")
@@ -109,7 +104,6 @@ class PanelTests(unittest.TestCase):
         for person in ("berton", "bright", "haley", "guest"):
             self.assertIn('value="%s"' % person, html, person)
 
-    @pending("M6-B2")
     def test_soul_settings_have_their_own_ipc_and_never_touch_model_keys(self):
         main = (REPO / "main.js").read_text(encoding="utf-8")
         preload = (REPO / "preload.js").read_text(encoding="utf-8")
@@ -123,7 +117,6 @@ class PanelTests(unittest.TestCase):
         self.assertNotIn("saveSettings(", save, "Soul tuning is not merged into settings.json")
         self.assertIn("0o600", save)
 
-    @pending("M6-B2")
     def test_person_selector_is_the_one_source_of_who_is_here(self):
         main = (REPO / "main.js").read_text(encoding="utf-8")
         # Every choice IPC takes the person from the soul settings file, never from the renderer's claim.
@@ -152,13 +145,11 @@ class PromptTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         return json.loads(proc.stdout.strip().splitlines()[-1])
 
-    @pending("M6-B3")
     def test_all_features_off_adds_nothing(self):
         msgs = self._run_presence({"schema_version": 1, "person": "berton",
                                    "people": {"berton": {"features": {f: False for f in FEATURES}}}})
         self.assertEqual(msgs, [{"role": "system", "content": "base"}])
 
-    @pending("M6-B3")
     def test_features_on_add_exactly_one_short_block_naming_the_person(self):
         msgs = self._run_presence({"schema_version": 1, "person": "bright",
                                    "people": {"bright": {"features": {"forks": True, "read": True}, "tone": "playful"}}})

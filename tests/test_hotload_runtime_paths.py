@@ -68,7 +68,7 @@ class HotloadRuntimePathTests(unittest.TestCase):
                     "tools/mm_scan.py", canonical, generation, "relocated_mattermost"
                 )
                 soul = self._load_generation_copy(
-                    "transformations/soul_check.py", canonical, generation,
+                    "transformations/soul_presence.py", canonical, generation,
                     "relocated_soul",
                 )
             finally:
@@ -102,7 +102,7 @@ class HotloadRuntimePathTests(unittest.TestCase):
                 with mock.patch.dict(os.environ, {}, clear=False):
                     os.environ.pop("ITER_DIR", None)
                     module = self._load_generation_copy_without_env(
-                        "transformations/soul_check.py", generation,
+                        "transformations/soul_presence.py", generation,
                         "relocated_soul_cwd_fallback",
                     )
             finally:

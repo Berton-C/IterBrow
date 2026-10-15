@@ -28,6 +28,8 @@ contextBridge.exposeInMainWorld('iterApi', {
   reload: (id) => ipcRenderer.invoke('tabs:reload', id),
 
   sendChat: (content) => ipcRenderer.invoke('chat:send', content),
+  // Card answers: main.js adds who is here (soul settings) and records the choice.
+  sendChoice: (cardId, choiceId, label) => ipcRenderer.invoke('chat:choice', cardId, choiceId, label),
   chatHistory: () => ipcRenderer.invoke('chat:history'),
   onChatIncoming: (cb) => ipcRenderer.on('chat:incoming', (_e, message) => cb(message)),
 
@@ -40,6 +42,8 @@ contextBridge.exposeInMainWorld('iterApi', {
   onUiResume: (cb) => ipcRenderer.on('ui:resume', (_e, info) => cb(info)),
 
   loadSettings: () => ipcRenderer.invoke('settings:load'),
+  loadSoulSettings: () => ipcRenderer.invoke('soul:load'),
+  saveSoulSettings: (settings) => ipcRenderer.invoke('soul:save', settings),
   saveSettings: (settings) => ipcRenderer.invoke('settings:save', settings),
 
   permissionsStatus: () => ipcRenderer.invoke('permissions:status'),

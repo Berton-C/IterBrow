@@ -31,7 +31,27 @@ def upload_html(html_doc):
         pass
 
 
-KB_KEYS = ("statements", "terms_known", "terms_provisional", "evidence", "derived", "nace_beliefs")
+KB_KEYS = ("statements", "terms_known", "terms_provisional", "evidence", "derived", "nace_beliefs",
+           "soul_choices", "soul_last")
+_SOUL_CHOICE = None
+
+
+def soul_choice_counts(atoms):
+    """(count, last {kind, pick, at} or None) from state:soul_choice:* atoms (M6)."""
+    import re
+    global _SOUL_CHOICE
+    if _SOUL_CHOICE is None:
+        _SOUL_CHOICE = re.compile(r'\(soul-choice "(?:[^"\\]|\\.)*" "((?:[^"\\]|\\.)*)" "(?:[^"\\]|\\.)*" "((?:[^"\\]|\\.)*)" (\d+)\)')
+    last = None
+    count = 0
+    for key, atom in atoms.items():
+        if not key.startswith("state:soul_choice:"):
+            continue
+        count += 1
+        match = _SOUL_CHOICE.match(atom)
+        if match and (last is None or int(match.group(3)) > last["at"]):
+            last = {"kind": match.group(1), "pick": match.group(2), "at": int(match.group(3))}
+    return count, last
 CACHE_FILE = ROOT + "/transformations/.runtime/dashboard_kb_cache.json"
 
 
@@ -45,6 +65,7 @@ def authority_counts(read_atoms, derive):
     try:
         kb = read_atoms("state:kb_")
         nace = read_atoms("state:nace_belief:")
+        soul = read_atoms("state:soul_choice:")
     except Exception:
         return dict({"status": "authority unreachable", "loaded": False}, **{key: None for key in KB_KEYS})
     from iterbrow_runtime.kb_terms import parse_term_atom
@@ -70,6 +91,8 @@ def authority_counts(read_atoms, derive):
         "evidence": sum(1 for key in kb if key.startswith("state:kb_evidence:")),
         "derived": derived,
         "nace_beliefs": len(nace),
+        "soul_choices": soul_choice_counts(soul)[0],
+        "soul_last": soul_choice_counts(soul)[1],
     }
 
 
@@ -123,13 +146,18 @@ def _read_authority():
         return snapshot["atoms"]
 
     def derive():
+        # Conclusions depend only on the kb statements: key the cache by their
+        # digest, so commits that touch nothing else (NACE writes every cycle)
+        # never pay for re-deriving.
         if "derived" in state:
             return state["derived"]
-        commit = state.get("commit")
+        import hashlib
+        statements = _call_atomspace("read_atoms", timeout=10, prefix="state:kb_statement:")["atoms"]
+        digest = hashlib.sha256(json.dumps(statements, sort_keys=True).encode()).hexdigest()
         try:
             with open(CACHE_FILE) as handle:
                 cached = json.load(handle)
-            if cached.get("commit") == commit:
+            if cached.get("statements_digest") == digest:
                 state["derived"] = cached["derived"]
                 return state["derived"]
         except Exception:
@@ -138,7 +166,7 @@ def _read_authority():
         try:
             os.makedirs(os.path.dirname(CACHE_FILE), exist_ok=True)
             with open(CACHE_FILE + ".tmp", "w") as handle:
-                json.dump({"commit": commit, "derived": state["derived"]}, handle)
+                json.dump({"statements_digest": digest, "computed_at": time.time(), "derived": state["derived"]}, handle)
             os.replace(CACHE_FILE + ".tmp", CACHE_FILE)
         except Exception:
             pass
@@ -163,6 +191,35 @@ def _authority_view():
         except Exception:
             pass
     return counts, graph, state.get("commit")
+
+
+def _soul_section(counts):
+    """Soul card (M6): who is here, features on, choices recorded. Numbers from atoms."""
+    try:
+        import sys
+        iter_dir = os.environ.get("ITER_DIR") or os.getcwd()
+        if iter_dir not in sys.path:
+            sys.path.insert(0, iter_dir)
+        from iterbrow_runtime import soul_settings
+        person = soul_settings.person()
+        features = soul_settings.enabled_features()
+    except Exception:
+        person, features = "unknown", []
+    if not counts.get("loaded"):
+        body = '<span class="label">authority unreachable</span>'
+    elif not counts.get("soul_choices"):
+        body = '<span class="label">no Soul activity yet</span>'
+    else:
+        last = counts.get("soul_last") or {}
+        when = time.strftime("%Y-%m-%d %H:%M", time.localtime(last.get("at", 0) / 1000.0)) if last else ""
+        body = ('<span class="graph-chip">choices <strong>%s</strong></span>'
+                '<span class="graph-chip">last <strong>%s → %s</strong> %s</span>'
+                % (counts["soul_choices"], _escape_html(last.get("kind", "")), _escape_html(last.get("pick", "")),
+                   _escape_html(when)))
+    note = "%s · features on: %s" % (person, ", ".join(features) if features else "none")
+    return ('<section class="card"><div class="card-head"><h2 class="card-title">Soul</h2>'
+            '<span class="card-note">' + _escape_html(note) + '</span></div>'
+            '<div class="card-body" style="display:flex;flex-wrap:wrap;gap:6px">' + body + '</div></section>')
 
 
 def _comment_json(value):
@@ -260,6 +317,7 @@ code,pre{font-family:var(--mono)}
         '<!--counts:' + _comment_json(counts) + '-->'
         '<!--graph:' + space_graph_data + '-->'
     )
+    soul_section = _soul_section(counts)
     space_viz_section = (
         '<section class="card">'
         '<div class="card-head"><h2 class="card-title">Space Visualization</h2>'
@@ -376,7 +434,7 @@ code,pre{font-family:var(--mono)}
         '<header class="page-head"><div><h1 class="page-title">Eray Index <span style="color:#66707d;font-weight:400">/ Atom Space</span></h1>'
         '<div class="page-subtitle">Knowledge base as the AtomSpace authority holds it: statements, evidence, derived conclusions, terms.</div></div>'
         '<div class="clock"><span class="clock-label">Local snapshot</span>' + _escape_html(now) + '</div></header>'
-        + '<div class="grid">' + kb_section + space_viz_section + space_section + '</div>'
+        + '<div class="grid">' + kb_section + soul_section + space_viz_section + space_section + '</div>'
         + '<div class="f">Generated by Iter · transformations/dashboard_atomspace.py · refresh 15s</div>'
         '</main></body></html>'
     )

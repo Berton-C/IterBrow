@@ -164,21 +164,6 @@ class DomainBridgeTests(unittest.TestCase):
             self.assertEqual(len(commits), 1)
             self.assertEqual(json.loads(projection.read_text())["ids"], ["m1"])
 
-    def test_soul_registry_commits_before_projection(self):
-        module = load_module("tools/soul_skill_registry.py")
-        with tempfile.TemporaryDirectory() as temp:
-            projection = Path(temp) / "soul_skills.json"
-            module.SKILLS_PATH = str(projection)
-
-            def commit(*_args, **_kwargs):
-                self.assertFalse(projection.exists())
-                return {"commit": 1}
-
-            module.commit_event = commit
-            result = json.loads(module.run("seed"))
-            self.assertGreater(result["seeded"], 0)
-            self.assertTrue(projection.exists())
-
     def test_nace_batch_commits_before_belief_and_queue_projections(self):
         module = load_module("transformations/nace_courier.py")
         self.native_revision_fixture(module)

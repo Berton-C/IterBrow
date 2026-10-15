@@ -19,7 +19,6 @@ SEED = ITER_SRC / "seeds" / "soul_kernel.metta"
 class SeedTests(unittest.TestCase):
     """M6-C1"""
 
-    @pending("M6-C1")
     def test_seed_is_declared_and_holds_the_reference_atom_counts(self):
         self.assertTrue(SEED.exists(), SEED)
         entries = {e["path"]: e for e in read_manifest()["entries"]}
@@ -41,7 +40,6 @@ class SeedTests(unittest.TestCase):
         for forbidden in ("output-verdict", "operation-risk", "soul-mutation", "aliveness", "soul-file-class"):
             self.assertNotIn(forbidden, text, forbidden)
 
-    @pending("M6-C1")
     def test_facet_texts_are_verbatim_from_the_reference_when_available(self):
         reference = reference_kernel()
         if reference is None:
@@ -72,7 +70,6 @@ class ViewTests(unittest.TestCase):
     def _q(self, code, view):
         return self.r.call("query", {"code": code, "view": view}, timeout=60)["result"]
 
-    @pending("M6-C2")
     def test_soul_view_answers_pair_and_pattern_queries(self):
         self.assertIn("True", self._q("!(soul-paraconsistent? TimeCoherence CreativeTranscendence)", "soul"))
         self.assertIn("False", self._q("!(soul-paraconsistent? TimeCoherence AgencyBalance)", "soul"))
@@ -81,7 +78,6 @@ class ViewTests(unittest.TestCase):
             self.assertIn(pattern, out)
         self.assertIn("Capture is quiet", self._q("!(match &self (soul-pattern-moat AgencyBalance $t) $t)", "soul"))
 
-    @pending("M6-C2")
     def test_other_views_do_not_see_soul_atoms_and_soul_view_does_not_see_nace(self):
         self.r.call("transact", {"operations": [{"op": "upsert", "key": "state:nace_belief:cap-efficacy:shell",
                                                  "atom": "(cap-efficacy shell (stv 0.9 0.8))"}],
@@ -93,7 +89,6 @@ class ViewTests(unittest.TestCase):
             self.assertIn("(stv 0.9 0.8)", self._q("!(match &self (cap-efficacy shell $v) $v)", view), view)
         self.assertNotIn("0.9 0.8", self._q("!(match &self (cap-efficacy shell $v) $v)", "soul"))
 
-    @pending("M6-C2")
     def test_soul_choices_are_visible_in_the_soul_view(self):
         self.r.call("transact", {"operations": [{"op": "upsert", "key": "state:soul_choice:card-1",
                                                  "atom": '(soul-choice "berton" "fork" "card-1" "a" 1700000000123)'}],
@@ -110,7 +105,6 @@ class LensTests(unittest.TestCase):
         self.addCleanup(self.r.close)
         self.r.start()
 
-    @pending("M6-C3")
     def test_lens_text_holds_every_pattern_and_gap_signature_verbatim(self):
         import os
         with unittest.mock.patch.dict(os.environ, {"ITER_DIR": str(self.r.root), "ITER_METTA_SOCKET": str(self.r.sock)}):
@@ -136,7 +130,6 @@ class LensTests(unittest.TestCase):
         for path in (ITER_SRC / "transformations").glob("*.py"):
             self.assertNotIn(needle, path.read_text(encoding="utf-8"), path.name)
 
-    @pending("M6-C3")
     def test_reflect_tool_returns_lens_text_for_named_patterns_and_declared_pairs(self):
         out = self.r.text("soul_reflect", situation="urgency pressure while deciding between TimeCoherence and CreativeTranscendence")
         self.assertIn("TimeCoherence", out)

@@ -17,6 +17,7 @@ if (!hasSingleInstanceLock) app.quit();
 const { TabManager } = require('./bridge/tab_manager');
 const { inspectSocketPath, startBridgeServer } = require('./bridge/browser_bridge_server');
 const contextMenu = require('./bridge/context_menu');
+const { recordSoulChoice } = require('./bridge/soul_choice');
 const { makeChatBridge } = require('./bridge/chat_bridge');
 const { retirePreviousIter } = require('./bridge/iter_process_owner');
 const OPENAI_CATALOG = require('./iter/iterbrow_runtime/openai_models.json');
@@ -201,6 +202,47 @@ function saveSettings(settings) {
   fs.mkdirSync(path.dirname(SETTINGS_PATH), { recursive: true });
   fs.writeFileSync(SETTINGS_PATH, JSON.stringify(stored, null, 2), { mode: 0o600 });
   fs.chmodSync(SETTINGS_PATH, 0o600);
+}
+
+// Soul settings, per person (docs/milestones/M6_soul_base.md section B). Kept
+// apart from settings.json so Soul tuning and model keys never share a file.
+// iter/iterbrow_runtime/soul_settings.py reads the same file and validates it.
+const SOUL_SETTINGS_PATH = path.join(ITER_DIR, '.runtime', 'soul_settings.json');
+const SOUL_FEATURES = ['forks', 'brief', 'read', 'wonder', 'felt', 'browsing_ally', 'margin'];
+
+function loadSoulSettings() {
+  try {
+    const saved = JSON.parse(fs.readFileSync(SOUL_SETTINGS_PATH, 'utf8'));
+    if (saved && typeof saved === 'object') {
+      return {
+        schema_version: 1,
+        person: typeof saved.person === 'string' && saved.person.trim() ? saved.person.trim().toLowerCase() : 'guest',
+        people: saved.people && typeof saved.people === 'object' ? saved.people : {},
+      };
+    }
+  } catch (_) {}
+  return { schema_version: 1, person: 'guest', people: {} };
+}
+
+function cleanSoulSettings(input) {
+  const person = typeof input?.person === 'string' && /^[a-z0-9_-]{1,40}$/i.test(input.person.trim())
+    ? input.person.trim().toLowerCase() : 'guest';
+  const people = {};
+  for (const [name, profile] of Object.entries(input?.people || {})) {
+    if (!/^[a-z0-9_-]{1,40}$/i.test(name) || !profile || typeof profile !== 'object') continue;
+    const features = {};
+    for (const feature of SOUL_FEATURES) {
+      if (typeof profile.features?.[feature] === 'boolean') features[feature] = profile.features[feature];
+    }
+    const clean = { features };
+    if (['whisper', 'occasional', 'chatty'].includes(profile.frequency)) clean.frequency = profile.frequency;
+    if (['warm', 'plain', 'playful'].includes(profile.tone)) clean.tone = profile.tone;
+    if (Number.isInteger(profile.budget_per_cycle) && profile.budget_per_cycle >= 0 && profile.budget_per_cycle <= 8) {
+      clean.budget_per_cycle = profile.budget_per_cycle;
+    }
+    people[name.toLowerCase()] = clean;
+  }
+  return { schema_version: 1, person, people };
 }
 
 function persistIterDesiredRunning(desired) {
@@ -2473,6 +2515,27 @@ ipcMain.handle('chat:send', (_e, content) => {
   return chatBridge.sendToIter(content);
 });
 ipcMain.handle('chat:history', () => (chatBridge ? chatBridge.history() : []));
+// A card answer. Who is here comes from the soul settings, never from the
+// renderer. The choice reaches Iter through the bridge first; the calibration
+// atom is best effort (queued by recordSoulChoice when the service is down).
+ipcMain.handle('chat:choice', async (_e, cardId, choiceId) => {
+  if (!chatBridge) throw new Error('Chat bridge is not ready');
+  const person = loadSoulSettings().person;
+  const card = chatBridge.history().find((message) => message.card && message.card.id === cardId);
+  if (!card) throw new Error('That card is no longer in the conversation');
+  if (chatBridge.history().some((message) => message.choice && message.choice.card === cardId)) {
+    return { duplicate: true };
+  }
+  const chosen = card.card.choices.find((choice) => choice.id === choiceId);
+  if (!chosen && choiceId !== 'dismiss') throw new Error('Unknown choice for that card');
+  // The label comes from the card Iter sent, not from the renderer's copy.
+  const message = chatBridge.sendChoice(cardId, choiceId, person, chosen ? chosen.label : '');
+  recordSoulChoice({
+    socket: ITER_METTA_SOCKET, iterDir: ITER_DIR, person, kind: card.card.kind,
+    cardId, pick: choiceId, at: message.at,
+  }).catch((error) => pushLog('[soul] choice not recorded: ' + error.message));
+  return message;
+});
 ipcMain.handle('iter:start', () => startIterWithAtomspace());
 ipcMain.handle('iter:stop', () => stopIter());
 ipcMain.handle('metta:status', async () => ({ running: await pingMettaServer() }));
@@ -2491,6 +2554,15 @@ ipcMain.handle('settings:load', () => {
 ipcMain.handle('settings:save', (_e, settings) => {
   saveSettings(settings);
   return { saved: true };
+});
+// Soul settings live in their own file (never merged into settings.json).
+ipcMain.handle('soul:load', () => loadSoulSettings());
+ipcMain.handle('soul:save', (_e, settings) => {
+  const clean = cleanSoulSettings(settings);
+  fs.mkdirSync(path.dirname(SOUL_SETTINGS_PATH), { recursive: true });
+  fs.writeFileSync(SOUL_SETTINGS_PATH, JSON.stringify(clean, null, 2), { mode: 0o600 });
+  fs.chmodSync(SOUL_SETTINGS_PATH, 0o600);
+  return clean;
 });
 
 // Permissions panel -- human-facing status/grant/revoke-shortcut controls.

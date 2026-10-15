@@ -407,8 +407,8 @@ def _determine_trust_stage(lifecycle, confidence):
 
 def _log_probe(cap, trust_stage, confidence, detail):
     # Append one small entry to a size-capped, human-readable probe log.
-    # This is deliberately NOT the calibration ledger (nace_beliefs.metta /
-    # soul_gate_log.json stay the sources of truth for real evidence) -- it's
+    # This is deliberately NOT the calibration ledger (nace_beliefs.metta
+    # stays the source of truth for real evidence) -- it's
     # just visibility into what happened the first few times an
     # under-evidenced capability actually ran, so a human (or a future
     # capability) reviewing candidate/probe_eligible capabilities has

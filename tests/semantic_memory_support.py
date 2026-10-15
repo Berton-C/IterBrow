@@ -23,7 +23,7 @@ ITER_SRC = REPO / "iter"
 PYTHON = sys.executable
 RUNNER = Path(__file__).resolve().parent / "semantic_tool_runner.py"
 
-COPY = ["tools", "iterbrow_runtime", "seeds", "transformations", "kb_substrate.metta",
+COPY = ["tools", "iterbrow_runtime", "seeds", "transformations", "channels", "kb_substrate.metta",
         "capability_lifecycle.metta", "self_map.metta", "state_manifest.json",
         "metta_server.py", "metta_query_worker.py"]
 SKIP = shutil.ignore_patterns("__pycache__", ".runtime", "*.pyc", "scratch")

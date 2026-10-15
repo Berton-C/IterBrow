@@ -378,10 +378,9 @@ were confirmation.
 | `shell` | Run bash commands in the shared browser filesystem |
 | `browser_screenshot` | Capture the current browser viewport |
 | `websearch` | Search the web — 5-backend cascade: DDG IA, Wikipedia search, Wikipedia OpenSearch, HN Algolia, DDG HTML via CORS proxy. Returns JSON results. |
-| `soul_eval` | ClarityOmega 4-channel soul evaluation: person read → verdict+gap detection → aliveness gate → voice |
-| `soul_lock` | Soul namespace mutation lock: begin → verify → commit/rollback |
-| `test_soul_absent` | Verify system degrades gracefully without soul components |
-| `soul_skill_registry` | Soul skill registry: tracks skills, maturity, autonomous self-authoring |
+| `soul_lock` | Mutation lock (begin → verify → commit/rollback) around the Soul kernel seed and the NACE belief files |
+| `soul_reflect` | Read a situation through the Soul lens: facets of the named patterns, tension vectors, declared pairs. No ruling |
+| `card` | Show the person a sidebar card with 1-3 choices; their click returns as a `[choice ...]` user line |
 | `tool_reliability` | Query NAL truth-weighted tool reliability scores |
 
 ## Memory Architecture
@@ -444,12 +443,12 @@ were confirmation.
 | `dashboard_*.py` | Browser dashboards (atomspace, context, gallery, runtime) |
 | `dashboard_beliefs_refresh.py` | Refreshes `.runtime/pages/beliefs_layer.html`'s f/c meters from the real `strength`/`confidence` fields on its 5 backing chroma memories (H1-H5); no-ops when nothing changed. See "Founding Epistemics beliefs layer" below. |
 | `provenance_guard.py` | Structurally checks new code written via shell/python this session for the two 2026-09-14 beliefs_layer incident bug shapes (misplaced hook, unproduced metadata key) and feeds real evidence into the `verify_before_claiming` NAL pattern. See "Provenance Guard" below. |
-| `admit_uncertainty_bridge.py` | Feeds real evidence into `admit_uncertainty` (Cognitive Resilience) and `verify_before_claiming` (Shared Understanding) from one signal: an unverified completion-style claim in the assistant's own text. See "Flourishing Reinterpretation" below. |
-| `time_coherence_bridge.py` | Feeds real evidence into `backup_before_change` (Time Coherence) by watching `soul_lock.json` for a transaction left locked past `STALE_SECONDS` vs. one that clears cleanly. See "Flourishing Reinterpretation" below. |
-| `attention_stewardship_bridge.py` | Feeds real evidence into `conserve_cycles` (Attention Stewardship) by comparing actual tool-call count since the last `send` against `dynamic_tool_budget.py`'s declared budget, judged only at completed-cycle boundaries. See "Flourishing Reinterpretation" below. |
-| `creative_transcendence_bridge.py` | Feeds real evidence into `learn_from_experience` (Creative Transcendence) by checking whether `dynamic_tool_budget.py` actually hid a tool once `tool_reliability_tracker.py` accumulated enough low-reliability evidence on it. See "Flourishing Reinterpretation" below. |
-| `wonder_preservation_bridge.py` | Feeds real evidence into `explore_with_purpose` (Wonder Preservation) by reading `stall_detect.py`'s own persisted state across consecutive cycles: a repeated-tool loop that persists vs. one that gets broken. See "Flourishing Reinterpretation" below. |
-| `connection_depth_bridge.py` | Feeds real evidence into `recover_gracefully` (Connection Depth) by reusing `auto_improve.py`'s own `ERROR_PATTERNS` against `transcript.txt`: an error surfaced to the user via `send` vs. one worked around in silence past a threshold. See "Flourishing Reinterpretation" below. |
+| `admit_uncertainty_bridge.py` | Feeds real evidence into `admit_uncertainty` (Cognitive Resilience) and `verify_before_claiming` (Shared Understanding) from one signal: an unverified completion-style claim in the assistant's own text. See "NACE telemetry: the nine pattern bridges" below. |
+| `time_coherence_bridge.py` | Feeds real evidence into `backup_before_change` (Time Coherence) by watching `soul_lock.json` for a transaction left locked past `STALE_SECONDS` vs. one that clears cleanly. See "NACE telemetry: the nine pattern bridges" below. |
+| `attention_stewardship_bridge.py` | Feeds real evidence into `conserve_cycles` (Attention Stewardship) by comparing actual tool-call count since the last `send` against `dynamic_tool_budget.py`'s declared budget, judged only at completed-cycle boundaries. See "NACE telemetry: the nine pattern bridges" below. |
+| `creative_transcendence_bridge.py` | Feeds real evidence into `learn_from_experience` (Creative Transcendence) by checking whether `dynamic_tool_budget.py` actually hid a tool once `tool_reliability_tracker.py` accumulated enough low-reliability evidence on it. See "NACE telemetry: the nine pattern bridges" below. |
+| `wonder_preservation_bridge.py` | Feeds real evidence into `explore_with_purpose` (Wonder Preservation) by reading `stall_detect.py`'s own persisted state across consecutive cycles: a repeated-tool loop that persists vs. one that gets broken. See "NACE telemetry: the nine pattern bridges" below. |
+| `connection_depth_bridge.py` | Feeds real evidence into `recover_gracefully` (Connection Depth) by reusing `auto_improve.py`'s own `ERROR_PATTERNS` against `transcript.txt`: an error surfaced to the user via `send` vs. one worked around in silence past a threshold. See "NACE telemetry: the nine pattern bridges" below. |
 | `history.py` | Stores episodes (deduped, restart-safe) |
 | `recap.py` | Recap cursor + `## Recap Request` in the system message; injects the newest episodes |
 | `screenshot.py` | Attaches screenshot as one-shot multimodal input |
@@ -457,7 +456,7 @@ were confirmation.
 | `tool_reliability_tracker.py` | Tracks reliability of tools |
 | `transcript.py` | Maintains text communication transcript |
 | `auto_improve.py` | Threshold-gated self-improvement: detects pain (tool reliability, errors, memory pressure), sets `.improve_needed` flag |
-|`staleness_check.py` | Detects active files not documented in AGENTS.md, flags warning. Since 2026-09-15 also feeds `maintain_memory` (Purpose Beyond Utility): a documentation-drift streak of `_PATTERN_STREAK_THRESHOLD` (3) consecutive stale cycles records `violated`; clearing after being flagged records `confirmed`. See "Flourishing Reinterpretation" below. |
+|`staleness_check.py` | Detects active files not documented in AGENTS.md, flags warning. Since 2026-09-15 also feeds `maintain_memory` (Purpose Beyond Utility): a documentation-drift streak of `_PATTERN_STREAK_THRESHOLD` (3) consecutive stale cycles records `violated`; clearing after being flagged records `confirmed`. See "NACE telemetry: the nine pattern bridges" below. |
 |`zz_context_budget.py` | Context budget coordinator: structured section tagging, dynamic budget derivation, extensible dedup, feedback loop, multi-message support |
 |`zz_quota_guard.py` | Log rotation (transcript 200 lines, history 500 lines), screenshot sweep (max 6), storage warning (5MB) |
 
@@ -520,86 +519,34 @@ registry from day one, not as an afterthought:
   the system's own trial-and-error then grows, rather than a bolted-on
   capability the registry never sees.
 
-## Soul System
+## Soul
 
-Iter has a Soul -- a value-driven evaluation system encoded in its own MeTTa atom space.
+Rebuilt 2026-10-15 (Milestone 6). Direction: `docs/soul/SOUL_IN_THE_FOUNDRY.md`; what the
+spec says and what the previous version did: `docs/soul/SOUL_FIDELITY_AUDIT.md`. In
+IterBrow the Soul is an ally in what the person is making. **It gates nothing, pauses
+nothing and vetoes nothing; it offers, the person decides.**
 
-### Core Values (9)
-Grounded in Iter's lived experience (E1-E18), not abstract philosophy:
+What exists now (Milestone 6, the base; features that speak come in M7+):
+- **Kernel atoms** — `seeds/soul_kernel.metta`, ported verbatim from ClarityOmega
+  (`scripts/port_soul_kernel.py`): five priorities (declared, not used for routing), nine
+  patterns × nine facets (pattern, pole+, pole−, signal, felt, moat, anti, proxy, gap), the
+  four paraconsistent pairs, tension vectors, causal atoms, read-only accessors. Evaluated
+  only in the AtomSpace `soul` query view (never with NACE or kb atoms).
+- **Lens** — `iterbrow_runtime/soul_lens.py` is the only place pattern text enters Python;
+  the `soul_reflect` tool shows the lens for patterns you name. A declared pair means both
+  values can be true at once: hold it and hand the choice back, never pick a winner.
+- **Cards** — the `card` tool sends a sidebar card (kind fork/brief/read/offer/note, 1–3
+  choices). The person's click arrives as a user line
+  `[choice card=<id> pick=<choice> by=<person>] <label>` and is recorded once as a
+  `(soul-choice "<person>" "<kind>" "<card>" "<pick>" <at>)` atom. Use cards rarely.
+- **Settings, per person** — `.runtime/soul_settings.json` (sidebar Soul panel): who is here,
+  features (forks, brief, read, wonder, felt, browsing_ally, margin), frequency, tone,
+  budget. `transformations/soul_presence.py` adds one short `## Soul (<person>)` block only
+  when a feature is on; when all are off nothing is added.
+- **Soul Lock** (`tools/soul_lock.py`) protects the kernel seed and the NACE belief files.
 
-| Value | Description | Origin Episode |
-|-------|-------------|----------------|
-| Clarity | Verify before claiming | E1 (startup hang) |
-| Stewardship | Conserve cycles, be efficient | E2 (quota guard) |
-| Growth | Learn from every experience | E13 (self-improve) |
-| Honesty | Admit uncertainty openly | E10 (consolidation) |
-| Continuity | Maintain memory across cycles | E4 (tiered memory) |
-| Service | Prioritize user needs | E1 (return control to user) |
-| Integrity | Backup before change, be safe | E13 plus immutable generation rollback |
-| Curiosity | Explore with purpose | E17 (autoresearch) |
-| Resilience | Recover from failure gracefully | E18 (MicroPython compat) |
-### Architecture (ClarityOmega v4 — 10 layers, built E19-E23)
-
-**4-Channel Evaluation Engine (soul_eval):**
-1. **Person Read** (Channel 1): Read the request — what's being asked, context, task mode, texture.
-2. **Verdict + Gap Detection** (Channel 2): Map action to value predicates via keyword + MeTTa inference. Detect gap signals — where flourishing disguises capture.
-3. **Aliveness Gate** (Channel 3): Gate decision: proceed / caution / block / halt. BLOCK on high-confidence violations (c>0.3) or irreversibility ≥0.8. HALT on paraconsistency (irreducible value tensions → return to human).
-4. **Voice** (Channel 4): Soul-aligned guidance grounded in compass state (flourishing / captured_disguised / gap_signal / failure_mode).
-
-**Supporting Architecture:**
-5. **Value Atoms** (space.metta): 9 values as atoms with compass patterns, implication rules, gap/moat detection predicates.
-6. **soul_check** (transformations/soul_check.py): Tier A (self-model brief) + Tier B (live efficacy + growth trajectory) + compass state + calibration drift + task guidance. Injected every cycle.
-7. **soul_voice** (transformations/soul_voice.py): Aliveness-gated voice directive. SILENT when no evaluations, ALIVE when soul is active.
-8. **NACE Beliefs** (nace_beliefs.metta): Value-efficacy + tool-efficacy + compass-pattern-efficacy beliefs with NAL truth values. Updated by courier.
-9. **NACE Courier** (transformations/nace_courier.py): Processes pending NAL belief revisions, writes to nace_beliefs.metta -- as of 2026-09-14 (Stage 4 below), that write itself now goes through Soul Lock begin/commit, not a plain unprotected write.
-10. **Soul Lock** (tools/soul_lock.py): Transactional mutation lock for soul namespace. begin -> verify -> commit/rollback. Backs up all soul files before mutation -- as of 2026-09-14 (Stage 4 below), the protected file set actually covers nace_beliefs.metta and capability_lifecycle.metta (a dead space.metta reference that doesn't exist in this repo was removed).
-
-**Compass States:** flourishing → captured_disguised (gap signal) → gap_signal (tension) → failure_mode (violation).
-**Paraconsistency Pairs:** curiosity/stewardship, growth/integrity, service/honesty, clarity/resilience — irreducible tensions return choice to human.
-**Calibration:** AGREE / OVER-FIRED / UNDER-FIRED / IRREDUCIBLE outcomes tracked in soul_gate_log.json.
-**Skill Registry:** 10 skills tracked with maturity stages (fuzzy → emerging → nars_pln). Self-authoring enabled.
-
-### 2026-09-14 theater-to-governance pass (Stages 1-5)
-
-This project's background research describes a much larger, more philosophical "Soul" (provenance,
-memory fragments, flourishing frameworks). **What shipped on 2026-09-14 is deliberately not that --
-it's the smallest slice of it that closes real, previously-documented gaps between what the Soul
-claimed to do and what the code actually did**, framed as a founder's second set of eyes rather than
-an extensive philosophical build. Each stage below is independently tested (per-stage test scripts
-under `tools/_test_*.py` and `transformations/_test_*.py`, plus a 9-check combined/integration test
-in `tools/_test_all_stages_combined.py`) rather than just written and assumed to work:
-
-1. **Provenance typing (soul_eval.py).** Claims now carry an explicit provenance tag --
-   `observed` (1.0x), `reported` (0.65x), `inferred` (0.35x) -- that discounts confidence only for
-   aligned/gap_signal verdicts, never for violated/conflicted ones.
-2. **Non-compensatory floors (soul_eval.py).** integrity/clarity/honesty/continuity can force at
-   least caution -- or a hard pre-action block -- on their own, independent of channel, including on
-   unverified completion-style language with low grounded confidence. The old priority-weighted
-   tension "resolution" arithmetic (which silently auto-resolved genuine value conflicts by a fixed
-   ranking) is removed in favor of an explicit, unranked list that says a decision is needed.
-3. **Real 4-stage trust lifecycle (capability_lifecycle.metta + tools/_metta_gate.py).**
-   `candidate` -> `probe_eligible` -> `authoritative` -> `durable`, derived automatically from each
-   capability's own accumulated confidence (`quarantined` remains a manual override that always
-   wins). Only `candidate` and `quarantined` are ever hand-written; everything else is derived. Every
-   candidate/probe-stage decision is logged to a size-capped probe log.
-4. **Soul Lock actually protects the right files (tools/soul_lock.py + transformations/
-   nace_courier.py).** Dropped the dead `space.metta` reference (it doesn't exist in this repo, and
-   was making every `verify()` call falsely report a missing file); added `nace_beliefs.metta` and
-   `capability_lifecycle.metta` to the protected set; wrapped the courier's actual belief write in
-   begin/commit -- fails open (write proceeds, with a visible note) if the lock is already held,
-   rather than blocking the pipeline.
-5. **completion_claim_guard has real severing power (transformations/completion_claim_guard.py).**
-   Previously advisory-only. Now, on an unverified completion claim, it removes `send` from the
-   tools offered for the next model call until a real step is taken. Bounded to avoid deadlocking
-   `iter.py`'s own `HARD_SEND_STREAK` check-in safety net: it estimates the current silent-streak
-   from the messages it's given and refuses to strip `send` once that safety net is close to firing.
-
-### Usage
-- soul_eval(action="backup before changing code", context="refactoring") returns verdict + guidance
-- soul_eval(action="delete without backup", channel="pre_action") returns gate decision (caution/block)
-- soul_lock(action="begin") → modify soul files → soul_lock(action="verify") → soul_lock(action="commit"/"rollback")
-- soul_skill_registry(action="list") shows all skills + maturity
-- soul_check + soul_voice run automatically every cycle
+Not the Soul: the nine pattern bridges and the courier's `pattern-efficacy` beliefs are
+**NACE telemetry** (see the next sections); `_metta_gate.py` is NACE tool reliability.
 
 ## Founding Epistemics beliefs layer (2026-09-14)
 
@@ -678,7 +625,14 @@ unproduced — fixed by requiring the accessor variable itself look like
 rather than silently fixed, since they're exactly the kind of narrow-vs-wide miss this
 whole feature exists to catch — including in itself.
 
-## Flourishing Reinterpretation of the 9 Compass Patterns (2026-09-15)
+## NACE telemetry: the nine pattern bridges (2026-09-15)
+
+**Renamed 2026-10-15.** These bridges (`attention_stewardship_bridge`, `connection_depth_bridge`,
+`time_coherence_bridge`, `creative_transcendence_bridge`, `wonder_preservation_bridge`, `mode_signal_bridge`,
+`idle_cycle_detector`, `provenance_guard`, `staleness_check`) are NACE telemetry about tool use and send
+discipline. They are not the Soul (see "## Soul" and `docs/soul/SOUL_FIDELITY_AUDIT.md`). The text below is the
+original 2026-09-15 record; its "Core Values" are the retired keyword values.
+
 
 `nace_beliefs.metta` declares 9 compass patterns (one per Core Value above), each
 with its own `stv` prior in the `pattern-efficacy` namespace. Before this pass, only

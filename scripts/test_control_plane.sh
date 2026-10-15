@@ -20,10 +20,7 @@ echo "[control] authoritative runtime tests"
 
 echo "[control] historical Iter regressions"
 legacy_tests=(
-  tools/_test_all_stages_combined.py
   tools/_test_metta_gate_stage3.py
-  tools/_test_soul_eval_stages.py
-  tools/_test_stage4_lock.py
   transformations/_test_dashboard_beliefs_refresh.py
   transformations/_test_flourishing_bridges.py
   transformations/_test_flourishing_bridges_2.py
@@ -54,8 +51,6 @@ echo "[control] syntax and manifest"
   iter/tools/start_new_task.py \
   iter/channels/electron_ui.py \
   iter/tools/_petta_db.py \
-  iter/tools/soul_eval.py \
-  iter/tools/soul_skill_registry.py \
   iter/transformations/nace_courier.py \
   iter/transformations/pwq_board.py \
   iter/transformations/transcript.py \

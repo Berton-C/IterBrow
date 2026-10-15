@@ -26,7 +26,6 @@ FORBIDDEN_IN_AGENTS_MD = ["4-Channel Evaluation Engine", "Aliveness Gate", "Para
 class RemovalTests(unittest.TestCase):
     """M6-D1"""
 
-    @pending("M6-D1")
     def test_legacy_soul_code_is_gone(self):
         for rel in LEGACY_FILES:
             self.assertFalse((ITER_SRC / rel).exists(), rel)
@@ -34,7 +33,6 @@ class RemovalTests(unittest.TestCase):
         self.assertTrue((ITER_SRC / "transformations" / "soul_presence.py").exists())
         self.assertTrue((ITER_SRC / "tools" / "soul_reflect.py").exists())
 
-    @pending("M6-D1")
     def test_nothing_reads_the_legacy_state_files_any_more(self):
         offenders = []
         for folder in ("tools", "transformations", "iterbrow_runtime"):
@@ -45,7 +43,6 @@ class RemovalTests(unittest.TestCase):
                         offenders.append("%s/%s -> %s" % (folder, path.name, name))
         self.assertEqual(offenders, [])
 
-    @pending("M6-D1")
     def test_first_start_archives_legacy_state_once(self):
         """The AtomSpace service (where backfills run) moves the legacy files aside, idempotently."""
         r = m6_root("m6mig")
@@ -67,7 +64,6 @@ class RemovalTests(unittest.TestCase):
         self.assertEqual(len(sorted((Path(r.root) / "backups").glob("soul-legacy-*"))), 1, "second start archives nothing")
         self.assertEqual(r.service_log.read_text().count("soul migration: legacy files archived"), 1)
 
-    @pending("M6-D1")
     def test_prompt_has_no_old_soul_blocks(self):
         """Run every transformation the loop would (alphabetical, non-underscore) on a base prompt."""
         r = m6_root("m6prompt")
@@ -98,7 +94,6 @@ print(json.dumps(msgs))
 class AgentsMdTests(unittest.TestCase):
     """M6-D2"""
 
-    @pending("M6-D2")
     def test_soul_section_claims_only_what_exists(self):
         text = (ITER_SRC / "AGENTS.md").read_text(encoding="utf-8")
         start = text.index("## Soul")
@@ -111,7 +106,6 @@ class AgentsMdTests(unittest.TestCase):
             self.assertIn(required, section, required)
         self.assertLess(len(section), 6000, "AGENTS.md is injected capped at 6000 chars; the section must stay short")
 
-    @pending("M6-D2")
     def test_bridges_and_courier_are_documented_as_nace_telemetry(self):
         text = (ITER_SRC / "AGENTS.md").read_text(encoding="utf-8")
         self.assertIn("NACE telemetry", text)
@@ -124,7 +118,6 @@ class AgentsMdTests(unittest.TestCase):
 class DashboardTests(unittest.TestCase):
     """M6-D3"""
 
-    @pending("M6-D3")
     def test_authority_counts_include_soul_choices_from_atoms(self):
         import importlib.util
         spec = importlib.util.spec_from_file_location("dash", ITER_SRC / "transformations" / "dashboard_atomspace.py")
@@ -142,7 +135,6 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(empty["soul_choices"], 0)
         self.assertIsNone(empty["soul_last"])
 
-    @pending("M6-D3")
     def test_rendered_page_has_a_soul_card_and_derived_cache_keyed_by_statements(self):
         r = m6_root("m6dash")
         self.addCleanup(r.close)

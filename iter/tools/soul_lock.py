@@ -1,6 +1,6 @@
 """Soul Namespace Mutation Lock â ClarityOmega transactional protocol.
 Provides begin/commit/rollback for soul namespace changes.
-Lock prevents concurrent mutation of space.metta, soul_eval, soul_check.
+Lock prevents concurrent mutation of the Soul kernel seed and the NACE belief files.
 """
 
 import json, os, time
@@ -17,9 +17,7 @@ LOCK_PATH = "memory/soul_lock.json"
 # files already protected here, so they get the same backup/rollback
 # discipline instead of being plain unprotected writes.
 SOUL_FILES = [
-    "tools/soul_eval.py",
-    "transformations/soul_check.py",
-    "transformations/soul_voice.py",
+    "seeds/soul_kernel.metta",
     "nace_beliefs.metta",
     "capability_lifecycle.metta",
 ]

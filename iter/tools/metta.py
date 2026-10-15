@@ -23,7 +23,7 @@ state_manifest.json plus committed durable atoms.
 Runtime mutations survive process and app restarts; undeclared .metta files
 are never swept into cognition by accident.
 
-Public surface is unchanged on purpose, so every existing caller (soul_eval.py,
+Public surface is unchanged on purpose, so every existing caller (
 tools/_metta_substrate.py, tools/_metta_gate.py, etc. -- see full caller list
 in this repo's commit history / IterBrow's own docs) keeps working with zero
 changes:

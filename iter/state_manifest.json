@@ -83,6 +83,14 @@
       "owner": "cognition.application_contract"
     },
     {
+      "path": "seeds/soul_kernel.metta",
+      "role": "source_seed",
+      "format": "metta",
+      "portable": false,
+      "reset": false,
+      "owner": "cognition.soul"
+    },
+    {
       "path": "seeds/kb_inference.metta",
       "role": "source_seed",
       "format": "metta",
@@ -177,6 +185,22 @@
       "portable": false,
       "reset": false,
       "owner": "platform.secrets"
+    },
+    {
+      "path": ".runtime/soul_settings.json",
+      "role": "application_state",
+      "format": "json",
+      "portable": true,
+      "reset": false,
+      "owner": "cognition.soul"
+    },
+    {
+      "path": ".runtime/soul_choice_pending.jsonl",
+      "role": "application_state",
+      "format": "jsonl",
+      "portable": true,
+      "reset": true,
+      "owner": "cognition.soul"
     },
     {
       "path": ".runtime/tabs_session.json",

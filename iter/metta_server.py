@@ -53,6 +53,19 @@ QUERY_TIMEOUT_S = int(os.environ.get("ITER_METTA_QUERY_TIMEOUT", "30"))
 
 KB_PREFIX = "state:kb_"
 KB_STATEMENT_PREFIX = "state:kb_statement:"
+# The Soul kernel seed and the person's card answers are evaluated only in the
+# "soul" view (docs/milestones/M6_soul_base.md C), for the same Hyperon reason
+# as the kb view: they never share an index with NACE or kb atoms.
+SOUL_SEED_PATH = "seeds/soul_kernel.metta"
+SOUL_CHOICE_PREFIX = "state:soul_choice:"
+SOUL_PREFIX = "state:soul_"
+
+
+def _split_seed_units(seed_files):
+    """(units for every other view, units for the soul view)."""
+    general = [u for seed in seed_files if seed["path"] != SOUL_SEED_PATH for u in seed["units"]]
+    soul = [u for seed in seed_files if seed["path"] == SOUL_SEED_PATH for u in seed["units"]]
+    return general, soul
 SERVICE_CODE_FILES = ("metta_server.py", "metta_query_worker.py")
 
 
@@ -182,7 +195,7 @@ class MettaSpace:
         self.engine = None
         self.query_cache = {}
         self.seed_files = _load_declared_seeds()
-        self.seed_units = [unit for seed in self.seed_files for unit in seed["units"]]
+        self.seed_units, self.soul_seed_units = _split_seed_units(self.seed_files)
         self.store = AtomspaceStore(STATE_DIR)
         self.foundry_service = None
         self.foundry_lock = threading.RLock()
@@ -200,6 +213,7 @@ class MettaSpace:
                 "error": self.engine_error,
             }
         self.kb_backfill = self._kb_backfill()
+        self.soul_migration = self._soul_migration()
         self.das_projection = DASProjectionWorker(
             lambda after, limit: self.store.events_after(after, limit),
             STATE_DIR.parent,
@@ -265,6 +279,19 @@ class MettaSpace:
             _log("kb backfill failed: %s: %s" % (type(exc).__name__, exc))
             return {"status": "failed", "error": "%s: %s" % (type(exc).__name__, exc)}
 
+    def _soul_migration(self):
+        """Archive the retired keyword-Soul state files once (M6 D)."""
+        try:
+            from iterbrow_runtime.soul_migration import archive_legacy_soul_files
+            archive = archive_legacy_soul_files(ITER_DIR)
+        except Exception as exc:
+            _log("soul migration failed: %s: %s" % (type(exc).__name__, exc))
+            return {"status": "failed", "error": "%s: %s" % (type(exc).__name__, exc)}
+        if archive is None:
+            return {"status": "current"}
+        _log("soul migration: legacy files archived to %s" % archive)
+        return {"status": "archived", "archive": str(archive)}
+
     def _require_engine(self):
         if not self.engine_available:
             raise RuntimeError("Hyperon engine unavailable: %s" % self.engine_error)
@@ -276,8 +303,8 @@ class MettaSpace:
         if not code:
             raise ValueError("empty MeTTa code")
         snapshot = self.store.state_copy()
-        if view not in ("full", "current", "kb"):
-            raise ValueError("query view must be full, current or kb")
+        if view not in ("full", "current", "kb", "soul"):
+            raise ValueError("query view must be full, current, kb or soul")
         # Knowledge-base atoms (state:kb_*) are evaluated ONLY in the "kb" view
         # (source seeds + kb statements).  Hyperon 0.2.10 corrupts index reads
         # depending on insertion order: with the owner's real space, loading
@@ -291,12 +318,18 @@ class MettaSpace:
                 key: atom for key, atom in snapshot["atoms"].items()
                 if key.startswith(KB_STATEMENT_PREFIX)
             }}
+        elif view == "soul":
+            query_snapshot = {**snapshot, "atoms": {
+                key: atom for key, atom in snapshot["atoms"].items()
+                if key.startswith(SOUL_CHOICE_PREFIX)
+            }}
         else:
             # "current" is the explicit internal working view (no event atoms);
             # historical "full" queries keep every other atom.
             query_snapshot = {**snapshot, "atoms": {
                 key: atom for key, atom in snapshot["atoms"].items()
-                if not key.startswith(KB_PREFIX) and not (view == "current" and key.startswith("event:"))
+                if not key.startswith(KB_PREFIX) and not key.startswith(SOUL_CHOICE_PREFIX)
+                and not (view == "current" and key.startswith("event:"))
             }}
         view_hash = hashlib.sha256(json.dumps(query_snapshot["atoms"], sort_keys=True).encode()).hexdigest()
         if ("\n" not in code and code.startswith("(") and code.endswith(")")
@@ -309,9 +342,11 @@ class MettaSpace:
             current_seeds = _load_declared_seeds()
             if current_seeds != self.seed_files:
                 self.seed_files = current_seeds
-                self.seed_units = [u for seed in current_seeds for u in seed["units"]]
+                self.seed_units, self.soul_seed_units = _split_seed_units(current_seeds)
                 self.query_cache.clear()
-            seed_hash = hashlib.sha256(json.dumps(self.seed_units).encode()).hexdigest()
+            view_seeds = self.soul_seed_units if view == "soul" else self.seed_units
+            query_snapshot = {**query_snapshot, "seed_units": view_seeds}
+            seed_hash = hashlib.sha256(json.dumps(view_seeds).encode()).hexdigest()
             key = (snapshot["epoch"], view, view_hash, seed_hash, code)
             result = self.query_cache.get(key) if cacheable else None
             if result is None:

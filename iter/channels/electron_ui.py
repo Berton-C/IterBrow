@@ -55,3 +55,17 @@ def send(content):
         "schema_version": 1, "id": message_id, "role": "iter",
         "content": str(content), "at": int(time.time() * 1000),
     }, ensure_ascii=False, sort_keys=True))
+
+
+def send_card(card, content):
+    """An Iter message carrying an interactive card (docs/milestones/M6_soul_base.md A).
+
+    `content` is the markdown fallback older sidebars and the transcript show.
+    Returns the outbox message id.
+    """
+    message_id = "iter-%s" % uuid.uuid4()
+    _publish(OUTBOX, message_id + ".json", json.dumps({
+        "schema_version": 1, "id": message_id, "role": "iter",
+        "content": str(content), "card": card, "at": int(time.time() * 1000),
+    }, ensure_ascii=False, sort_keys=True))
+    return message_id

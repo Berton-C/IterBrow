@@ -44,6 +44,99 @@ function formatTime(at) {
   return sameDay ? time : date.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' + time;
 }
 
+// ---- Interactive cards (docs/milestones/M6_soul_base.md section A) ----
+// Iter offers; the person decides. A click sends exactly one choice and
+// locks the card in place (no re-render, so nothing flickers or re-enables).
+const localCardPicks = new Map();
+
+function lockCard(cardEl, pick) {
+  cardEl.classList.add(pick === 'dismiss' ? 'dismissed' : 'answered');
+  for (const button of cardEl.querySelectorAll('button.choice, button.dismiss')) button.disabled = true;
+  const picked = pick && cardEl.querySelector(`button.choice[data-choice="${CSS.escape(pick)}"]`);
+  if (picked) picked.classList.add('picked');
+}
+
+function choose(cardEl, card, pick, label) {
+  if (localCardPicks.has(card.id) || cardEl.classList.contains('answered') || cardEl.classList.contains('dismissed')) return;
+  localCardPicks.set(card.id, pick);
+  lockCard(cardEl, pick);
+  Promise.resolve(window.iterApi.sendChoice(card.id, pick, label)).catch((error) => {
+    // The choice did not reach Iter: unlock so the person can try again.
+    localCardPicks.delete(card.id);
+    cardEl.classList.remove('answered', 'dismissed');
+    for (const button of cardEl.querySelectorAll('button')) { button.disabled = false; button.classList.remove('picked'); }
+    addMessage('sys', 'Could not send your choice: ' + (error && error.message ? error.message : error));
+  });
+}
+
+function renderCard(card, picks) {
+  const cardEl = document.createElement('div');
+  cardEl.className = 'card card-' + card.kind;
+  cardEl.dataset.card = card.id;
+  const head = document.createElement('div');
+  head.className = 'card-head';
+  const title = document.createElement('div');
+  title.className = 'card-title';
+  title.textContent = card.title;
+  const dismiss = document.createElement('button');
+  dismiss.type = 'button';
+  dismiss.className = 'dismiss';
+  dismiss.title = 'Dismiss';
+  dismiss.setAttribute('aria-label', 'Dismiss');
+  dismiss.textContent = '×';
+  dismiss.addEventListener('click', () => choose(cardEl, card, 'dismiss', ''));
+  head.append(title, dismiss);
+  cardEl.appendChild(head);
+  if (card.body) {
+    const body = document.createElement('div');
+    body.className = 'card-body markdown';
+    body.innerHTML = window.IterMarkdown.render(card.body);
+    cardEl.appendChild(body);
+  }
+  const choices = document.createElement('div');
+  choices.className = 'card-choices';
+  for (const choice of card.choices || []) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'choice';
+    button.dataset.choice = choice.id;
+    button.textContent = choice.label;
+    if (choice.hint) button.title = choice.hint;
+    button.addEventListener('click', () => choose(cardEl, card, choice.id, choice.label));
+    choices.appendChild(button);
+  }
+  cardEl.appendChild(choices);
+  if (Array.isArray(card.links) && card.links.length) {
+    const links = document.createElement('div');
+    links.className = 'card-links';
+    for (const link of card.links) {
+      const safe = window.IterMarkdown.safeHref(link.url);
+      if (!safe) continue;
+      const anchor = document.createElement('a');
+      anchor.href = safe;
+      anchor.textContent = link.label;
+      anchor.rel = 'noopener noreferrer';
+      links.appendChild(anchor);
+    }
+    cardEl.appendChild(links);
+  }
+  const pick = picks.get(card.id);
+  if (pick) lockCard(cardEl, pick);
+  else if (card.expires_at && Number(card.expires_at) < Date.now()) {
+    cardEl.classList.add('expired');
+    for (const button of cardEl.querySelectorAll('button')) button.disabled = true;
+  }
+  return cardEl;
+}
+
+function renderChoiceNote(message) {
+  const note = document.createElement('div');
+  note.className = 'body choice-note';
+  const label = message.content.replace(/^\[choice [^\]]*\]\s*/, '');
+  note.textContent = message.choice.pick === 'dismiss' ? 'Dismissed a card' : 'Chose: ' + (label || message.choice.pick);
+  return note;
+}
+
 function renderChatMessages() {
   const stickToBottom = chat.scrollHeight - chat.scrollTop - chat.clientHeight < 40;
   chat.textContent = '';
@@ -51,10 +144,16 @@ function renderChatMessages() {
     const timeDifference = Number(left.at || 0) - Number(right.at || 0);
     return timeDifference || String(left.id).localeCompare(String(right.id));
   });
+  // A card shows as answered once the journal holds the person's choice for it
+  // (or the click is still on its way: localCardPicks).
+  const picks = new Map(localCardPicks);
+  for (const message of ordered) {
+    if (message.choice && message.choice.card) picks.set(message.choice.card, message.choice.pick);
+  }
   let previous = null;
   for (const message of ordered) {
     const row = document.createElement('div');
-    row.className = 'msg ' + message.role;
+    row.className = 'msg row ' + message.role;
     const continues = previous && previous.role === message.role && message.role !== 'sys'
       && Math.abs(Number(message.at || 0) - Number(previous.at || 0)) < GROUP_WINDOW_MS;
     if (continues) row.classList.add('continued');
@@ -70,11 +169,17 @@ function renderChatMessages() {
       head.append(author, time);
       row.appendChild(head);
     }
-    const body = document.createElement('div');
-    body.className = 'body' + (message.role === 'sys' ? '' : ' markdown');
-    if (message.role === 'sys') body.textContent = message.content;
-    else body.innerHTML = window.IterMarkdown.render(message.content);
-    row.appendChild(body);
+    if (message.card) {
+      row.appendChild(renderCard(message.card, picks));
+    } else if (message.choice) {
+      row.appendChild(renderChoiceNote(message));
+    } else {
+      const body = document.createElement('div');
+      body.className = 'body' + (message.role === 'sys' ? '' : ' markdown');
+      if (message.role === 'sys') body.textContent = message.content;
+      else body.innerHTML = window.IterMarkdown.render(message.content);
+      row.appendChild(body);
+    }
     chat.appendChild(row);
     previous = message;
   }
@@ -884,6 +989,7 @@ termfilesDetails.addEventListener('panelshow', async () => {
 // ---------------------------------------------------------------------
 const DOCK_PANEL_INFO = {
   'settings': { label: 'Settings', desc: 'OpenRouter, direct OpenAI GPT, or local LM Studio; models, API keys and OpenAI token costs.' },
+  'soul': { label: 'Soul', desc: 'Soul -- who is here, which Soul features are on, how often and in what tone. Per person; nothing here gates anything.' },
   'state-mgmt': { label: 'State', desc: 'Export, import, or reset Iter\u2019s accumulated memory and knowledge files.' },
   'tab-groups': { label: 'Groups', desc: 'Tab Groups -- save your open tabs as a named group; reopen, switch to, or close it later.' },
   'closed-tabs': { label: 'Closed', desc: 'Recently Closed -- the last 20 tabs you closed, most recent first. Reopen any of them.' },
@@ -891,7 +997,7 @@ const DOCK_PANEL_INFO = {
   'termfiles': { label: 'Terminal', desc: 'Terminal & Files -- browse/edit files under iter/ and run shell commands.' },
   'activity': { label: 'Activity', desc: 'Iter\u2019s process output log.' },
 };
-const DOCK_DEFAULT_ORDER = ['settings', 'state-mgmt', 'tab-groups', 'closed-tabs', 'permissions', 'termfiles', 'activity'];
+const DOCK_DEFAULT_ORDER = ['settings', 'soul', 'state-mgmt', 'tab-groups', 'closed-tabs', 'permissions', 'termfiles', 'activity'];
 
 const dockContent = document.getElementById('dock-content');
 const dockTabsEl = document.getElementById('dock-tabs');
@@ -1006,3 +1112,56 @@ window.iterApi.loadSettings().then((settings) => {
     setActiveDockPanel(settings.dockLastOpen, { persist: false });
   }
 });
+
+
+// ---------------------------------------------------------------------
+// Soul panel (docs/milestones/M6_soul_base.md section B). Per person: the
+// selector switches whose settings are shown and who answers cards.
+// ---------------------------------------------------------------------
+const SOUL_DEFAULTS = { features: { forks: true, brief: true, read: false, wonder: false, felt: false, browsing_ally: false, margin: false },
+  frequency: 'occasional', tone: 'warm', budget_per_cycle: 1 };
+let soulSettings = { schema_version: 1, person: 'guest', people: {} };
+
+function soulProfile(person) {
+  const saved = soulSettings.people[person] || {};
+  return { features: { ...SOUL_DEFAULTS.features, ...(saved.features || {}) },
+    frequency: saved.frequency || SOUL_DEFAULTS.frequency, tone: saved.tone || SOUL_DEFAULTS.tone,
+    budget_per_cycle: Number.isInteger(saved.budget_per_cycle) ? saved.budget_per_cycle : SOUL_DEFAULTS.budget_per_cycle };
+}
+
+function showSoulProfile(person) {
+  const profile = soulProfile(person);
+  document.getElementById('soul-person').value = person;
+  document.querySelectorAll('[data-soul-feature]').forEach((box) => { box.checked = !!profile.features[box.dataset.soulFeature]; });
+  document.getElementById('soul-frequency').value = profile.frequency;
+  document.getElementById('soul-tone').value = profile.tone;
+  document.getElementById('soul-budget').value = String(profile.budget_per_cycle);
+}
+
+function readSoulForm() {
+  const person = document.getElementById('soul-person').value;
+  const features = {};
+  document.querySelectorAll('[data-soul-feature]').forEach((box) => { features[box.dataset.soulFeature] = box.checked; });
+  const budget = Math.max(0, Math.min(8, parseInt(document.getElementById('soul-budget').value, 10) || 0));
+  return { ...soulSettings, person, people: { ...soulSettings.people,
+    [person]: { features, frequency: document.getElementById('soul-frequency').value,
+      tone: document.getElementById('soul-tone').value, budget_per_cycle: budget } } };
+}
+
+if (document.getElementById('soul-person') && window.iterApi.loadSoulSettings) {
+  Promise.resolve(window.iterApi.loadSoulSettings()).then((loaded) => {
+    if (loaded && typeof loaded === 'object' && loaded.people) soulSettings = loaded;
+    showSoulProfile(soulSettings.person || 'guest');
+  }).catch(() => showSoulProfile('guest'));
+  // Switching who is here shows that person's settings; Save makes it current.
+  document.getElementById('soul-person').addEventListener('change', (event) => showSoulProfile(event.target.value));
+  document.getElementById('btn-save-soul').addEventListener('click', async () => {
+    const status = document.getElementById('soul-status');
+    try {
+      soulSettings = await window.iterApi.saveSoulSettings(readSoulForm());
+      status.textContent = 'Saved for ' + soulSettings.person + '.';
+    } catch (error) {
+      status.textContent = 'Could not save: ' + (error && error.message ? error.message : error);
+    }
+  });
+}

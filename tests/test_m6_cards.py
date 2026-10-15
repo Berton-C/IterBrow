@@ -34,7 +34,6 @@ out = { received, history: bridge.history(), logs,
         journal: fs.readFileSync(bridge.paths.journalPath, 'utf8').trim().split('\\n').map((l) => JSON.parse(l)) };
 """ % (json.dumps(name), json.dumps(json.dumps(message))))
 
-    @pending("M6-A1")
     def test_card_message_is_accepted_journaled_and_forwarded_with_its_card(self):
         out = self._deliver(outbox_message(card()))
         self.assertEqual(len(out["received"]), 1)
@@ -46,7 +45,6 @@ out = { received, history: bridge.history(), logs,
         self.assertEqual(out["journal"][-1]["card"]["kind"], "fork")
         self.assertEqual(out["history"][-1]["card"]["title"], "Which way?")
 
-    @pending("M6-A1")
     def test_malformed_card_is_dropped_but_the_text_still_arrives(self):
         bad = outbox_message({"id": "card-x", "kind": "fork", "title": "t", "body": "b",
                               "choices": [{"id": "a", "label": "1"}, {"id": "b", "label": "2"},
@@ -76,7 +74,6 @@ class ChoiceRoundTripTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = self.temp.name
 
-    @pending("M6-A3")
     def test_send_choice_writes_the_inbox_line_and_journals_the_pick(self):
         out = run_bridge(self.root, """
 const m = bridge.sendChoice('card-test-1', 'a', 'berton', 'Keep it playful');
@@ -90,7 +87,6 @@ out = { message: m, inbox: fs.readFileSync(path.join(bridge.paths.inboxDir, name
         self.assertEqual(out["journal"][-1]["choice"]["pick"], "a")
         self.assertEqual(out["journal"][-1]["content"], out["inbox"])
 
-    @pending("M6-A3")
     def test_dismissal_has_no_label(self):
         out = run_bridge(self.root, """
 bridge.sendChoice('card-test-1', 'dismiss', 'haley');
@@ -99,7 +95,6 @@ out = { inbox: fs.readFileSync(path.join(bridge.paths.inboxDir, names[0]), 'utf8
 """)
         self.assertEqual(out["inbox"], "[choice card=card-test-1 pick=dismiss by=haley]")
 
-    @pending("M6-A3")
     def test_iter_channel_receives_the_choice_line_verbatim(self):
         """channels/electron_ui.py receive() returns the line as a user message."""
         run_bridge(self.root, "bridge.sendChoice('card-7', 'b', 'bright', 'Keep it obvious'); out = {};")
@@ -125,7 +120,6 @@ class CardRenderTests(unittest.TestCase):
                "sendChoice:(...a)=>{window.__calls.push(['sendChoice',...a]);return Promise.resolve(true);}}")
         return json.loads(run_playwright(sidebar_page_script(setup, probe, api)).strip().splitlines()[-1])
 
-    @pending("M6-A2")
     def test_card_shows_title_body_buttons_and_links(self):
         message = outbox_message(card(links=[{"label": "Variant A", "url": "https://example.com/a"}]))
         out = self._page(message, """(() => {
@@ -143,7 +137,6 @@ return { title: c.querySelector('.card-title').textContent, body: c.querySelecto
         self.assertEqual(out["links"], ["https://example.com/a"])
         self.assertFalse(out["fallbackShown"], "the markdown fallback is for old sidebars; a card renders as a card")
 
-    @pending("M6-A2")
     def test_click_sends_one_choice_and_locks_the_card(self):
         out = self._page(outbox_message(card()), """(async () => {
 const c = document.querySelector('.card');
@@ -159,7 +152,6 @@ return { calls: window.__calls.filter((x) => x[0] === 'sendChoice'),
         self.assertEqual(out["disabled"], [True, True])
         self.assertEqual(out["picked"], "b")
 
-    @pending("M6-A2")
     def test_dismiss_sends_dismiss(self):
         out = self._page(outbox_message(card()), """(async () => {
 document.querySelector('.card .dismiss').click();
@@ -168,7 +160,6 @@ return { calls: window.__calls.filter((x) => x[0] === 'sendChoice') };
 })()""")
         self.assertEqual(out["calls"], [["sendChoice", "card-test-1", "dismiss", ""]])
 
-    @pending("M6-A2")
     def test_card_body_is_rendered_through_the_markdown_renderer_and_escaped(self):
         message = outbox_message(card(body="**bold** <script>alert(1)</script>"))
         out = self._page(message, "document.querySelector('.card .card-body').innerHTML")
@@ -188,7 +179,6 @@ class CardToolTests(unittest.TestCase):
         outbox = Path(self.r.root) / ".runtime" / "electron_ui" / "outbox"
         return [json.loads(p.read_text()) for p in sorted(outbox.glob("*.json"))]
 
-    @pending("M6-A5")
     def test_card_tool_writes_a_card_with_markdown_fallback(self):
         out = self.r.text("card", kind="fork", title="Which way?", body="Two poles.",
                           choices=[{"id": "a", "label": "Keep it playful", "hint": "wonder"},
@@ -199,12 +189,10 @@ class CardToolTests(unittest.TestCase):
         self.assertEqual(message["content"], "**Which way?**\n\nTwo poles.\n\n1. Keep it playful — wonder\n2. Keep it obvious")
         self.assertEqual(message["card"]["id"], out.split()[-1])
 
-    @pending("M6-A5")
     def test_choices_may_be_plain_labels_and_get_letter_ids(self):
         self.assertIn("CARD-SENT", self.r.text("card", kind="offer", title="Now?", body="x", choices=["Now", "Later", "Never"]))
         self.assertEqual([c["id"] for c in self._outbox()[-1]["card"]["choices"]], ["a", "b", "c"])
 
-    @pending("M6-A5")
     def test_validation_and_description(self):
         for bad in (dict(kind="fork", title="", body="b", choices=["x"]),
                     dict(kind="verdict", title="t", body="b", choices=["x"]),
@@ -238,7 +226,6 @@ recordSoulChoice({ socket: %s, iterDir: %s, person: %s, kind: %s, cardId: %s, pi
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         return json.loads(proc.stdout.strip().splitlines()[-1])
 
-    @pending("M6-A4")
     def test_pick_writes_exactly_one_atom_with_the_pinned_shape(self):
         self.assertTrue(self._record("card-1", "a")["written"])
         atoms = self.r.call("read_atoms", {"prefix": "state:soul_choice:"})["atoms"]
@@ -252,7 +239,6 @@ recordSoulChoice({ socket: %s, iterDir: %s, person: %s, kind: %s, cardId: %s, pi
         self.assertIn('(soul-choice "haley" "read" "card-2" "dismiss" 1700000000123)',
                       self.r.call("read_atoms", {"prefix": "state:soul_choice:"})["atoms"].values())
 
-    @pending("M6-A4")
     def test_unreachable_service_queues_the_atom_and_the_next_event_flushes_it(self):
         pending_file = Path(self.r.root) / ".runtime" / "soul_choice_pending.jsonl"
         out = self._record("card-9", "a", socket=str(Path(self.r.sock).parent / "nowhere.sock"))

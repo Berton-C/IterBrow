@@ -76,6 +76,54 @@
   </div>
 </div>
 
+<div id="soul" class="dock-panel" hidden>
+  <div class="settings-body">
+    <div class="field">
+      <label for="soul-person">Who is here</label>
+      <select id="soul-person">
+        <option value="berton">Berton</option>
+        <option value="bright">Bright</option>
+        <option value="haley">Haley</option>
+        <option value="guest">Guest</option>
+      </select>
+    </div>
+    <div class="soul-features">
+      <label class="soul-feature"><input type="checkbox" data-soul-feature="forks"><span><strong>Forks</strong> — when a design holds a real tension, Iter builds both sides and you choose.</span></label>
+      <label class="soul-feature"><input type="checkbox" data-soul-feature="brief"><span><strong>Brief</strong> — each app keeps a two-line note on who it is for; Iter mentions drift once.</span></label>
+      <label class="soul-feature"><input type="checkbox" data-soul-feature="read"><span><strong>Read</strong> — Iter reads your tempo and adjusts; you can correct the read.</span></label>
+      <label class="soul-feature"><input type="checkbox" data-soul-feature="wonder"><span><strong>Wonder</strong> — ideas you set aside are kept and offered back now and then.</span></label>
+      <label class="soul-feature"><input type="checkbox" data-soul-feature="felt"><span><strong>Felt</strong> — once in a while Iter says what it found interesting.</span></label>
+      <label class="soul-feature"><input type="checkbox" data-soul-feature="browsing_ally"><span><strong>Browsing ally</strong> — notices when the web is pulling you along and hands the choice back.</span></label>
+      <label class="soul-feature"><input type="checkbox" data-soul-feature="margin"><span><strong>Margin</strong> — Iter beside you inside the app tabs it builds.</span></label>
+    </div>
+    <div class="field">
+      <label for="soul-frequency">How often</label>
+      <select id="soul-frequency">
+        <option value="whisper">Whisper — rarely</option>
+        <option value="occasional">Occasional</option>
+        <option value="chatty">Chatty</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="soul-tone">Tone</label>
+      <select id="soul-tone">
+        <option value="warm">Warm</option>
+        <option value="plain">Plain</option>
+        <option value="playful">Playful</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="soul-budget">Soul model calls per cycle (0 = none)</label>
+      <input id="soul-budget" type="number" min="0" max="8" step="1" value="1">
+    </div>
+    <div style="font-size:11px;color:var(--muted)">Nothing here gates or blocks anything. A feature that is off leaves no trace in what Iter is told. Each person keeps their own settings.</div>
+    <div class="row">
+      <button id="btn-save-soul">Save Soul settings</button>
+    </div>
+    <div id="soul-status" style="font-size:11px;color:var(--muted)"></div>
+  </div>
+</div>
+
 <div id="state-mgmt" class="dock-panel" hidden>
   <div class="settings-body">
     <div style="font-size:10px;color:var(--muted)">

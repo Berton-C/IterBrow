@@ -19,7 +19,6 @@ from m6_support import pending, require_m6, NODE, REPO  # noqa: E402
 
 
 class SoulBaseLoopTests(unittest.TestCase):
-    @pending("M6-E1")
     def test_card_out_choice_in_atom_recorded(self):
         require_m6()
         script = [

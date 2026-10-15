@@ -382,3 +382,29 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent); }
 .tf-prompt { color: var(--ok); font-weight: bold; }
 #tf-term-input { flex: 1 1 auto; border: none; background: transparent; padding: 2px 0; }
 .tf-muted { color: var(--muted); font-size: 10px; }
+
+/* Interactive cards (M6): Iter offers, the person decides. */
+.card { border: 1px solid var(--line, #d9ddd4); border-radius: 10px; background: #fff; padding: 10px 12px; margin: 4px 0 2px; box-shadow: 0 1px 2px rgba(0,0,0,.04); }
+.card-head { display: flex; align-items: flex-start; gap: 8px; }
+.card-title { font-weight: 650; flex: 1; }
+.card .dismiss { border: 0; background: transparent; color: var(--muted); font-size: 16px; line-height: 1; cursor: pointer; padding: 0 2px; }
+.card .dismiss:hover:not(:disabled) { color: inherit; }
+.card-body { margin: 6px 0 8px; }
+.card-choices { display: flex; flex-wrap: wrap; gap: 6px; }
+.card button.choice { border: 1px solid var(--accent, #2563eb); color: var(--accent, #2563eb); background: #fff; border-radius: 999px; padding: 5px 12px; font: inherit; cursor: pointer; }
+.card button.choice:hover:not(:disabled) { background: rgba(37,99,235,.07); }
+.card button.choice.picked { background: var(--accent, #2563eb); color: #fff; }
+.card button:disabled { cursor: default; }
+.card.answered button.choice:not(.picked), .card.dismissed button.choice, .card.expired button.choice { opacity: .45; }
+.card.dismissed, .card.expired { opacity: .7; }
+.card-links { display: flex; gap: 10px; margin-top: 8px; font-size: 12px; }
+.choice-note { color: var(--muted); font-size: 12px; font-style: italic; }
+/* Chat messages carry .row (cards are addressed as .row > .card); the panel
+   layout helper .row above must not turn a message into a flex row. */
+.msg.row { display: block; }
+.msg.row > * { flex: none; }
+
+.soul-features { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 8px; }
+.soul-feature { display: flex; gap: 8px; align-items: flex-start; font-size: 12px; line-height: 1.35; cursor: pointer; }
+.soul-feature input { margin-top: 2px; flex: none; }
+.card button.choice.picked, .card button.choice.picked:disabled { background: var(--accent, #2563eb); color: #fff; opacity: 1; border-color: var(--accent, #2563eb); }

@@ -72,7 +72,6 @@ DEFAULT_READ_CHARS = 200_000
 EXCLUDE_NAMES = frozenset({
     "journal.jsonl",
     "self_improve_log.json",
-    "soul_gate_log.json",
     "component_museum.jsonl",
     "probe_log.json",
     "champion.json",

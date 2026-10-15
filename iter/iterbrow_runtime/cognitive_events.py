@@ -139,7 +139,9 @@ def _call_atomspace(method, timeout=30, **params):
     try:
         try:
             remaining()
-            connection.connect(SOCKET_PATH)
+            # Read at call time: the environment is the contract (a test or a
+            # caller that sets ITER_METTA_SOCKET after import gets that socket).
+            connection.connect(os.environ.get("ITER_METTA_SOCKET", SOCKET_PATH))
         except OSError as exc:
             # Definite: the request was never sent (socket missing, refused,
             # or not accepted in time).  Errors after this point are uncertain.

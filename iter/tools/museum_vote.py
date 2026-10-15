@@ -4,8 +4,7 @@ but feeds a real calibration mechanism Iter already has instead of just a
 UI counter).
 
 vote="keep"   -> support.py:    positive NAL evidence on the linked memory
-                 item, plus nudges the seeded calibration_accumulation
-                 soul skill a step toward maturity.
+                 item.
 vote="reject" -> contradict.py: negative NAL evidence on the linked memory
                  item.
 
@@ -24,14 +23,12 @@ import _component_museum as museum
 import remember
 import support
 import contradict
-import soul_skill_registry
 import memory_journal
 
 DESCRIPTION = (
     "Record a keep/reject decision on a component-museum entry (id from museum_list). "
     "vote='keep' applies positive NAL truth-revision evidence (support.py) to the "
-    "component's memory record and nudges the calibration_accumulation soul skill toward "
-    "maturity; vote='reject' applies negative evidence (contradict.py). Every vote is "
+    "component's memory record; vote='reject' applies negative evidence (contradict.py). Every vote is "
     "journaled."
 )
 
@@ -76,12 +73,6 @@ def run(component_id, vote):
 
     museum.update_vote(component_id, vote, memory_item_id=item_id)
 
-    skill_result = ""
-    if vote == "keep":
-        skill_result = soul_skill_registry.run(action="mature", name="calibration_accumulation")
-
     memory_journal.log("museum_vote", vote, {"component_id": component_id, "item_id": item_id})
 
-    return "vote=%s component_id=%s item_id=%s\nNAL: %s\nskill: %s" % (
-        vote, component_id, item_id, nal_result, skill_result,
-    )
+    return "vote=%s component_id=%s item_id=%s\nNAL: %s" % (vote, component_id, item_id, nal_result)
