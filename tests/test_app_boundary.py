@@ -74,5 +74,23 @@ class ApplicationBoundaryTests(unittest.TestCase):
         self.assertEqual(crm["owner"], "application.crm_projection")
 
 
+    def test_app_reads_tolerate_state_maintenance_but_writes_do_not(self):
+        main = (ROOT / "main.js").read_text(encoding="utf-8")
+        body = main[main.index("async function runScopedAppRequest"):main.index("ipcMain.handle('app:context'")]
+        # a change poll during a backup/reset answers "nothing yet" instead of throwing
+        self.assertIn("if (action === 'changes')", body)
+        self.assertIn("maintenance: true", body)
+        # a context read waits for the window to pass
+        self.assertIn("await waitForStateMaintenance()", body)
+        # a command is still refused
+        self.assertIn("throw new Error('State maintenance is in progress')", body)
+        self.assertLess(body.index("action !== 'context'"), body.index("throw new Error('State maintenance is in progress')"))
+
+    def test_tab_manager_uses_current_navigation_history_api(self):
+        source = (ROOT / "bridge" / "tab_manager.js").read_text(encoding="utf-8")
+        self.assertNotIn("webContents.canGoBack()", source)
+        self.assertIn("navigationHistory.canGoBack()", source)
+
+
 if __name__ == "__main__":
     unittest.main()

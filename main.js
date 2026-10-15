@@ -2532,10 +2532,32 @@ function pollScopedAppChanges(event, afterCommit) {
 
 // The page never supplies either identity. Its actual WebContents is bound to
 // scope by TabManager when the navigation-locked tab is created.
+const APP_MAINTENANCE_WAIT_MS = 15000;
+
+// Backups, Reset, Import and Restore hold the AtomSpace briefly. A read from an
+// app tab during that window is not an error: the change poll answers "nothing
+// yet" and the context read waits for the window to pass. Commands (writes)
+// are still refused, so an app cannot write into a state operation.
+async function waitForStateMaintenance(timeoutMs = APP_MAINTENANCE_WAIT_MS) {
+  const deadline = Date.now() + timeoutMs;
+  while (atomspaceLifecycleBusy && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  return !atomspaceLifecycleBusy;
+}
+
 async function runScopedAppRequest(event, action, payload = {}) {
-  if (atomspaceLifecycleBusy) throw new Error('State maintenance is in progress');
   const scope = tabs && tabs.appScopeForWebContentsId(event.sender.id);
   if (!scope) throw new Error('Refused: sender has no application scope');
+  if (atomspaceLifecycleBusy) {
+    if (action === 'changes') {
+      const cursor = Number.isSafeInteger(payload.after_commit) ? payload.after_commit : 0;
+      return { app_id: scope.appId, after_commit: cursor, commit: cursor, events: [], maintenance: true };
+    }
+    if (action !== 'context' || !(await waitForStateMaintenance())) {
+      throw new Error('State maintenance is in progress');
+    }
+  }
   const started = await startMettaServer();
   if (started && started.error) throw new Error(started.error);
   return runPythonJson('iterbrow_runtime/app_contract.py', {
