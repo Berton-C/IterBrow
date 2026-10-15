@@ -29,23 +29,66 @@ function escapeHtml(s) {
 const chatMessages = new Map();
 let transientChatSequence = 0;
 
+// Messages are laid out the way Mattermost lays them out: left-aligned, an
+// author line with the time, the body rendered from Markdown, and consecutive
+// messages from the same author within a few minutes collapse under one
+// author line. System notes stay small and quiet.
+const AUTHOR_LABEL = { user: 'You', iter: 'Iter', sys: '' };
+const GROUP_WINDOW_MS = 5 * 60 * 1000;
+
+function formatTime(at) {
+  const date = new Date(Number(at) || Date.now());
+  const today = new Date();
+  const sameDay = date.toDateString() === today.toDateString();
+  const time = date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  return sameDay ? time : date.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' + time;
+}
+
 function renderChatMessages() {
+  const stickToBottom = chat.scrollHeight - chat.scrollTop - chat.clientHeight < 40;
   chat.textContent = '';
   const ordered = Array.from(chatMessages.values()).sort((left, right) => {
     const timeDifference = Number(left.at || 0) - Number(right.at || 0);
     return timeDifference || String(left.id).localeCompare(String(right.id));
   });
+  let previous = null;
   for (const message of ordered) {
     const row = document.createElement('div');
     row.className = 'msg ' + message.role;
-    const bubble = document.createElement('div');
-    bubble.className = 'bubble';
-    bubble.textContent = message.content;
-    row.appendChild(bubble);
+    const continues = previous && previous.role === message.role && message.role !== 'sys'
+      && Math.abs(Number(message.at || 0) - Number(previous.at || 0)) < GROUP_WINDOW_MS;
+    if (continues) row.classList.add('continued');
+    if (message.role !== 'sys' && !continues) {
+      const head = document.createElement('div');
+      head.className = 'author-line';
+      const author = document.createElement('span');
+      author.className = 'author';
+      author.textContent = AUTHOR_LABEL[message.role] || message.role;
+      const time = document.createElement('time');
+      time.textContent = formatTime(message.at);
+      time.title = new Date(Number(message.at) || Date.now()).toLocaleString();
+      head.append(author, time);
+      row.appendChild(head);
+    }
+    const body = document.createElement('div');
+    body.className = 'body' + (message.role === 'sys' ? '' : ' markdown');
+    if (message.role === 'sys') body.textContent = message.content;
+    else body.innerHTML = window.IterMarkdown.render(message.content);
+    row.appendChild(body);
     chat.appendChild(row);
+    previous = message;
   }
-  chat.scrollTop = chat.scrollHeight;
+  if (stickToBottom) chat.scrollTop = chat.scrollHeight;
 }
+
+// Links in chat open as browser tabs; the sidebar itself never navigates.
+chat.addEventListener('click', (event) => {
+  const anchor = event.target.closest('a[href]');
+  if (!anchor || !chat.contains(anchor)) return;
+  event.preventDefault();
+  const href = window.IterMarkdown.safeHref(anchor.getAttribute('href'));
+  if (href && /^https?:/i.test(href)) window.iterApi.newTab(href);
+});
 
 function mergeChatMessage(message) {
   const normalized = typeof message === 'string'
@@ -112,10 +155,120 @@ function addMessage(role, text) {
 }
 
 document.getElementById('btn-send').addEventListener('click', sendChat);
+
+// ---------------------------------------------------------------------
+// Composer formatting (Mattermost-style): the text box takes Markdown, the
+// bar inserts the markup around the selection, and Preview shows the
+// rendered result in place of the box without sending anything.
+// ---------------------------------------------------------------------
+const composerPreview = document.getElementById('composer-preview');
+const btnPreview = document.getElementById('btn-preview');
+
+function wrapSelection(before, after, placeholder) {
+  const start = chatInput.selectionStart;
+  const end = chatInput.selectionEnd;
+  const value = chatInput.value;
+  const selected = value.slice(start, end);
+  const already = value.slice(Math.max(0, start - before.length), start) === before
+    && value.slice(end, end + after.length) === after;
+  if (already && selected) {
+    chatInput.value = value.slice(0, start - before.length) + selected + value.slice(end + after.length);
+    chatInput.setSelectionRange(start - before.length, end - before.length);
+  } else {
+    const text = selected || placeholder;
+    chatInput.value = value.slice(0, start) + before + text + after + value.slice(end);
+    chatInput.setSelectionRange(start + before.length, start + before.length + text.length);
+  }
+  chatInput.focus();
+  chatInput.dispatchEvent(new Event('input'));
+}
+
+function prefixLines(prefixFor) {
+  const value = chatInput.value;
+  const start = value.lastIndexOf('\n', chatInput.selectionStart - 1) + 1;
+  let end = value.indexOf('\n', chatInput.selectionEnd);
+  if (end === -1) end = value.length;
+  const block = value.slice(start, end);
+  const lines = block.split('\n');
+  const allPrefixed = lines.every((line, index) => line.startsWith(prefixFor(index, true)));
+  const changed = lines.map((line, index) => (allPrefixed
+    ? line.slice(prefixFor(index, true).length)
+    : prefixFor(index) + line)).join('\n');
+  chatInput.value = value.slice(0, start) + changed + value.slice(end);
+  chatInput.setSelectionRange(start, start + changed.length);
+  chatInput.focus();
+  chatInput.dispatchEvent(new Event('input'));
+}
+
+const FORMATS = {
+  bold: () => wrapSelection('**', '**', 'bold text'),
+  italic: () => wrapSelection('_', '_', 'italic text'),
+  strike: () => wrapSelection('~~', '~~', 'struck text'),
+  code: () => {
+    const selected = chatInput.value.slice(chatInput.selectionStart, chatInput.selectionEnd);
+    if (selected.includes('\n')) wrapSelection('```\n', '\n```', 'code');
+    else wrapSelection('`', '`', 'code');
+  },
+  link: () => {
+    const selected = chatInput.value.slice(chatInput.selectionStart, chatInput.selectionEnd);
+    if (/^https?:\/\//i.test(selected)) wrapSelection('[', '](' + selected + ')', 'link text');
+    else wrapSelection('[', '](https://)', selected || 'link text');
+  },
+  heading: () => prefixLines(() => '### '),
+  quote: () => prefixLines(() => '> '),
+  bullet: () => prefixLines(() => '- '),
+  number: () => prefixLines((index, probe) => (probe ? '1. ' : (index + 1) + '. ')),
+};
+
+document.getElementById('format-bar').addEventListener('click', (event) => {
+  const button = event.target.closest('button[data-format]');
+  if (!button) return;
+  event.preventDefault();
+  if (composerPreview.hidden === false) togglePreview(false);
+  FORMATS[button.dataset.format]();
+});
+
+function togglePreview(force) {
+  const show = typeof force === 'boolean' ? force : composerPreview.hidden;
+  if (show) {
+    composerPreview.innerHTML = chatInput.value.trim()
+      ? window.IterMarkdown.render(chatInput.value)
+      : '<p class="preview-empty">Nothing to preview yet.</p>';
+    composerPreview.hidden = false;
+    chatInput.hidden = true;
+  } else {
+    composerPreview.hidden = true;
+    chatInput.hidden = false;
+    chatInput.focus();
+  }
+  btnPreview.setAttribute('aria-pressed', String(show));
+  btnPreview.classList.toggle('active', show);
+}
+btnPreview.addEventListener('click', () => togglePreview());
+composerPreview.addEventListener('click', (event) => {
+  if (!event.target.closest('a')) togglePreview(false);
+});
+
 chatInput.addEventListener('keydown', (e) => {
+  const mod = e.metaKey || e.ctrlKey;
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
     sendChat();
+    return;
+  }
+  if (!mod) return;
+  const key = e.key.toLowerCase();
+  if (key === 'b') { e.preventDefault(); FORMATS.bold(); }
+  else if (key === 'i') { e.preventDefault(); FORMATS.italic(); }
+  else if (key === 'k') { e.preventDefault(); FORMATS.link(); }
+  else if (e.shiftKey && key === 'x') { e.preventDefault(); FORMATS.strike(); }
+  else if (e.shiftKey && key === 'c') { e.preventDefault(); FORMATS.code(); }
+  else if (e.shiftKey && key === 'p') { e.preventDefault(); togglePreview(); }
+});
+document.addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'p' && !composerPreview.hidden) {
+    e.preventDefault();
+    togglePreview(false);
   }
 });
 
@@ -138,6 +291,7 @@ chatInput.addEventListener('input', autoGrowChatInput);
 autoGrowChatInput();
 
 async function sendChat() {
+  if (!composerPreview.hidden) togglePreview(false);
   const text = chatInput.value.trim();
   if (!text) return;
   chatInput.value = '';

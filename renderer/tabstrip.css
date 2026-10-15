@@ -1,30 +1,30 @@
 :root {
-  color-scheme: dark;
-  --bg: #14171c;
-  --panel2: #191d23;
-  --line: #2a3038;
-  --text: #e5e7eb;
-  --muted: #8b949e;
-  --accent: #7aa2f7;
+  color-scheme: light;
+  --bg: #ffffff;
+  --panel2: #f0f2ee;
+  --line: #dfe3e8;
+  --text: #1f2933;
+  --muted: #5f6b78;
+  --accent: #2563eb;
 }
 * { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; }
 body {
   background: var(--bg);
   color: var(--text);
-  font: 13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font: 13px -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", "Segoe UI", Roboto, sans-serif;
   overflow: hidden;
 }
 button { font: inherit; }
 button {
-  background: #20252c;
+  background: var(--bg);
   color: var(--text);
-  border: 1px solid #3a424c;
+  border: 1px solid var(--line);
   border-radius: 6px;
   padding: 5px 9px;
   cursor: pointer;
 }
-button:hover { background: #292f38; }
+button:hover { background: var(--panel2, #f0f2ee); }
 button:disabled { opacity: .45; cursor: default; }
 
 /* Full-width tab strip -- moved out of the narrow sidebar column into its
@@ -68,7 +68,7 @@ button:disabled { opacity: .45; cursor: default; }
   background: var(--panel2);
   border: 1px solid var(--line);
   border-radius: 6px;
-  box-shadow: 0 6px 18px #000a;
+  box-shadow: 0 6px 18px rgba(31, 41, 51, .16);
   max-height: 320px;
   overflow-y: auto;
   min-width: 220px;
@@ -84,8 +84,8 @@ button:disabled { opacity: .45; cursor: default; }
   border-bottom: 1px solid var(--line);
 }
 #tab-all-menu .row-item:last-child { border-bottom: none; }
-#tab-all-menu .row-item:hover { background: #23283056; }
-#tab-all-menu .row-item.active { background: #23283056; border-left: 2px solid var(--accent); }
+#tab-all-menu .row-item:hover { background: var(--panel2); }
+#tab-all-menu .row-item.active { background: var(--panel2); border-left: 2px solid var(--accent); }
 #tab-all-menu .row-item .title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #tab-all-menu .row-item .x { flex: 0 0 auto; color: var(--muted); padding: 0 2px; }
 #tab-all-menu .row-item .x:hover { color: var(--text); }
@@ -103,7 +103,7 @@ button:disabled { opacity: .45; cursor: default; }
   flex: 0 1 160px;
   min-width: 64px;
 }
-.tab-pill.active { background: #23283056; border-color: var(--accent); }
+.tab-pill.active { background: #e8f0ff; border-color: var(--accent); }
 .tab-pill.locked { border-color: #d4a017; box-shadow: inset 0 0 0 1px #d4a01766; }
 /* Only the title text ellipsizes when a tab's name is long -- pin/lock/x
    are fixed-size (flex: 0 0 auto) so they can never be pushed out of view

@@ -1,23 +1,30 @@
 :root {
-  color-scheme: dark;
-  --bg: #0d0f12;
-  --panel: #14171c;
-  --panel2: #191d23;
-  --line: #2a3038;
-  --text: #e5e7eb;
-  --muted: #8b949e;
-  --accent: #7aa2f7;
-  --user: #22314f;
-  --iter: #1c3329;
-  --danger: #b85450;
-  --ok: #4caf7d;
+  color-scheme: light;
+  /* Paper and ink */
+  --bg: #f6f7f4;
+  --panel: #ffffff;
+  --panel2: #f0f2ee;
+  --line: #dfe3e8;
+  --text: #1f2933;
+  --muted: #5f6b78;
+  /* Who is speaking: you are sky, Iter is leaf */
+  --accent: #2563eb;
+  --user: #1d4ed8;
+  --user-tint: #e8f0ff;
+  --iter: #1e7f4f;
+  --iter-tint: #e9f6ee;
+  --danger: #d23f31;
+  --ok: #1f9d55;
+  --code-bg: #eef1f5;
+  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 * { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; }
 body {
   background: transparent;
   color: var(--text);
-  font: 13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font: 13.5px/1.5 var(--font-ui);
   height: 100%;
   overflow: hidden;
   position: relative;
@@ -53,24 +60,32 @@ body {
 #drag-catcher.active { display: block; }
 button, input, textarea, select { font: inherit; }
 button {
-  background: #20252c;
+  background: var(--panel);
   color: var(--text);
-  border: 1px solid #3a424c;
+  border: 1px solid var(--line);
   border-radius: 6px;
   padding: 5px 9px;
   cursor: pointer;
 }
-button:hover { background: #292f38; }
+button:hover { background: var(--panel2); border-color: #c9cfd6; }
 button:disabled { opacity: .45; cursor: default; }
+button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+#btn-start { background: var(--ok); border-color: var(--ok); color: #fff; }
+#btn-start:hover:not(:disabled) { background: #17874a; }
+#btn-stop:not(:disabled) { color: var(--danger); border-color: #f0b5b0; }
 input, textarea, select {
-  background: #101318;
+  background: var(--panel);
   color: var(--text);
-  border: 1px solid #343b45;
+  border: 1px solid var(--line);
   border-radius: 6px;
   outline: none;
   padding: 5px 7px;
 }
-input:focus, textarea:focus, select:focus { border-color: #5979b8; }
+input:focus, textarea:focus, select:focus { border-color: var(--accent); }
+#tf-editor, #tf-term-output, #tf-term-input, #log-view, code, pre, .tf-pane-head, #tf-tree { font-family: var(--font-mono); }
 
 /* The tab strip (#tabstrip, .tab-pill, etc.) moved out of this sidebar
    view entirely on 2026-09-17 into its own full-width WebContentsView --
@@ -86,34 +101,102 @@ input:focus, textarea:focus, select:focus { border-color: #5979b8; }
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
-  padding: 10px;
+  padding: 12px 14px 8px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 0;
 }
-.msg { display: flex; }
-.msg.user { justify-content: flex-end; }
-.msg .bubble { max-width: 90%; padding: 7px 10px; border-radius: 8px; white-space: pre-wrap; word-break: break-word; }
-.msg.user .bubble { background: var(--user); }
-.msg.iter .bubble { background: var(--iter); }
-.msg.sys .bubble { background: transparent; color: var(--muted); font-style: italic; }
+.msg { padding: 8px 0 2px; }
+.msg.continued { padding-top: 0; }
+.msg + .msg:not(.continued) { margin-top: 6px; }
+.author-line { display: flex; align-items: baseline; gap: 8px; margin-bottom: 2px; }
+.author { font-weight: 650; letter-spacing: .01em; }
+.msg.user .author { color: var(--user); }
+.msg.iter .author { color: var(--iter); }
+.author-line time { font-size: 11px; color: var(--muted); }
+.msg .body { word-break: break-word; overflow-wrap: anywhere; }
+.msg.user .body { border-left: 3px solid #b9cdf7; padding-left: 10px; }
+.msg.iter .body { border-left: 3px solid #b5dfc4; padding-left: 10px; }
+.msg.continued .body { margin-top: 2px; }
+.msg.sys { padding: 6px 0; }
+.msg.sys .body { color: var(--muted); font-size: 12px; font-style: italic; }
 
-#chat-input-row {
+/* Rendered Markdown, in chat and in the composer preview */
+.markdown > :first-child { margin-top: 0; }
+.markdown > :last-child { margin-bottom: 0; }
+.markdown p, .markdown ul, .markdown ol, .markdown blockquote, .markdown pre, .markdown table { margin: 0 0 8px; }
+.markdown h1, .markdown h2, .markdown h3, .markdown h4, .markdown h5, .markdown h6 {
+  margin: 10px 0 4px; line-height: 1.3; font-weight: 700;
+}
+.markdown h1 { font-size: 1.35em; } .markdown h2 { font-size: 1.2em; } .markdown h3 { font-size: 1.08em; }
+.markdown h4, .markdown h5, .markdown h6 { font-size: 1em; }
+.markdown ul, .markdown ol { padding-left: 1.4em; }
+.markdown li { margin: 2px 0; }
+.markdown li > ul, .markdown li > ol { margin: 2px 0 0; }
+.markdown a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+.markdown code { font-size: 12px; background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+.markdown pre {
+  font-size: 12px; line-height: 1.45; background: var(--code-bg); border: 1px solid var(--line);
+  border-radius: 6px; padding: 8px 10px; overflow-x: auto; white-space: pre;
+}
+.markdown pre code { background: none; padding: 0; }
+.markdown blockquote {
+  border-left: 3px solid #cfd6de; color: #3f4a56; padding: 2px 10px; background: var(--panel2); border-radius: 0 6px 6px 0;
+}
+.markdown hr { border: 0; border-top: 1px solid var(--line); margin: 10px 0; }
+.markdown table { border-collapse: collapse; font-size: 12.5px; }
+.markdown th, .markdown td { border: 1px solid var(--line); padding: 3px 8px; text-align: left; }
+.markdown th { background: var(--panel2); font-weight: 650; }
+.markdown del { color: var(--muted); }
+
+/* Composer: text box on top, formatting bar and Send underneath, like Mattermost */
+#composer {
   display: flex;
-  gap: 6px;
-  padding: 8px;
+  flex-direction: column;
+  padding: 8px 10px 8px;
   border-top: 1px solid var(--line);
+  background: var(--panel);
   flex: 0 0 auto;
+  gap: 6px;
 }
 #chat-input {
-  flex: 1 1 auto;
   resize: none;
-  height: 40px;
-  min-height: 40px;
+  min-height: 44px;
   max-height: 220px;
-  line-height: 1.35;
+  line-height: 1.45;
   overflow-y: hidden;
+  width: 100%;
 }
+#chat-input[hidden] { display: none; }
+#composer-preview {
+  min-height: 44px;
+  max-height: 220px;
+  overflow: auto;
+  border: 1px dashed var(--line);
+  border-radius: 6px;
+  padding: 6px 8px;
+  background: var(--bg);
+  cursor: text;
+}
+#composer-preview[hidden] { display: none; }
+.preview-empty { color: var(--muted); font-style: italic; }
+#composer-bar { display: flex; align-items: center; gap: 6px; }
+#format-bar { display: flex; align-items: center; gap: 2px; flex: 1 1 auto; min-width: 0; overflow: hidden; }
+#btn-preview { font-size: 12px; padding: 3px 8px; color: var(--muted); flex: 0 0 auto; }
+#btn-preview.active { background: var(--user-tint); color: var(--user); border-color: #c7d7fb; }
+#format-bar button {
+  padding: 2px 6px;
+  min-width: 26px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--muted);
+  background: transparent;
+  border-color: transparent;
+}
+#format-bar button:hover { background: var(--panel2); color: var(--text); border-color: var(--line); }
+.format-sep { width: 1px; height: 16px; background: var(--line); margin: 0 3px; }
+#btn-send { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; padding: 5px 14px; }
+#btn-send:hover { background: #1d4ed8; }
 
 #status-row {
   display: flex;
@@ -162,7 +245,7 @@ input:focus, textarea:focus, select:focus { border-color: #5979b8; }
   font: inherit;
   font-size: 11px;
   user-select: none;
-  background: #262c35;
+  background: var(--panel2);
   border: none;
   border-right: 1px solid var(--line);
   border-radius: 0;
@@ -171,27 +254,27 @@ input:focus, textarea:focus, select:focus { border-color: #5979b8; }
   white-space: nowrap;
 }
 .dock-tab:last-child { border-right: none; }
-.dock-tab:hover { background: #2e3541; color: var(--text); }
-.dock-tab.active { background: #2e3541; color: var(--text); box-shadow: inset 0 2px 0 var(--accent); }
+.dock-tab:hover { background: #e6e9e4; color: var(--text); }
+.dock-tab.active { background: var(--panel); color: var(--text); box-shadow: inset 0 2px 0 var(--accent); }
 .dock-tab.drag-over { box-shadow: inset 2px 0 0 var(--accent); }
-/* Custom tooltip -- native title tooltips render with the OS's light
-   background and would look out of place against this dark theme. */
+/* Custom tooltip, styled to match the panel. */
 .dock-tooltip {
   position: fixed;
   z-index: 300;
   max-width: 220px;
   padding: 5px 8px;
   border-radius: 6px;
-  border: 1px solid #3a424c;
-  background: #1c2027;
+  border: 1px solid var(--line);
+  background: var(--panel);
   color: var(--text);
-  font-size: 10px;
+  box-shadow: 0 4px 14px rgba(31, 41, 51, .12);
+  font-size: 11px;
   line-height: 1.4;
   pointer-events: none;
 }
 .settings-body { padding: 8px; display: flex; flex-direction: column; gap: 8px; }
 .field { display: flex; flex-direction: column; gap: 3px; }
-.field label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.field label { font-size: 12px; color: var(--muted); }
 .row { display: flex; gap: 6px; }
 .row > * { flex: 1 1 0; }
 /* Tab Groups panel -- added 2026-09-14. */
@@ -224,7 +307,7 @@ input:focus, textarea:focus, select:focus { border-color: #5979b8; }
 .closed-tab-item button { padding: 3px 6px; font-size: 10px; flex: 0 0 auto; }
 #closed-tabs-list { display: flex; flex-direction: column; gap: 6px; }
 #log-view {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--muted);
   white-space: pre-wrap;
   max-height: 22vh;
@@ -269,10 +352,10 @@ input:focus, textarea:focus, select:focus { border-color: #5979b8; }
   cursor: pointer;
   white-space: nowrap;
 }
-.tf-entry:hover { background: #232933; }
+.tf-entry:hover { background: var(--panel2); }
 .tf-entry.dir::before { content: "📁 "; }
 .tf-entry.file::before { content: "📄 "; }
-.tf-entry.active { background: var(--user); }
+.tf-entry.active { background: var(--user-tint); }
 #tf-editor {
   border: none;
   border-radius: 0;

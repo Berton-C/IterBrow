@@ -104,7 +104,7 @@ const CLOSED_TABS_LIMIT = 20;
 // (kept out of cognitive reset, included by manifest-driven export/import).
 const TAB_GROUPS_PATH = path.join(ITER_DIR, '.runtime', 'tab_groups.json');
 const VENV_PYTHON = path.join(ITER_DIR, '.venv', 'bin', 'python3');
-const SIDEBAR_BG = '#0d0f12'; // matches renderer/style.css --bg
+const SIDEBAR_BG = '#f6f7f4'; // matches renderer/style.css --bg (light theme, 2026-10-15)
 // Persistent MeTTa atomspace server (metta_server.py) -- see startMettaServer()
 // below. Unix socket, same protocol shape as ITER_BRIDGE_SOCKET above.
 const ITER_INSTANCE_ID = crypto.createHash('sha256').update(__dirname).digest('hex').slice(0, 16);

@@ -3,10 +3,27 @@
 <title>Iter Browser — control panel</title>
 <link rel="stylesheet" href="style.css">
 <div id="app-shell">
-<div id="chat"><div class="msg sys"><div class="bubble">Iter is stopped. Open Settings below, choose a provider, then press Start.</div></div></div>
-<div id="chat-input-row">
-  <textarea id="chat-input" placeholder="Message Iter… (Enter to send, Shift+Enter for newline)"></textarea>
-  <button id="btn-send">Send</button>
+<div id="chat"><div class="msg sys"><div class="body">Iter is stopped. Open Settings below, choose a provider, then press Start.</div></div></div>
+<div id="composer">
+  <div id="composer-preview" class="markdown" hidden></div>
+  <textarea id="chat-input" placeholder="Message Iter… (Enter to send, Shift+Enter for a new line)" rows="2"></textarea>
+  <div id="composer-bar">
+    <div id="format-bar" role="toolbar" aria-label="Formatting">
+      <button type="button" data-format="bold" title="Bold (⌘B)"><b>B</b></button>
+      <button type="button" data-format="italic" title="Italic (⌘I)"><i>I</i></button>
+      <button type="button" data-format="strike" title="Strikethrough (⌘⇧X)"><s>S</s></button>
+      <span class="format-sep"></span>
+      <button type="button" data-format="heading" title="Heading">H</button>
+      <button type="button" data-format="link" title="Link (⌘K)">🔗</button>
+      <button type="button" data-format="code" title="Code (⌘⇧C)">&lt;/&gt;</button>
+      <button type="button" data-format="quote" title="Quote">❝</button>
+      <span class="format-sep"></span>
+      <button type="button" data-format="bullet" title="Bulleted list">•≡</button>
+      <button type="button" data-format="number" title="Numbered list">1≡</button>
+    </div>
+    <button type="button" id="btn-preview" title="Preview formatting (⌘⇧P)" aria-pressed="false">Preview</button>
+    <button id="btn-send" title="Send (Enter)">Send</button>
+  </div>
 </div>
 
 <div id="status-row">
@@ -184,4 +201,5 @@
 <div id="drag-catcher"></div>
 <div id="resize-handle" title="Drag to resize"></div>
 
+<script src="markdown.js"></script>
 <script src="renderer.js"></script>
