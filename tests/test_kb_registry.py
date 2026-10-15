@@ -40,7 +40,6 @@ class RegistryTests(unittest.TestCase):
         self.addCleanup(self.r.close)
         self.r.start()
 
-    @pending("M5-A3")
     def test_first_use_registers_provisional_terms_and_known_terms_stay_known(self):
         out = self.r.text("define_term", name="Bird", definition="A feathered vertebrate", aliases=["birds", "avian"])
         self.assertIn("SUCCESS", out)
@@ -53,7 +52,6 @@ class RegistryTests(unittest.TestCase):
         # The alias resolved to the known term: the stored statement names `bird`, not `birds`.
         self.assertEqual(memory_metadata(self.r, raven)["formalization"], "(--> raven bird)")
 
-    @pending("M5-A3")
     def test_define_term_upgrades_a_provisional_term_in_place(self):
         swan = self.r.remember("swans are white", mem_type="fact")
         self.assertIn("SUCCESS", self.r.text("formalize_metta", LTM_item=swan, formalization="(--> swan ([] white))"))
@@ -65,7 +63,6 @@ class RegistryTests(unittest.TestCase):
         # The statement atom is untouched by the upgrade.
         self.assertEqual(len(kb_atoms(self.r, "statement")), 1)
 
-    @pending("M5-A3")
     def test_defining_an_alias_of_a_known_term_is_refused_and_names_it(self):
         self.assertIn("SUCCESS", self.r.text("define_term", name="bird", definition="x", aliases=["avian"]))
         out = self.r.text("define_term", name="Avian", definition="y")
@@ -73,7 +70,6 @@ class RegistryTests(unittest.TestCase):
         self.assertIn("bird", out)
         self.assertNotIn("avian", term_rows(self.r))
 
-    @pending("M5-A3")
     def test_strict_mode_refuses_unknown_terms_and_writes_nothing(self):
         strict = {"ITER_KB_VOCABULARY": "strict"}
         self.assertIn("SUCCESS", self.r.text("define_term", name="bird", definition="x", env=strict))
@@ -90,13 +86,13 @@ class RegistryTests(unittest.TestCase):
         self.assertIn("SUCCESS", self.r.text("formalize_metta", LTM_item=raven, formalization="(--> raven bird)", env=strict))
         self.assertEqual(len(kb_atoms(self.r, "statement")), 1)
 
-    @pending("M5-A3")
     def test_permissive_is_the_default_mode(self):
-        raven = self.r.remember("ravens are birds", mem_type="fact")
-        self.assertIn("SUCCESS", self.r.text("formalize_metta", LTM_item=raven, formalization="(--> raven bird)",
+        # Neither term is in seeds/kb_terms.json (which the service loads as known on start).
+        raven = self.r.remember("ravens are corvids", mem_type="fact")
+        self.assertIn("SUCCESS", self.r.text("formalize_metta", LTM_item=raven, formalization="(--> raven corvid)",
                                              env={"ITER_KB_VOCABULARY": None}))
-        self.assertEqual({name: row[0] for name, row in term_rows(self.r).items() if name in ("raven", "bird")},
-                         {"raven": "provisional", "bird": "provisional"})
+        self.assertEqual({name: row[0] for name, row in term_rows(self.r).items() if name in ("raven", "corvid")},
+                         {"raven": "provisional", "corvid": "provisional"})
 
 
 class MergeTests(unittest.TestCase):
@@ -107,7 +103,6 @@ class MergeTests(unittest.TestCase):
         self.addCleanup(self.r.close)
         self.r.start()
 
-    @pending("M5-A4")
     def test_merge_rewrites_statements_and_carries_evidence(self):
         a = self.r.remember("Anna smokes", mem_type="fact")
         b = self.r.remember("smoking leads to cancer", mem_type="belief")
@@ -137,7 +132,6 @@ class MergeTests(unittest.TestCase):
         self.assertIn("SUCCESS", self.r.text("merge_terms", keep="smokes", drop="smoker"))
         self.assertEqual(self.r.call("status")["commit"], before)
 
-    @pending("M5-A4")
     def test_merge_that_makes_two_statements_collide_revises_them_into_one(self):
         a = self.r.remember("Anna smokes", mem_type="fact")
         b = self.r.remember("Anna is a smoker", mem_type="fact")
@@ -149,7 +143,6 @@ class MergeTests(unittest.TestCase):
         self.assertIn("(kb (--> anna ([] smokes)) (stv 1.0 0.666", statements[0])
         self.assertEqual(len(kb_atoms(self.r, "evidence")), 2)
 
-    @pending("M5-A4")
     def test_merge_refuses_unknown_terms(self):
         out = self.r.text("merge_terms", keep="nothing_here", drop="nor_here")
         self.assertIn("ERROR", out.upper())

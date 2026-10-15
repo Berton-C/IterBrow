@@ -202,8 +202,10 @@ class SemanticRoot:
                 env[key] = value
         return env
 
-    def tool(self, name, cwd=None, env=None, tool_dir=None, timeout=120, **kwargs):
-        """Run tools/<name>.py run(**kwargs) in a fresh process; returns the runner's JSON."""
+    def tool(self, name, /, cwd=None, env=None, tool_dir=None, timeout=120, **kwargs):
+        """Run tools/<name>.py run(**kwargs) in a fresh process; returns the runner's JSON.
+
+        `name` is positional-only so a tool may itself take a `name` argument (define_term)."""
         path = Path(tool_dir or (self.root / "tools")) / (name + ".py")
         proc = subprocess.run([PYTHON, str(RUNNER), str(path), json.dumps(kwargs)],
                               cwd=str(cwd or self.root), env=self.env(env),
@@ -215,7 +217,7 @@ class SemanticRoot:
             return {"ok": False, "error": "runner crash", "stdout": proc.stdout[-2000:],
                     "stderr": proc.stderr[-3000:]}
 
-    def text(self, name, **kwargs):
+    def text(self, name, /, **kwargs):
         """Tool result text, or the error string when the tool raised."""
         result = self.tool(name, **kwargs)
         return result.get("result") if result.get("ok") else "RAISED " + str(result.get("error"))

@@ -83,6 +83,22 @@
       "owner": "cognition.application_contract"
     },
     {
+      "path": "seeds/kb_inference.metta",
+      "role": "source_seed",
+      "format": "metta",
+      "portable": false,
+      "reset": false,
+      "owner": "cognition.knowledge_base"
+    },
+    {
+      "path": "seeds/kb_terms.json",
+      "role": "source_seed",
+      "format": "json",
+      "portable": false,
+      "reset": false,
+      "owner": "cognition.knowledge_base"
+    },
+    {
       "path": ".runtime/atomspace",
       "role": "authoritative_state",
       "format": "atomspace_v1",

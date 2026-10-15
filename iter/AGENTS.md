@@ -339,7 +339,10 @@ were confirmation.
 | `chroma_query` | Semantic search of `remember`ed items by text query (does not search memory/ files; read those directly) |
 | `link_episode` | Link a memory item to an episode timestamp |
 | `unlink_episode` | Remove an episode link from a memory item |
-| `formalize_metta` | Assign a NAL/MeTTa statement to an LTM item |
+| `formalize_metta` | Give an LTM item a canonical NAL statement; it becomes a `(kb ...)` atom the engine reasons over |
+| `kb_query` | Stored statements matching a pattern (truth + evidence ids), then conclusions derived by NAL deduction |
+| `define_term` | Register / confirm a knowledge-base term (known) with a definition and aliases |
+| `merge_terms` | Fold a duplicate term into another; statements are rewritten and revised together |
 | `support` | Link episode + apply NAL positive evidence (truth revision) |
 | `contradict` | Link episode + apply NAL negative evidence (truth revision) |
 
@@ -392,11 +395,16 @@ were confirmation.
    - Each item has: UUID, timestamp, provenance type, STV (truth value), optional episode links, optional NAL formalization.
    - Truth values use NAL revision: `support` adds positive evidence, `contradict` adds negative.
    - Query with `chroma_query` (text → semantic nearest neighbors).
-   - **Formalizations today are metadata only** (`metadata["formalization"]`); they are
-     projected to `transformations/.runtime/space.metta`, which the engine never loads, and
-     nothing reasons over them. Milestone 5 (`docs/milestones/M5_knowledge_base.md`, tests
-     `tests/test_kb_*.py`, status: pending) makes them canonical `(kb <statement> (stv f c))`
-     atoms with evidence links, revision on write and bounded forward chaining.
+   - **Knowledge base (Milestone 5, `docs/milestones/M5_knowledge_base.md`):** a memory's
+     formalization is canonical (lowercase_snake terms, aliases resolved, `$1..$n` variables) and
+     committed in the SAME transaction as `(kb <statement> (stv f c))` plus
+     `(kb-evidence "<hash>" "<memory>")` atoms; terms live in `(kb-term ...)` atoms
+     (`known` / `provisional`; `ITER_KB_VOCABULARY=strict` refuses unknown terms). A statement's
+     truth is the NAL revision of all its evidence memories and is recomputed on every memory write
+     (`_petta_db._kb_plan`). `seeds/kb_inference.metta` derives conclusions (modus ponens, chaining;
+     depth <= 3) per query, never stored: `kb_query`, and `Derived:` lines in `chroma_query`.
+     `space.metta` is an unloaded text mirror of the kb atoms; the dashboard counts come from the
+     authority.
 
 2. **Episodic Memory (Tiered Pyramid):**
    - `tier5.txt` — Life summary (coarsest, ~1 line)

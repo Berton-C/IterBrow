@@ -259,6 +259,57 @@ def modify_memory(item_id, mutate, embedding=None):
         return message
 
 
+def commit_kb_change(plan, event_type="kb_changed"):
+    """Plan and commit a knowledge-base change atomically (define_term, merge_terms).
+
+    plan(atoms) -> (updates {memory_id: new metadata}, term_ops {key: atom|None}, message)
+    runs under the writer lock against a fresh authority read; memory rewrites
+    and term changes commit in ONE transaction (through _commit_memory_change,
+    so statements and evidence follow).  Raises ValueError from plan unchanged.
+    """
+    from iterbrow_runtime import kb_terms
+    with writer_lock():
+        atoms = kb_terms.read_kb(_call_atomspace)
+        updates, term_ops, message = plan(atoms)
+        if updates:
+            records, expected = [], {}
+            for item_id, metadata in sorted(updates.items()):
+                key = SEMANTIC_PREFIX + item_id
+                _, document, _ = parse_semantic_atom(key, atoms[key])
+                records.append({"id": item_id, "document": document, "metadata": metadata})
+                expected[key] = atoms[key]
+            try:
+                committed = _commit_memory_change("memory_updated", records, expected_atoms=expected,
+                                                  term_ops=term_ops)
+            except RuntimeError as error:
+                conflict = _conflict_guard(error)
+                if conflict:
+                    raise conflict from error
+                raise
+            db = _load(write=True)
+            for record in records:
+                _index_put(db, record["id"], record["document"], record["metadata"])
+            _save_committed_projection(db, committed)
+            return message
+        operations, expected = kb_terms.plan_memory_change(atoms, {}, term_ops)
+        if not operations:
+            return message
+        state_atoms = {op["key"][len("state:"):]: op["atom"] for op in operations if op["op"] == "upsert"}
+        removed = [op["key"][len("state:"):] for op in operations if op["op"] == "remove"]
+        try:
+            commit_batch(
+                [{"domain": "knowledge_base", "entity_id": ",".join(sorted(term_ops)) or "kb",
+                  "event_type": event_type, "payload": {"operations": operations}}],
+                state_atoms=state_atoms, remove_state_keys=removed, actor="iter",
+                source="tools._petta_db.kb", expected_atoms=expected, require=True)
+        except RuntimeError as error:
+            conflict = _conflict_guard(error)
+            if conflict:
+                raise conflict from error
+            raise
+        return message
+
+
 def memory_status(item_id):
     """Read committed identity without embeddings or repeating the write."""
     key = "state:semantic_memory:" + str(item_id)
@@ -305,7 +356,28 @@ def _memory_atom(item_id, document, metadata):
     )
 
 
-def _commit_memory_change(kind, records, remove_ids=None, expected_atoms=None):
+def _kb_plan(kind, records, remove_ids, term_ops=None):
+    """Knowledge-base operations that must commit with this memory change (Milestone 5).
+
+    Evidence is a function of memory metadata (formalization_hash), so the
+    statements a change touches are recomputed here and committed in the SAME
+    transaction.  Returns ([operations], {expected atoms}); a remember without
+    a formalization needs no read at all.
+    """
+    from iterbrow_runtime import kb_terms
+    updates = {}
+    for record in records:
+        updates[str(record["id"])] = None if kind == "forgotten" else record.get("metadata") or {}
+    for item_id in remove_ids or []:
+        updates[str(item_id)] = None
+    if not term_ops and kind == "remembered" and not any(
+            isinstance(m, dict) and m.get("formalization_hash") for m in updates.values()):
+        return [], {}
+    atoms = kb_terms.read_kb(_call_atomspace)
+    return kb_terms.plan_memory_change(atoms, updates, term_ops)
+
+
+def _commit_memory_change(kind, records, remove_ids=None, expected_atoms=None, term_ops=None):
     """Commit one semantic-memory change to the AtomSpace authority.
 
     A pending entry (.runtime/memory_pending/<request digest>.json) holds the
@@ -334,13 +406,16 @@ def _commit_memory_change(kind, records, remove_ids=None, expected_atoms=None):
             _atomic_json(pending, {"operation_id": operation_id, "request": json.loads(canonical)})
         ids = ",".join(str(record["id"]) for record in records)
         try:
-            result = _commit_memory_operation(kind, records, remove_ids, operation_id, expected_atoms)
+            kb_ops, kb_expected = _kb_plan(kind, records, remove_ids, term_ops)
+            if kb_ops:
+                expected_atoms = dict(kb_expected, **(expected_atoms or {}))
+            result = _commit_memory_operation(kind, records, remove_ids, operation_id, expected_atoms, kb_ops)
             if not created and result.get("duplicate") and not _expected_state_present(kind, records, remove_ids):
                 # The old transaction committed long ago and the memory changed
                 # since; re-sending its id is a no-op.  This is a new operation.
                 operation_id = uuid.uuid4().hex
                 _atomic_json(pending, {"operation_id": operation_id, "request": json.loads(canonical)})
-                result = _commit_memory_operation(kind, records, remove_ids, operation_id, expected_atoms)
+                result = _commit_memory_operation(kind, records, remove_ids, operation_id, expected_atoms, kb_ops)
         except (OSError, json.JSONDecodeError) as error:
             if getattr(error, "atomspace_not_sent", False):
                 # Definite: nothing reached the AtomSpace.  An entry left by an
@@ -383,7 +458,7 @@ def _expected_state_present(kind, records, remove_ids):
             and all(("state:" + key) not in snapshot for key in removed))
 
 
-def _commit_memory_operation(kind, records, remove_ids, operation_id, expected_atoms=None):
+def _commit_memory_operation(kind, records, remove_ids, operation_id, expected_atoms=None, kb_ops=None):
     digest = operation_id
     events = []
     for record in records:
@@ -396,6 +471,12 @@ def _commit_memory_operation(kind, records, remove_ids, operation_id, expected_a
             "payload": record,
         })
     state_atoms, removed = _memory_state(kind, records, remove_ids)
+    for op in kb_ops or []:
+        key = op["key"][len("state:"):]
+        if op["op"] == "upsert":
+            state_atoms[key] = op["atom"]
+        else:
+            removed.append(key)
     return commit_batch(
         events,
         require=True,  # semantic memory always fails closed (never "deferred")
@@ -840,6 +921,30 @@ def index_gap(db=None):
     return list(state.get("unindexed") or []), state.get("last_error")
 
 
+def _needs_kb_backfill(metadata):
+    return bool(isinstance(metadata, dict) and metadata.get("formalization")
+                and not metadata.get("formalization_hash") and not metadata.get("formalization_error"))
+
+
+def kb_backfill():
+    """Bring pre-Milestone-5 formalizations into the knowledge base (one transaction).
+
+    The AtomSpace service runs the same pass on start; this covers memories
+    written while it was already running (e.g. by a legacy import).
+    """
+    from iterbrow_runtime import kb_terms
+    with writer_lock():
+        atoms = kb_terms.read_kb(_call_atomspace)
+        operations, expected, summary = kb_terms.backfill_operations(
+            atoms, kb_terms.load_seed_terms(ROOT))
+        if not operations:
+            return None
+        _call_atomspace("transact", timeout=30, operations=operations, actor="iter",
+                        source="tools._petta_db.kb_backfill",
+                        transaction_id="kb-backfill:%s" % uuid.uuid4().hex, expected_atoms=expected)
+        return summary
+
+
 def reconcile_index(force=False):
     """Align chroma_db (a rebuildable index) with the AtomSpace authority.
 
@@ -861,6 +966,12 @@ def reconcile_index(force=False):
         snapshot, memories = authority_memories()
     except Exception as error:
         return {"status": "authority_unavailable", "error": str(error)}
+    if any(_needs_kb_backfill(fields[1]) for fields in memories.values()):
+        try:
+            kb_backfill()
+            snapshot, memories = authority_memories()
+        except Exception:
+            pass  # best effort: the service backfills on its next start too
     db = _load()
     state = db.get("authority_index") or {}
     if (not force and state.get("digest") == _authority_digest(snapshot["atoms"])

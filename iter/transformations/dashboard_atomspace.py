@@ -17,7 +17,7 @@ def _exists(path):
     except OSError:
         return False
 
-DESCRIPTION = "Atom-space dashboard with raw space.metta and visualization"
+DESCRIPTION = "Atom-space dashboard: knowledge-base counts and graph from the AtomSpace authority, plus the unloaded space.metta projection"
 
 ROOT = "."
 SPACE_FILE = ROOT + "/transformations/.runtime/space.metta"
@@ -31,307 +31,143 @@ def upload_html(html_doc):
         pass
 
 
-def parse_space_metta():
-    """Build a hierarchical shared-subterm graph.
+KB_KEYS = ("statements", "terms_known", "terms_provisional", "evidence", "derived", "nace_beliefs")
+CACHE_FILE = ROOT + "/transformations/.runtime/dashboard_kb_cache.json"
 
-    Top-level MeTTa statements are statement nodes. Any meaningful term that
-    occurs in at least two statements becomes a structural node. Statements
-    connect only to their outermost shared terms; shared compound terms then
-    connect downward to their nearest shared subterms. Therefore, if two
-    statements share (& a b), they connect through (& a b), not redundantly
-    through a and b as well.
+
+def authority_counts(read_atoms, derive):
+    """What the AtomSpace authority holds, counted from its atoms (never from space.metta text).
+
+    read_atoms(prefix) -> {key: atom}; derive() -> list of derivations (depth 1).
+    Any failure to read the authority yields status "authority unreachable" and
+    no numbers at all, so the page never shows stale or invented counts.
     """
     try:
-        with open(SPACE_FILE) as source:
-            space_text = source.read()
+        kb = read_atoms("state:kb_")
+        nace = read_atoms("state:nace_belief:")
     except Exception:
-        return '{"nodes":[],"links":[]}'
-
-    clean_lines = []
-    for line in space_text.split('\n'):
-        line = line.strip()
-        if not line or line.startswith(';;'):
-            continue
-        clean_lines.append(line)
-    text = ' '.join(clean_lines)
-
-    def find_top_level_exprs(src):
-        exprs = []
-        depth = 0
-        in_quote = False
-        escaped = False
-        current = ''
-        for ch in src:
-            if escaped:
-                if depth > 0:
-                    current += ch
-                escaped = False
+        return dict({"status": "authority unreachable", "loaded": False}, **{key: None for key in KB_KEYS})
+    from iterbrow_runtime.kb_terms import parse_term_atom
+    known = provisional = 0
+    for key, atom in kb.items():
+        if key.startswith("state:kb_term:"):
+            try:
+                status = parse_term_atom(atom)["status"]
+            except (ValueError, IndexError):
                 continue
-            if ch == '\\' and in_quote:
-                if depth > 0:
-                    current += ch
-                escaped = True
-                continue
-            if ch == '"':
-                in_quote = not in_quote
-                if depth > 0:
-                    current += ch
-                continue
-            if in_quote:
-                if depth > 0:
-                    current += ch
-                continue
-            if ch == '(':
-                if depth == 0:
-                    current = ''
-                depth += 1
-                current += ch
-            elif ch == ')' and depth > 0:
-                current += ch
-                depth -= 1
-                if depth == 0:
-                    exprs.append(current.strip())
-                    current = ''
-            elif depth > 0:
-                current += ch
-        return exprs
-
-    def tokenize(expr):
-        tokens = []
-        cur = ''
-        in_quote = False
-        escaped = False
-        for ch in expr:
-            if escaped:
-                cur += ch
-                escaped = False
-                continue
-            if ch == '\\' and in_quote:
-                cur += ch
-                escaped = True
-                continue
-            if ch == '"':
-                cur += ch
-                in_quote = not in_quote
-                continue
-            if in_quote:
-                cur += ch
-                continue
-            if ch in '()':
-                if cur.strip():
-                    tokens.append(cur.strip())
-                cur = ''
-                tokens.append(ch)
-            elif ch.isspace():
-                if cur.strip():
-                    tokens.append(cur.strip())
-                cur = ''
+            if status == "known":
+                known += 1
             else:
-                cur += ch
-        if cur.strip():
-            tokens.append(cur.strip())
-        return tokens
-
-    def parse_expr(expr):
-        toks = tokenize(expr)
-        pos = 0
-
-        def parse_one():
-            nonlocal pos
-            if pos >= len(toks):
-                return None
-            tok = toks[pos]
-            if tok != '(':
-                pos += 1
-                return tok
-            pos += 1
-            out = []
-            while pos < len(toks) and toks[pos] != ')':
-                out.append(parse_one())
-            if pos < len(toks) and toks[pos] == ')':
-                pos += 1
-            return out
-
-        return parse_one()
-
-    def sexpr(term):
-        if isinstance(term, list):
-            return '(' + ' '.join(sexpr(x) for x in term) + ')'
-        return str(term)
-
-    STRUCTURAL = {
-        'stv', '-->', '<-->', '<->', '==>', '=~>', '=/>', '=|>',
-        '</>', '<|>', '|-', 'Inheritance', 'Member', 'Similarity',
-        'Implication', 'Evaluation', 'Concept', 'Predicate', 'x', '×', '[]'
+                provisional += 1
+    try:
+        derived = len(derive())
+    except Exception:
+        derived = None
+    return {
+        "status": "ok", "loaded": True,
+        "statements": sum(1 for key in kb if key.startswith("state:kb_statement:")),
+        "terms_known": known, "terms_provisional": provisional,
+        "evidence": sum(1 for key in kb if key.startswith("state:kb_evidence:")),
+        "derived": derived,
+        "nace_beliefs": len(nace),
     }
 
-    def is_variable(atom):
-        return isinstance(atom, str) and atom.startswith('$')
 
-    def meaningful_atom(atom):
-        if not isinstance(atom, str):
-            return False
-        if atom in STRUCTURAL or is_variable(atom):
-            return False
-        try:
-            float(atom)
-            return False
-        except ValueError:
-            return True
+def build_kb_graph(kb_atoms, derived):
+    """Graph of what is real: stored statements, derived statements, and the registry
+    terms they mention (an edge only for a term in the statement's canonical term list)."""
+    from iterbrow_runtime import kb_terms
+    registry = kb_terms.Registry({k: v for k, v in kb_atoms.items() if k.startswith(kb_terms.TERM_PREFIX)})
+    nodes, links, term_ids = [], [], {}
 
-    term_trees = {}
+    def term_node(term):
+        if term not in term_ids:
+            term_ids[term] = "term:" + term
+            nodes.append({"id": term_ids[term], "kind": "term", "label": term,
+                          "status": registry.status(term) or kb_terms.PROVISIONAL})
+        return term_ids[term]
 
-    def children_of(term):
-        """Semantic children: skip STV and do not expose list heads as atoms."""
-        if not isinstance(term, list) or not term:
-            return []
-        head = term[0] if isinstance(term[0], str) else None
-        if head == 'stv':
-            return []
-        out = []
-        if isinstance(term[0], list):
-            out.append(term[0])
-        out.extend(term[1:])
-        return out
+    def statement_node(node_id, kind, statement, stv, extra=None):
+        node = {"id": node_id, "kind": kind, "label": statement, "stv": list(stv)}
+        node.update(extra or {})
+        nodes.append(node)
+        for term in kb_terms.statement_terms(statement):
+            links.append({"source": node_id, "target": term_node(term), "type": "mentions", "term": term})
 
-    def collect_subterms(term, out, is_root=False):
-        if isinstance(term, str):
-            if meaningful_atom(term):
-                out.add(term)
-            return
-        if not isinstance(term, list) or not term:
-            return
-        head = term[0] if isinstance(term[0], str) else None
-        if head == 'stv':
-            return
-
-        for child in children_of(term):
-            collect_subterms(child, out, False)
-
-        if not is_root:
-            # Keep a compound only when it contains some meaningful content.
-            contained = set()
-            for child in children_of(term):
-                collect_subterms(child, contained, False)
-            if contained:
-                rendered = sexpr(term)
-                out.add(rendered)
-                term_trees.setdefault(rendered, term)
-
-    exprs = find_top_level_exprs(text)
-    statement_nodes = []
-    statement_trees = []
-    term_sets = []
-    term_occurs = {}
-
-    for expr in exprs:
-        tree = parse_expr(expr)
-        if tree is None:
-            continue
-        terms = set()
-        collect_subterms(tree, terms, True)
-        idx = len(statement_nodes)
-        stmt_id = 'stmt_' + str(idx)
-        statement_nodes.append({
-            'id': stmt_id,
-            'name': expr,
-            'statement': expr,
-            'kind': 'statement',
-            'subterms': sorted(terms)
-        })
-        statement_trees.append(tree)
-        term_sets.append(terms)
-        for term in terms:
-            term_occurs.setdefault(term, set()).add(idx)
-
-    shared_terms = {term for term, owners in term_occurs.items() if len(owners) >= 2}
-
-    # Prune structurally redundant descendants. If (& a b), a, and b occur in
-    # exactly the same set of statements, (& a b) already captures all of that
-    # overlap, so separate a/b nodes add no information. A child remains when
-    # it also participates elsewhere, giving a genuine lower hierarchical level.
-    redundant_terms = set()
-    for bigger in list(shared_terms):
-        tree = term_trees.get(bigger)
-        if tree is None:
-            continue
-        descendants = set()
-        collect_subterms(tree, descendants, True)
-        for smaller in descendants.intersection(shared_terms):
-            if smaller != bigger and term_occurs.get(smaller) == term_occurs.get(bigger):
-                redundant_terms.add(smaller)
-    shared_terms.difference_update(redundant_terms)
-
-    def shared_frontier(term, allow_self=False):
-        """Return nearest/outermost shared terms below this tree position."""
-        if isinstance(term, str):
-            if meaningful_atom(term) and term in shared_terms:
-                return {term}
-            return set()
-        if not isinstance(term, list) or not term:
-            return set()
-        head = term[0] if isinstance(term[0], str) else None
-        if head == 'stv':
-            return set()
-
-        rendered = sexpr(term)
-        if allow_self and rendered in shared_terms:
-            return {rendered}
-
-        found = set()
-        for child in children_of(term):
-            found.update(shared_frontier(child, True))
-        return found
-
-    nodes = list(statement_nodes)
-    term_node_ids = {}
-    for term in sorted(shared_terms, key=lambda t: (0 if t.startswith('(') else 1, -len(t), t)):
-        term_id = 'term_' + str(len(term_node_ids))
-        term_node_ids[term] = term_id
-        nodes.append({
-            'id': term_id,
-            'name': term,
-            'term': term,
-            'kind': 'compound' if term.startswith('(') else 'atom',
-            'statement_count': len(term_occurs[term])
-        })
-
-    links = []
-    seen_links = set()
-
-    def add_link(source, target, link_type, term):
-        key = (source, target, link_type)
-        if key in seen_links:
-            return
-        seen_links.add(key)
-        links.append({
-            'source': source,
-            'target': target,
-            'type': link_type,
-            'term': term
-        })
-
-    # Statement -> outermost shared structure only.
-    for i, tree in enumerate(statement_trees):
-        for term in sorted(shared_frontier(tree, False)):
-            add_link(statement_nodes[i]['id'], term_node_ids[term], 'shares', term)
-
-    # Shared compound -> nearest shared descendants. This is the hierarchy.
-    for term, tree in term_trees.items():
-        if term not in shared_terms:
-            continue
-        parent_id = term_node_ids[term]
-        for child_term in sorted(shared_frontier(tree, False)):
-            if child_term == term:
+    for key in sorted(kb_atoms):
+        if key.startswith(kb_terms.STATEMENT_PREFIX):
+            try:
+                statement, stv = kb_terms.parse_statement_atom(kb_atoms[key])
+            except ValueError:
                 continue
-            add_link(parent_id, term_node_ids[child_term], 'contains', child_term)
+            statement_node("stmt:" + key[len(kb_terms.STATEMENT_PREFIX):], "statement", statement, stv)
+    for index, item in enumerate(derived or []):
+        statement_node("derived:%d" % index, "derived", item["statement"], item["stv"],
+                       {"premises": item["premises"]})
+    return {"nodes": nodes, "links": links}
 
-    return json.dumps({
-        'nodes': nodes,
-        'links': links,
-        'statementCount': len(statement_nodes),
-        'structuralCount': len(term_node_ids)
-    })
+
+def _read_authority():
+    """(read_atoms, derive, commit) against the live service, or raise."""
+    import sys
+    iter_dir = os.environ.get("ITER_DIR") or os.getcwd()
+    if iter_dir not in sys.path:
+        sys.path.insert(0, iter_dir)
+    from iterbrow_runtime.cognitive_events import _call_atomspace
+    from iterbrow_runtime import kb_inference
+    state = {}
+
+    def read_atoms(prefix):
+        snapshot = _call_atomspace("read_atoms", timeout=10, prefix=prefix)
+        state["commit"] = snapshot.get("commit")
+        return snapshot["atoms"]
+
+    def derive():
+        if "derived" in state:
+            return state["derived"]
+        commit = state.get("commit")
+        try:
+            with open(CACHE_FILE) as handle:
+                cached = json.load(handle)
+            if cached.get("commit") == commit:
+                state["derived"] = cached["derived"]
+                return state["derived"]
+        except Exception:
+            pass
+        state["derived"] = [dict(item) for item in kb_inference.derive(kb_inference.service_query, depth=1)]
+        try:
+            os.makedirs(os.path.dirname(CACHE_FILE), exist_ok=True)
+            with open(CACHE_FILE + ".tmp", "w") as handle:
+                json.dump({"commit": commit, "derived": state["derived"]}, handle)
+            os.replace(CACHE_FILE + ".tmp", CACHE_FILE)
+        except Exception:
+            pass
+        return state["derived"]
+
+    return read_atoms, derive, state
+
+
+def _authority_view():
+    """(counts, graph, commit) for the page; unreachable authority -> no numbers, empty graph."""
+    try:
+        read_atoms, derive, state = _read_authority()
+    except Exception:
+        def read_atoms(_prefix):
+            raise ConnectionError("authority unreachable")
+        derive, state = (lambda: []), {}
+    counts = authority_counts(read_atoms, derive)
+    graph = {"nodes": [], "links": []}
+    if counts["loaded"]:
+        try:
+            graph = build_kb_graph(read_atoms("state:kb_"), derive())
+        except Exception:
+            pass
+    return counts, graph, state.get("commit")
+
+
+def _comment_json(value):
+    """JSON safe inside an HTML comment (no '--' sequences)."""
+    return json.dumps(value, ensure_ascii=True).replace("--", "-\\u002d")
 
 
 def transform(messages, tools):
@@ -399,23 +235,43 @@ code,pre{font-family:var(--mono)}
 '''
 
     space_section = (
-        '<section class="card"><div class="card-head"><h2 class="card-title">space.metta</h2><span class="card-note">raw symbolic space</span></div>'
+        '<section class="card"><div class="card-head"><h2 class="card-title">space.metta</h2><span class="card-note">projection (not loaded) · text mirror of the kb statement atoms; the engine never reads this file</span></div>'
         '<div class="card-body space"><pre class="source-pre">' + space_escaped + '</pre></div></section>'
     )
 
     # Space Visualization section
-    space_graph_data = parse_space_metta()
+    counts, graph_data, commit = _authority_view()
+    space_graph_data = _comment_json(graph_data)
+    if counts["loaded"]:
+        state_line = "loaded in engine · commit %s" % commit
+        chips = "".join(
+            '<span class="graph-chip">%s <strong>%s</strong></span>' % (_escape_html(label), _escape_html(
+                "unavailable" if counts[key] is None else counts[key]))
+            for label, key in (("statements", "statements"), ("evidence links", "evidence"),
+                               ("derived (depth 1)", "derived"), ("known terms", "terms_known"),
+                               ("provisional terms", "terms_provisional"), ("NACE beliefs", "nace_beliefs")))
+    else:
+        state_line = "authority unreachable"
+        chips = '<span class="label">The AtomSpace service did not answer; no counts are shown rather than stale ones.</span>'
+    kb_section = (
+        '<section class="card"><div class="card-head"><h2 class="card-title">Knowledge base</h2>'
+        '<span class="card-note">' + _escape_html(state_line) + '</span></div>'
+        '<div class="card-body" style="display:flex;flex-wrap:wrap;gap:6px">' + chips + '</div></section>'
+        '<!--counts:' + _comment_json(counts) + '-->'
+        '<!--graph:' + space_graph_data + '-->'
+    )
     space_viz_section = (
         '<section class="card">'
         '<div class="card-head"><h2 class="card-title">Space Visualization</h2>'
-        '<span class="card-note">statement nodes · shared compounds form hierarchy over shared atoms</span></div>'
+        '<span class="card-note">stored and derived statements · edges only to registry terms each statement mentions</span></div>'
         '<div class="graph-shell"><div id="space_viz" class="graph-frame">'
         '<div id="space_viz_canvas" style="position:absolute;inset:0"></div>'
         '<div class="graph-loading">Loading graph...</div>'
         '<div class="graph-hud graph-hud-top">'
         '<span class="graph-chip">statements <strong id="graph_statement_count">0</strong></span>'
-        '<span class="graph-chip">structure <strong id="graph_structure_count">0</strong></span>'
-        '<span class="graph-chip">links <strong id="graph_edge_count">0</strong></span>'
+        '<span class="graph-chip">derived <strong id="graph_derived_count">0</strong></span>'
+        '<span class="graph-chip">terms <strong id="graph_structure_count">0</strong></span>'
+        '<span class="graph-chip">mentions <strong id="graph_edge_count">0</strong></span>'
         '</div>'
         '<div id="graph_legend" class="graph-legend"></div>'
         '</div>'
@@ -428,13 +284,15 @@ code,pre{font-family:var(--mono)}
         'gData.nodes.forEach(function(n){degrees[n.id]=0;});'
         'gData.links.forEach(function(l){var s=(l.source&&typeof l.source==="object")?l.source.id:l.source;var t=(l.target&&typeof l.target==="object")?l.target.id:l.target;degrees[s]=(degrees[s]||0)+1;degrees[t]=(degrees[t]||0)+1;});'
         'gData.nodes.forEach(function(n){n._degree=degrees[n.id]||0;});'
-        'document.getElementById("graph_statement_count").textContent=gData.statementCount||gData.nodes.filter(function(n){return n.kind==="statement";}).length;'
-        'document.getElementById("graph_structure_count").textContent=gData.structuralCount||gData.nodes.filter(function(n){return n.kind!=="statement";}).length;'
+        'document.getElementById("graph_statement_count").textContent=gData.nodes.filter(function(n){return n.kind==="statement";}).length;'
+        'document.getElementById("graph_derived_count").textContent=gData.nodes.filter(function(n){return n.kind==="derived";}).length;'
+        'document.getElementById("graph_structure_count").textContent=gData.nodes.filter(function(n){return n.kind==="term";}).length;'
         'document.getElementById("graph_edge_count").textContent=gData.links.length;'
         'var legend=document.getElementById("graph_legend");'
-        '[["#6ea8fe","statement"],["#e7a86e","compound shared term"],["#7ccf91","atomic shared term"]].forEach(function(x){var item=document.createElement("span");item.className="graph-legend-item";var sw=document.createElement("i");sw.className="graph-swatch";sw.style.background=x[0];item.appendChild(sw);item.appendChild(document.createTextNode(x[1]));legend.appendChild(item);});'
-        'function nodeColor(n){if(n.kind==="statement")return "#6ea8fe";if(n.kind==="compound")return "#e7a86e";return "#7ccf91";}'
-        'function nodeRadius(n){if(n.kind==="statement")return 4.8+Math.min(5.2,Math.log2((n._degree||0)+1)*1.25);if(n.kind==="compound")return 5.2+Math.min(3.5,Math.log2((n._degree||0)+1));return 3.8+Math.min(2.8,Math.log2((n._degree||0)+1)*.8);}'
+        '[["#6ea8fe","stored statement"],["#b8a1e3","derived statement (computed, not stored)"],["#7ccf91","known term"],["#e7a86e","provisional term"]].forEach(function(x){var item=document.createElement("span");item.className="graph-legend-item";var sw=document.createElement("i");sw.className="graph-swatch";sw.style.background=x[0];item.appendChild(sw);item.appendChild(document.createTextNode(x[1]));legend.appendChild(item);});'
+        'function isStmt(n){return n.kind==="statement"||n.kind==="derived";}'
+        'function nodeColor(n){if(n.kind==="statement")return "#6ea8fe";if(n.kind==="derived")return "#b8a1e3";return n.status==="known"?"#7ccf91":"#e7a86e";}'
+        'function nodeRadius(n){if(isStmt(n))return 4.8+Math.min(5.2,Math.log2((n._degree||0)+1)*1.25);return 3.8+Math.min(3.5,Math.log2((n._degree||0)+1));}'
         'function drawRound(ctx,x,y,w,h,r){r=Math.min(r,w/2,h/2);ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}'
         'var graph=ForceGraph()(document.getElementById("space_viz_canvas"));'
         'function resizeGraph(){graph.width(graphEl.clientWidth).height(graphEl.clientHeight);}'
@@ -445,27 +303,28 @@ code,pre{font-family:var(--mono)}
         'graph.nodeRelSize(6);'
         'graph.warmupTicks(300);'
         'graph.cooldownTicks(0);'
-        'graph.nodeLabel(function(n){if(n.kind==="statement")return n.statement||n.name||n.id;return (n.kind==="compound"?"shared compound: ":"shared atom: ")+(n.term||n.name||n.id)+" · links "+(n._degree||0)+" statements";});'
+        'graph.nodeLabel(function(n){if(n.kind==="statement")return n.label+" (stv "+n.stv.join(" ")+")";if(n.kind==="derived")return "derived: "+n.label+" (stv "+n.stv.join(" ")+") from "+(n.premises||[]).join(", ");return n.status+" term: "+n.label+" · mentioned by "+(n._degree||0)+" statements";});'
         'graph.nodeCanvasObject(function(node,ctx,globalScale){'
-        'var label=String(node.name||node.id);var r=nodeRadius(node);var base=nodeColor(node);ctx.save();'
+        'var label=String(node.label||node.id);var r=nodeRadius(node);var base=nodeColor(node);ctx.save();'
         'ctx.fillStyle=base;ctx.strokeStyle="rgba(225,232,240,.62)";ctx.lineWidth=.75/globalScale;'
-        'if(node.kind==="compound"){ctx.beginPath();ctx.moveTo(node.x,node.y-r);ctx.lineTo(node.x+r,node.y);ctx.lineTo(node.x,node.y+r);ctx.lineTo(node.x-r,node.y);ctx.closePath();ctx.fill();ctx.stroke();}'
+        'if(node.kind==="term"){ctx.beginPath();ctx.moveTo(node.x,node.y-r);ctx.lineTo(node.x+r,node.y);ctx.lineTo(node.x,node.y+r);ctx.lineTo(node.x-r,node.y);ctx.closePath();if(node.status!=="known"){ctx.setLineDash([2/globalScale,2/globalScale]);ctx.fillStyle="rgba(231,168,110,.25)";ctx.strokeStyle=base;}ctx.fill();ctx.stroke();ctx.setLineDash([]);}'
+        'else if(node.kind==="derived"){ctx.beginPath();ctx.arc(node.x,node.y,r,0,2*Math.PI);ctx.setLineDash([2/globalScale,1.5/globalScale]);ctx.fillStyle="rgba(184,161,227,.35)";ctx.strokeStyle=base;ctx.fill();ctx.stroke();ctx.setLineDash([]);}'
         'else{ctx.beginPath();ctx.arc(node.x,node.y,r,0,2*Math.PI);ctx.fill();ctx.stroke();}'
-        'var fontSize=(node.kind==="statement"?8.6:8.2)/globalScale;ctx.font=(node.kind==="statement"?"500 ":"700 ")+fontSize+"px ui-monospace,SFMono-Regular,Menlo,monospace";'
-        'var maxLen=node.kind==="statement"?72:46;var shown=label.length>maxLen?label.slice(0,maxLen-1)+"…":label;var tw=ctx.measureText(shown).width,padX=5/globalScale,padY=3/globalScale;'
+        'var fontSize=(isStmt(node)?8.6:8.2)/globalScale;ctx.font=(isStmt(node)?"500 ":"700 ")+fontSize+"px ui-monospace,SFMono-Regular,Menlo,monospace";'
+        'var maxLen=isStmt(node)?72:46;var shown=label.length>maxLen?label.slice(0,maxLen-1)+"…":label;var tw=ctx.measureText(shown).width,padX=5/globalScale,padY=3/globalScale;'
         'var x=node.x+r+4/globalScale,y=node.y-(fontSize+padY*2)/2;drawRound(ctx,x,y,tw+padX*2,fontSize+padY*2,3/globalScale);'
-        'ctx.fillStyle="rgba(10,13,17,.88)";ctx.fill();ctx.strokeStyle=node.kind==="statement"?"rgba(80,105,140,.72)":"rgba(105,91,68,.76)";ctx.lineWidth=.6/globalScale;ctx.stroke();'
-        'ctx.fillStyle=node.kind==="statement"?"#c9d1dc":base;ctx.textAlign="left";ctx.textBaseline="middle";ctx.fillText(shown,x+padX,node.y);ctx.restore();'
+        'ctx.fillStyle="rgba(10,13,17,.88)";ctx.fill();ctx.strokeStyle=isStmt(node)?"rgba(80,105,140,.72)":"rgba(105,91,68,.76)";ctx.lineWidth=.6/globalScale;ctx.stroke();'
+        'ctx.fillStyle=isStmt(node)?"#c9d1dc":base;ctx.textAlign="left";ctx.textBaseline="middle";ctx.fillText(shown,x+padX,node.y);ctx.restore();'
         '});'
-        'graph.linkColor(function(l){if(l.type==="contains")return "rgba(140,148,160,.32)";var t=l.target;if(t&&typeof t==="object"){return t.kind==="compound"?"rgba(231,168,110,.52)":"rgba(124,207,145,.46)";}return "rgba(120,131,145,.45)";});'
+        'graph.linkColor(function(l){var s=l.source;if(s&&typeof s==="object"&&s.kind==="derived")return "rgba(184,161,227,.45)";var t=l.target;if(t&&typeof t==="object"){return t.status==="known"?"rgba(124,207,145,.46)":"rgba(231,168,110,.46)";}return "rgba(120,131,145,.45)";});'
         'graph.linkWidth(function(){return 1.15;});'
         'graph.linkDirectionalParticles(0);'
         'graph.linkDirectionalArrowLength(0);'
-        'graph.linkLabel(function(l){return (l.type==="contains"?"contains shared: ":"shares: ")+(l.term||"");});'
+        'graph.linkLabel(function(l){return "mentions: "+(l.term||"");});'
         'graph.d3AlphaDecay(0.03);'
         'graph.d3VelocityDecay(0.3);'
-        'graph.d3Force("charge").strength(function(n){return n.kind==="statement"?-360:-220;});'
-        'graph.d3Force("link").distance(function(l){var t=l.target;return (t&&typeof t==="object"&&t.kind==="compound")?74:64;});'
+        'graph.d3Force("charge").strength(function(n){return isStmt(n)?-360:-220;});'
+        'graph.d3Force("link").distance(function(){return 64;});'
         'window._spaceVizGraph=graph;'
         'window._spaceVizInit=true;'
         'graph.onEngineStop(function(){if(window._graphReady) return; window._graphReady=true;'
@@ -515,9 +374,9 @@ code,pre{font-family:var(--mono)}
         '</script>'
         '<style>' + css + '</style></head><body><main class="c">'
         '<header class="page-head"><div><h1 class="page-title">Eray Index <span style="color:#66707d;font-weight:400">/ Atom Space</span></h1>'
-        '<div class="page-subtitle">Raw symbolic space and hierarchical shared-subterm visualization.</div></div>'
+        '<div class="page-subtitle">Knowledge base as the AtomSpace authority holds it: statements, evidence, derived conclusions, terms.</div></div>'
         '<div class="clock"><span class="clock-label">Local snapshot</span>' + _escape_html(now) + '</div></header>'
-        + '<div class="grid">' + space_section + space_viz_section + '</div>'
+        + '<div class="grid">' + kb_section + space_viz_section + space_section + '</div>'
         + '<div class="f">Generated by Iter · transformations/dashboard_atomspace.py · refresh 15s</div>'
         '</main></body></html>'
     )

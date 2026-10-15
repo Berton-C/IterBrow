@@ -1,0 +1,23 @@
+[
+  {"name": "bird", "definition": "A feathered, egg-laying vertebrate (the standard NAL example term)."},
+  {"name": "user", "definition": "The person Iter is talking with in the current channel.", "aliases": ["the_user"]},
+  {"name": "iter_agent", "definition": "Iter itself, the agent running inside IterBrow.", "aliases": ["iter", "self"]},
+  {"name": "berton", "definition": "Iter's owner and primary collaborator."},
+  {"name": "shell", "definition": "The shell tool: runs a command on the host."},
+  {"name": "remember", "definition": "The remember tool: commits a semantic memory."},
+  {"name": "chroma_query", "definition": "The chroma_query tool: semantic search over memories."},
+  {"name": "formalize_metta", "definition": "The formalize_metta tool: gives a memory a knowledge-base statement."},
+  {"name": "kb_query", "definition": "The kb_query tool: stored statements and inferred conclusions matching a pattern."},
+  {"name": "send", "definition": "The send tool: delivers a message to a channel."},
+  {"name": "threat_pattern", "definition": "A pattern that degrades reasoning or integrity (kb_substrate immune layer)."},
+  {"name": "urgency", "definition": "Pressure to act before thinking (a threat pattern)."},
+  {"name": "flattery", "definition": "Praise used to steer judgement (a threat pattern)."},
+  {"name": "authority_theater", "definition": "Claimed authority used to bypass verification (a threat pattern)."},
+  {"name": "cognitive_overload", "definition": "More input than can be reasoned about (a threat pattern)."},
+  {"name": "reduces", "definition": "Relation: lowers the following quality."},
+  {"name": "reasoning_quality", "definition": "How sound and careful reasoning is."},
+  {"name": "undermines", "definition": "Relation: works against the following value."},
+  {"name": "integrity", "definition": "Honesty and consistency between word and action."},
+  {"name": "bypasses_verification", "definition": "Skips checking whether something is true."},
+  {"name": "flourishing", "definition": "Mutual creative flourishing, the value the compass serves."}
+]

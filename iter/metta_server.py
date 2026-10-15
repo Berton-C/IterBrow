@@ -14,6 +14,7 @@ client while adding `query`, `transact`, `checkpoint`, `subscribe`, `quiesce`,
 
 import fcntl
 import json
+import uuid
 import os
 import socketserver
 import subprocess
@@ -171,6 +172,7 @@ class MettaSpace:
                 "status": "failed",
                 "error": self.engine_error,
             }
+        self.kb_backfill = self._kb_backfill()
         self.das_projection = DASProjectionWorker(
             lambda after, limit: self.store.events_after(after, limit),
             STATE_DIR.parent,
@@ -208,6 +210,33 @@ class MettaSpace:
             replacement = self._new_engine_unlocked(atoms)
             self.engine = replacement
             self.engine_error = None
+
+    def _kb_backfill(self):
+        """Bring pre-Milestone-5 formalizations and the seed vocabulary into the kb.
+
+        One transaction, idempotent (a second start commits nothing).  A failure
+        is logged and leaves the service usable: memories keep working without
+        their kb atoms until the next start or memory tool call retries.
+        """
+        if not self.engine_available:
+            return {"status": "skipped", "reason": "engine unavailable"}
+        try:
+            from iterbrow_runtime import kb_terms
+            atoms = {key: atom for key, atom in self.store.atoms.items()
+                     if key.startswith((kb_terms.KB_PREFIX, kb_terms.SEMANTIC_PREFIX))}
+            operations, expected, summary = kb_terms.backfill_operations(
+                atoms, kb_terms.load_seed_terms(ITER_DIR))
+            if not operations:
+                return {"status": "current"}
+            self.store.transact(
+                operations=operations, actor="iter", source="kb_backfill",
+                transaction_id="kb-backfill:%s" % uuid.uuid4().hex,
+                expected_atoms=expected, rebuild_engine=self._rebuild_engine)
+            _log(summary)
+            return {"status": "applied", "summary": summary}
+        except Exception as exc:
+            _log("kb backfill failed: %s: %s" % (type(exc).__name__, exc))
+            return {"status": "failed", "error": "%s: %s" % (type(exc).__name__, exc)}
 
     def _require_engine(self):
         if not self.engine_available:
@@ -382,6 +411,7 @@ class MettaSpace:
             "lock_path": str(LOCK_PATH),
             "manifest_path": str(MANIFEST_PATH),
             "legacy_migration": self.legacy_migration,
+            "kb_backfill": getattr(self, "kb_backfill", None),
             "pid": os.getpid(),
             "das": self.das_projection.status(),
         }

@@ -32,7 +32,6 @@ def statement_op(statement, f=1.0, c=0.5):
 class CountTests(unittest.TestCase):
     """M5-G1"""
 
-    @pending("M5-G1")
     def test_counts_come_from_authority_atoms(self):
         atoms = {
             "state:kb_statement:aaa": "(kb (--> raven bird) (stv 1.0 0.5))",
@@ -57,7 +56,6 @@ class CountTests(unittest.TestCase):
                          {"statements": 3, "terms_known": 1, "terms_provisional": 1, "evidence": 1,
                           "derived": 4, "nace_beliefs": 1})
 
-    @pending("M5-G1")
     def test_unreachable_authority_shows_no_numbers(self):
         def read_atoms(_prefix):
             raise ConnectionRefusedError("no service")
@@ -88,7 +86,6 @@ class RenderedTests(unittest.TestCase):
                        cwd=str(self.r.root), env=self.r.env(env), check=True, timeout=120)
         return (self.r.root / "dashboard_atomspace.html").read_text(encoding="utf-8")
 
-    @pending("M5-G1")
     def test_page_shows_authority_counts_commit_and_projection_label(self):
         transact(self.r, [
             statement_op("(--> raven bird)"), statement_op("(--> swan bird)"),
@@ -106,7 +103,6 @@ class RenderedTests(unittest.TestCase):
         self.assertEqual(data["derived"], 2, "raven flies, swan flies at depth 1")
         self.assertEqual(data["terms_known"] + data["terms_provisional"], len(self.r.atoms("state:kb_term:")))
 
-    @pending("M5-G1")
     def test_page_without_authority_says_so_and_shows_no_numbers(self):
         html = self._render(env={"ITER_METTA_SOCKET": str(self.r.sock.parent / "nowhere.sock")})
         self.assertIn("authority unreachable", html)
@@ -114,7 +110,6 @@ class RenderedTests(unittest.TestCase):
         data = json.loads(html.split("<!--counts:", 1)[1].split("-->", 1)[0])
         self.assertIsNone(data["statements"])
 
-    @pending("M5-G1")
     def test_graph_nodes_are_registry_terms_and_derived_statements_are_distinct(self):
         transact(self.r, [
             statement_op("(--> raven bird)"), statement_op("(--> swan bird)"),

@@ -39,7 +39,6 @@ class DeductionTests(unittest.TestCase):
         self.r.start()
         self.run_query = lambda code: query(self.r, code)
 
-    @pending("M5-D1")
     def test_modus_ponens_with_nal_deduction_truth(self):
         seed(self.r, {
             "(==> (--> $1 ([] smokes)) (--> $1 ([] cancerous)))": (1.0, 0.9),
@@ -53,7 +52,6 @@ class DeductionTests(unittest.TestCase):
         self.assertEqual(sorted(d["premises"]),
                          sorted(["(==> (--> $1 ([] smokes)) (--> $1 ([] cancerous)))", "(--> anna ([] smokes))"]))
 
-    @pending("M5-D1")
     def test_implication_chaining_value_and_canonical_variables(self):
         seed(self.r, {
             "(==> (--> $1 ([] smokes)) (--> $1 ([] cancerous)))": (1.0, 0.9),
@@ -64,7 +62,6 @@ class DeductionTests(unittest.TestCase):
         self.assertIn(chained, derived, "Hyperon's $1#NNN must come back as $1: %s" % list(derived))
         self.assertTrue(close(tuple(derived[chained]["stv"]), (0.9, 0.729)), derived[chained])
 
-    @pending("M5-D1")
     def test_depth_two_reaches_what_depth_one_cannot(self):
         seed(self.r, {
             "(==> (--> $1 ([] smokes)) (--> $1 ([] cancerous)))": (1.0, 0.9),
@@ -83,7 +80,6 @@ class DeductionTests(unittest.TestCase):
         # Both routes give the same value: 1.0 * 0.9 * 0.9 * 0.5 chain of deductions.
         self.assertTrue(close(tuple(d["stv"]), (1.0, 0.45 * 0.9)), d)
 
-    @pending("M5-D1")
     def test_universal_fact_unifies_with_everything(self):
         seed(self.r, {
             "(--> $1 ([] mortal))": (1.0, 0.9),
@@ -109,14 +105,12 @@ class BoundsTests(unittest.TestCase):
             statements["(==> (--> $1 ([] p%d)) (--> $1 ([] p%d)))" % (i, i + 1)] = (1.0, 0.9)
         seed(self.r, statements)
 
-    @pending("M5-D2")
     def test_depth_is_capped_at_three(self):
         self._chain(6)
         derived = by_statement(kb_inference().derive(self.run_query, depth=10))
         self.assertTrue(all(d["depth"] <= 3 for d in derived.values()), {k: d["depth"] for k, d in derived.items()})
         self.assertIn("(--> a0 ([] p3))", derived)
 
-    @pending("M5-D2")
     def test_stored_statements_are_not_reported_as_derived_and_dedupe_keeps_highest_confidence(self):
         seed(self.r, {
             "(==> (--> $1 ([] smokes)) (--> $1 ([] cancerous)))": (1.0, 0.9),
@@ -134,7 +128,6 @@ class BoundsTests(unittest.TestCase):
                         "highest-confidence derivation wins: %s" % derived["(--> bob ([] cancerous))"])
         self.assertEqual(len([d for d in derived.values() if d["statement"] == "(--> bob ([] cancerous))"]), 1)
 
-    @pending("M5-D2")
     def test_nothing_is_written_to_the_authority(self):
         self._chain(3)
         before = self.r.call("status")
@@ -145,7 +138,6 @@ class BoundsTests(unittest.TestCase):
         self.assertEqual(len(kb_atoms(self.r, "statement")), 4)
         self.assertNotIn("derived", "".join(self.r.atoms("state:")))
 
-    @pending("M5-D2")
     def test_limit_and_budget_truncate_honestly(self):
         self._chain(3)
         full = kb_inference().derive(self.run_query, depth=3)
@@ -158,7 +150,6 @@ class BoundsTests(unittest.TestCase):
         self.assertLess(time.monotonic() - started, 5.0)
         self.assertTrue(result.truncated, "a zero budget returns at most what one round found, marked truncated")
 
-    @pending("M5-D2")
     def test_engine_failure_is_reported_not_swallowed(self):
         def broken(_code):
             raise RuntimeError("isolated Hyperon query worker exited 1")

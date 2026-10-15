@@ -29,7 +29,6 @@ class StatementAtomTests(unittest.TestCase):
         self.addCleanup(self.r.close)
         self.r.start()
 
-    @pending("M5-B1")
     def test_formalize_writes_statement_evidence_and_terms_in_one_transaction(self):
         raven = self.r.remember("ravens are birds", mem_type="fact")
         before = self.r.call("status")["commit"]
@@ -43,12 +42,14 @@ class StatementAtomTests(unittest.TestCase):
         evidence = kb_atoms(self.r, "evidence")
         self.assertEqual(evidence, {"state:kb_evidence:%s:%s" % (statement_hash(statement), raven):
                                     '(kb-evidence "%s" "%s")' % (statement_hash(statement), raven)})
-        self.assertEqual(set(k.split(":")[-1] for k in kb_atoms(self.r, "term")), {"raven", "bird"})
+        terms = kb_atoms(self.r, "term")
+        self.assertIn("state:kb_term:raven", terms)
+        self.assertIn('"provisional"', terms["state:kb_term:raven"])
+        self.assertIn("state:kb_term:bird", terms)  # a seed term (known since start); not duplicated
         metadata = memory_metadata(self.r, raven)
         self.assertEqual(metadata["formalization"], statement)
         self.assertEqual(metadata["formalization_hash"], statement_hash(statement))
 
-    @pending("M5-B1")
     def test_statement_is_a_live_expression_the_engine_can_match(self):
         raven = self.r.remember("ravens are birds", mem_type="fact")
         rule = self.r.remember("smoking causes cancer", mem_type="belief")
@@ -60,7 +61,6 @@ class StatementAtomTests(unittest.TestCase):
         found = query(self.r, "!(match &self (kb (==> (--> anna ([] smokes)) $conclusion) $tv) $conclusion)")
         self.assertIn("(--> anna ([] cancerous))", found)
 
-    @pending("M5-B1")
     def test_formalization_is_stored_canonical_not_as_typed(self):
         raven = self.r.remember("ravens are birds", mem_type="fact")
         self.assertIn("SUCCESS", self.r.text("formalize_metta", LTM_item=raven,
@@ -68,7 +68,6 @@ class StatementAtomTests(unittest.TestCase):
         self.assertEqual(memory_metadata(self.r, raven)["formalization"], SMOKES_RULE)
         self.assertEqual(list(kb_atoms(self.r, "statement").values()), ["(kb %s (stv 1.0 0.5))" % SMOKES_RULE])
 
-    @pending("M5-B1")
     def test_invalid_statement_writes_nothing(self):
         raven = self.r.remember("ravens are birds", mem_type="fact")
         before = self.r.call("status")["commit"]
@@ -87,7 +86,6 @@ class LifecycleTests(unittest.TestCase):
         self.addCleanup(self.r.close)
         self.r.start()
 
-    @pending("M5-B2")
     def test_reformalizing_moves_evidence_and_drops_the_orphaned_statement(self):
         raven = self.r.remember("ravens are birds", mem_type="fact")
         self.assertIn("SUCCESS", self.r.text("formalize_metta", LTM_item=raven, formalization="(--> raven bird)"))
@@ -98,7 +96,6 @@ class LifecycleTests(unittest.TestCase):
         self.assertEqual(len(evidence), 1)
         self.assertTrue(next(iter(evidence)).startswith("state:kb_evidence:" + statement_hash("(--> raven ([] black))")))
 
-    @pending("M5-B2")
     def test_forget_removes_evidence_and_last_evidence_removes_statement(self):
         raven = self.r.remember("ravens are birds", mem_type="todo")
         crow = self.r.remember("crows are birds too", mem_type="todo")
@@ -116,7 +113,6 @@ class LifecycleTests(unittest.TestCase):
         # Terms outlive statements (the registry is vocabulary, not usage).
         self.assertIn("state:kb_term:raven", kb_atoms(self.r, "term"))
 
-    @pending("M5-B2")
     def test_support_and_contradict_recompute_the_statement_truth(self):
         raven = self.r.remember("ravens are birds", mem_type="fact")
         self.assertIn("SUCCESS", self.r.text("formalize_metta", LTM_item=raven, formalization="(--> raven bird)"))
@@ -138,7 +134,6 @@ class RevisionTests(unittest.TestCase):
         self.addCleanup(self.r.close)
         self.r.start()
 
-    @pending("M5-C2")
     def test_second_memory_with_same_statement_revises_instead_of_duplicating(self):
         a = self.r.remember("ravens are birds", mem_type="fact")
         b = self.r.remember("a raven is a kind of bird", mem_type="fact")
@@ -149,7 +144,6 @@ class RevisionTests(unittest.TestCase):
         self.assertTrue(close(stv_of(statements[0])[0], (1.0, 0.6667)), statements[0])
         self.assertEqual(len(kb_atoms(self.r, "evidence")), 2)
 
-    @pending("M5-C2")
     def test_conflicting_evidence_revises_to_uncertain_not_two_statements(self):
         a = self.r.remember("ravens are birds", mem_type="fact")
         b = self.r.remember("ravens are not birds", mem_type="belief")
@@ -185,7 +179,6 @@ class ProjectionTests(unittest.TestCase):
         path = self.r.root / "transformations" / ".runtime" / "space.metta"
         return path.read_text() if path.exists() else ""
 
-    @pending("M5-B3")
     def test_projection_mirrors_statement_atoms_including_revised_truth(self):
         a = self.r.remember("ravens are birds", mem_type="fact")
         b = self.r.remember("a raven is a bird", mem_type="fact")

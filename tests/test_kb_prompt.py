@@ -31,7 +31,6 @@ class _Seeded(unittest.TestCase):
 class ChromaQueryTests(_Seeded):
     """M5-E1"""
 
-    @pending("M5-E1")
     def test_result_block_lists_derived_conclusions_with_premises(self):
         self.seed()
         out = self.r.text("chroma_query", query="Anna smokes a pack a day", k=1)
@@ -45,7 +44,6 @@ class ChromaQueryTests(_Seeded):
         self.assertIn(SMOKES_RULE, derived[0])
         self.assertIn("(--> anna ([] smokes))", derived[0].split("⇐")[-1] if "⇐" in derived[0] else derived[0])
 
-    @pending("M5-E1")
     def test_memory_without_formalization_has_no_derived_section(self):
         self.seed()
         plain = self.r.remember("the weather is mild today", mem_type="fact")
@@ -54,7 +52,6 @@ class ChromaQueryTests(_Seeded):
         self.assertNotIn("[derived]", out)
         self.assertNotIn("Derived:", out)
 
-    @pending("M5-E1")
     def test_derived_lines_are_capped_at_five_per_memory(self):
         self.seed()
         for i in range(8):
@@ -72,7 +69,6 @@ class ChromaQueryTests(_Seeded):
 class KbQueryTests(_Seeded):
     """M5-E2"""
 
-    @pending("M5-E2")
     def test_pattern_returns_stored_then_derived_matches(self):
         self.seed()
         out = self.r.text("kb_query", pattern="(--> $1 ([] cancerous))")
@@ -86,7 +82,6 @@ class KbQueryTests(_Seeded):
         self.assertEqual(len(derived), 1, out)
         self.assertLess(out.index("[stored]"), out.index("[derived]"))
 
-    @pending("M5-E2")
     def test_bad_pattern_and_no_match_are_explicit(self):
         self.seed()
         out = self.r.text("kb_query", pattern="(--> anna")
@@ -94,7 +89,6 @@ class KbQueryTests(_Seeded):
         out = self.r.text("kb_query", pattern="(--> nobody $what)")
         self.assertIn("no stored or derived statement matches", out.lower())
 
-    @pending("M5-E2")
     def test_tool_descriptions_fit_the_prompt_budget(self):
         self.seed()
         sys.path.insert(0, str(ITER_SRC))

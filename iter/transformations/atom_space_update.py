@@ -29,11 +29,11 @@ def _mkdirs(path):
         except OSError:
             pass
 
-DESCRIPTION = "Regenerate space.metta from the formalizations of current semantic memories (AtomSpace authority)"
+DESCRIPTION = "Regenerate space.metta (unloaded projection) from the knowledge-base statement atoms in the AtomSpace authority"
 
 ROOT = os.path.realpath(os.environ.get("ITER_DIR") or os.getcwd())
 SPACE_PATH = ROOT + "/transformations/.runtime/space.metta"
-HEADER = ";; === Formalizations (auto-updated) ===\n"
+HEADER = ";; === Knowledge-base statements (projection of kb atoms; NOT loaded into the engine) ===\n"
 MAX_LINES = 500
 
 if ROOT not in sys.path:
@@ -87,37 +87,29 @@ def _number(value, default):
 
 
 def current_formalizations():
-    """Formalization lines of the semantic memories the authority holds now.
+    """Statement lines of the knowledge base the authority holds now.
 
-    space.metta is a projection: regenerating it from current atoms (instead of
-    merging what chroma_query happened to print) makes forgotten memories'
-    formalizations disappear and keeps stv values current.  Returns None when
-    the authority is unreachable.
+    space.metta is a projection of the `(kb <statement> (stv f c))` atoms
+    (Milestone 5): one line per statement, with the truth value revised over
+    all of its evidence memories.  Memory metadata is never read here, so a
+    memory's text and the statement atom cannot disagree in the projection.
+    The engine does not load this file.  Returns None when the authority is
+    unreachable.
     """
     try:
-        from iterbrow_runtime.cognitive_events import (
-            _call_atomspace, parse_semantic_atom, SEMANTIC_PREFIX)
-        atoms = _call_atomspace("read_atoms", timeout=10, prefix=SEMANTIC_PREFIX)["atoms"]
+        from iterbrow_runtime.cognitive_events import _call_atomspace
+        from iterbrow_runtime import kb_terms
+        atoms = _call_atomspace("read_atoms", timeout=10, prefix=kb_terms.STATEMENT_PREFIX)["atoms"]
     except Exception:
         return None
-    best = {}
+    lines = []
     for key in sorted(atoms):
         try:
-            _, _, metadata = parse_semantic_atom(key, atoms[key])
+            statement, stv = kb_terms.parse_statement_atom(atoms[key])
         except ValueError:
             continue
-        formalization = str(metadata.get("formalization") or "").strip()
-        if not is_valid_metta(formalization):
-            continue
-        strength = _number(metadata.get("strength", 1.0), 1.0)
-        confidence = _number(metadata.get("confidence", 0.5), 0.5)
-        line = "(%s (stv %s %s))" % (formalization, strength, confidence)
-        if not check_parens(line):
-            continue
-        # One line per formalization: keep the most confident memory's stv.
-        if formalization not in best or confidence > best[formalization][0]:
-            best[formalization] = (confidence, line)
-    return [best[key][1] for key in sorted(best)][:MAX_LINES]
+        lines.append("(%s %s)" % (statement, kb_terms.stv_text(stv)))
+    return sorted(lines)[:MAX_LINES]
 
 
 def transform(messages, tools):

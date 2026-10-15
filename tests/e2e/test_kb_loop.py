@@ -20,7 +20,6 @@ RULE = "(==> (--> $1 ([] smokes)) (--> $1 ([] cancerous)))"
 
 
 class KnowledgeBaseLoopTests(unittest.TestCase):
-    @pending("M5-H1")
     def test_formalize_revise_and_derive_through_the_real_loop(self):
         require_m5()
         script = [

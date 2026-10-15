@@ -1,6 +1,13 @@
 # Milestone 5 — Make the memory layer a real knowledge base
 
-Status: **scoped, tests written, implementation pending.**
+Status: **implemented 2026-10-15** (all `@pending` decorators removed; 54 tests active).
+Implementation notes: the planner lives at the single memory-commit choke point
+(`tools/_petta_db._commit_memory_change` → `kb_terms.plan_memory_change`), so every memory
+write — formalize, forget, support, contradict, link, update, merge — keeps statements and
+evidence consistent in its own transaction. Premises are reported as the *stored* statements
+(Hyperon prints them instantiated; `kb_inference._premise` maps them back by one-way matching).
+Two test assertions written before the seed vocabulary existed assumed an empty registry and
+were narrowed to non-seed terms (`bird` is a seed term, loaded `known` at service start).
 Tests: `tests/test_kb_*.py` (unit + real AtomSpace service) and
 `tests/e2e/test_kb_loop.py`; helpers in `tests/kb_support.py`. Every test is
 decorated `@pending("M5-xx")`, which is `unittest.expectedFailure`.

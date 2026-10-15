@@ -25,6 +25,41 @@ def _gap_note():
                "It is" if one else "They are"))
 
 
+DERIVED_PER_MEMORY = 5
+
+
+class _LazyDerivations:
+    """Derive once per chroma_query call, and only if a result is formalized."""
+
+    def __init__(self):
+        self.items = None
+        self.error = None
+
+    def get(self):
+        if self.items is None and self.error is None:
+            try:
+                from iterbrow_runtime import kb_inference
+                self.items = kb_inference.derive(kb_inference.service_query, depth=2)
+            except Exception as error:  # reasoning is an addition; search must still answer
+                self.error = "%s: %s" % (type(error).__name__, str(error)[:160])
+        return self.items, self.error
+
+
+def _derived_lines(statement, derivations):
+    """`Derived:` section: conclusions (depth <= 2) that rest on this memory's statement."""
+    from iterbrow_runtime import kb_inference
+    items, error = derivations.get()
+    if error:
+        return ["Derived: unavailable (%s)" % error]
+    mine = [item for item in items if statement in item["sources"]]
+    if not mine:
+        return []
+    lines = ["Derived:"] + ["  " + kb_inference.format_derivation(item) for item in mine[:DERIVED_PER_MEMORY]]
+    if len(mine) > DERIVED_PER_MEMORY:
+        lines.append("  (+%d more derived; use kb_query)" % (len(mine) - DERIVED_PER_MEMORY))
+    return lines
+
+
 def run(query, k=5):
     out = _search(query, k)
     notice = petta_db.reconcile_notice()
@@ -67,6 +102,7 @@ def _search(query, k):
     if not documents:
         return ("No results found.\n" + note) if note else "No results found."
 
+    derivations = _LazyDerivations()
     output_lines = ["Found " + str(len(documents)) + ' results for query: "' + query + '"\n']
     for i in range(len(documents)):
         id_val = ids[i] if i < len(ids) else "unknown"
@@ -93,6 +129,8 @@ def _search(query, k):
             output_lines.append("Linked Episodes: " + str(linked))
         if formalization:
             output_lines.append("Formalization: " + str(formalization))
+            if meta.get("formalization_hash"):
+                output_lines.extend(_derived_lines(str(formalization), derivations))
         output_lines.append("Content: " + str(doc))
         output_lines.append("")
 

@@ -36,7 +36,6 @@ class BackfillTests(unittest.TestCase):
         self.r.stop()
         return self.r.start()
 
-    @pending("M5-F1")
     def test_legacy_formalizations_become_atoms_once(self):
         legacy(self.r, [
             ("m1", "ravens are birds", {"time": "2026-10-01 10:00:00", "formalization": "(--> Raven  bird)",
@@ -76,7 +75,6 @@ class BackfillTests(unittest.TestCase):
         self._restart()
         self.assertEqual(self.r.call("status")["commit"], before, "a second start performs no transaction")
 
-    @pending("M5-F1")
     def test_seed_vocabulary_is_known_and_never_downgraded(self):
         seed_path = ITER_SRC / "seeds" / "kb_terms.json"
         self.assertTrue(seed_path.exists(), seed_path)
@@ -101,7 +99,6 @@ class BackfillTests(unittest.TestCase):
         self.assertIn('"known"', kb_atoms(self.r, "term")["state:kb_term:bird"])
         self.assertIn('"provisional"', kb_atoms(self.r, "term")["state:kb_term:raven"])
 
-    @pending("M5-F1")
     def test_reconcile_also_backfills_when_the_service_was_already_up(self):
         legacy(self.r, [("m1", "ravens are birds", {"time": "2026-10-01 10:00:00", "formalization": "(--> raven bird)"})])
         out = self.r.text("chroma_query", query="ravens are birds")  # chroma_query reconciles the index first
