@@ -392,6 +392,11 @@ were confirmation.
    - Each item has: UUID, timestamp, provenance type, STV (truth value), optional episode links, optional NAL formalization.
    - Truth values use NAL revision: `support` adds positive evidence, `contradict` adds negative.
    - Query with `chroma_query` (text → semantic nearest neighbors).
+   - **Formalizations today are metadata only** (`metadata["formalization"]`); they are
+     projected to `transformations/.runtime/space.metta`, which the engine never loads, and
+     nothing reasons over them. Milestone 5 (`docs/milestones/M5_knowledge_base.md`, tests
+     `tests/test_kb_*.py`, status: pending) makes them canonical `(kb <statement> (stv f c))`
+     atoms with evidence links, revision on write and bounded forward chaining.
 
 2. **Episodic Memory (Tiered Pyramid):**
    - `tier5.txt` — Life summary (coarsest, ~1 line)
