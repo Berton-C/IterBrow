@@ -4,7 +4,7 @@ set -euo pipefail
 
 LIFECYCLE_ACTION="${1:?Pass update or uninstall}"
 LIFECYCLE_ROOT="$(cd "${2:?Pass the IterBrow root}" && pwd)"
-LIFECYCLE_BRANCH="${3:-${ITERBROW_BRANCH:-stable}}"
+LIFECYCLE_BRANCH="${3:-${ITERBROW_BRANCH:-main}}"
 LIFECYCLE_LAUNCH="${4:-1}"
 LIFECYCLE_HELPER="$LIFECYCLE_ROOT/scripts/iterbrow_lifecycle.py"
 LIFECYCLE_PARENT="$(dirname "$LIFECYCLE_ROOT")"

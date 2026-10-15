@@ -31,7 +31,7 @@ class InstallerContractTests(unittest.TestCase):
         source = (ROOT / "install.sh").read_text(encoding="utf-8")
         self.assertIn("ITERBROW_INSTALL_DIR", source)
         self.assertIn("ITERBROW_BRANCH", source)
-        self.assertIn('ITERBROW_BRANCH:-stable', source)
+        self.assertIn('ITERBROW_BRANCH:-main', source)
         self.assertNotIn("TheWholeEnchilada", source)  # deleted branch; installs must not depend on it
         self.assertIn("exec /bin/bash", source)
 
@@ -170,9 +170,9 @@ class InstallerContractTests(unittest.TestCase):
             self.assertGreater(result["gallery_bytes"], result["atomspace_bytes"])
 
 
-    def test_lifecycle_update_defaults_to_the_stable_branch(self):
+    def test_lifecycle_update_defaults_to_main(self):
         lifecycle = (ROOT / "scripts" / "iterbrow_lifecycle.sh").read_text(encoding="utf-8")
-        self.assertIn("ITERBROW_BRANCH:-stable", lifecycle)
+        self.assertIn("ITERBROW_BRANCH:-main", lifecycle)
         self.assertNotIn("TheWholeEnchilada", lifecycle)
 
 

@@ -539,7 +539,7 @@ Beyond browsing, IterBrow can **design UI directly against a real page and remem
 ## Mac install, update, repair, and uninstall
 
 The same downloaded script owns all four lifecycle operations. A fresh install
-acquires the `stable` branch into `~/Applications/IterBrow`, installs the managed runtimes, proves disposable
+acquires the `main` branch into `~/Applications/IterBrow`, installs the managed runtimes, proves disposable
 AtomSpace crash recovery, and opens IterBrow stopped for private provider
 onboarding:
 
@@ -586,23 +586,21 @@ before removing program files. Git development checkouts are never replaced or
 uninstalled by this lifecycle path; use Git for their code and `repair` for
 their runtimes.
 
-### Branches: `stable` and `main`
+### One branch: `main`
 
-`stable` is what installs and updates use by default. It only ever moves forward
-to a `main` commit that has passed CI and been used live for a while, so family
-and other installs get tested code. `main` carries the newest work. Use it by
-setting `ITERBROW_BRANCH=main` for the installer, or switching a checkout to it.
-The old `TheWholeEnchilada` branch was retired on 2026-10-12 (its history is kept
-as the tag `archive/TheWholeEnchilada`).
+`main` is the only branch. It is what the owner's Mac runs, pushed when it
+has been used live, and it is what installs and updates download by default.
+The old `TheWholeEnchilada` branch was retired on 2026-10-12 (its history is
+kept as the tag `archive/TheWholeEnchilada`).
 
 ### Update an installed copy
 
 Quit IterBrow, then from the installed copy run `./install.sh update`. Copies
-installed before the switch to `stable` still default to the retired branch;
-run this once instead, and the default is `stable` from then on:
+installed before 2026-10-15 still default to the retired branch; run this once
+instead, and the default is `main` from then on:
 
 ```bash
-cd "$HOME/Applications/IterBrow" && ITERBROW_BRANCH=stable ./install.sh update
+cd "$HOME/Applications/IterBrow" && ITERBROW_BRANCH=main ./install.sh update
 ```
 
 ### Update an existing Git checkout (including the test install)
@@ -611,18 +609,16 @@ Quit IterBrow completely first, then open Terminal in its repository directory
 and paste this as **one command**:
 
 ```bash
-git fetch origin && git switch stable && git pull --ff-only origin stable && git rev-parse --short HEAD && ./install.sh repair
+git fetch origin && git switch main && git pull --ff-only origin main && git rev-parse --short HEAD && ./install.sh repair
 ```
 
 For the test checkout at `~/IterBrow`, the same command including its directory is:
 
 ```bash
-cd "$HOME/IterBrow" && git fetch origin && git switch stable && git pull --ff-only origin stable && git rev-parse --short HEAD && ./install.sh repair
+cd "$HOME/IterBrow" && git fetch origin && git switch main && git pull --ff-only origin main && git rev-parse --short HEAD && ./install.sh repair
 ```
 
-A checkout that was on `TheWholeEnchilada` switches over with the same command
-(`git switch stable` creates the local branch from `origin/stable`). For the
-newest code, replace `stable` with `main` everywhere.
+A checkout that was on `TheWholeEnchilada` switches over with the same command.
 The `&&` separators stop the sequence if a step fails. If Git reports conflicting
 local edits, divergent history, or an unfinished merge, stop and preserve those
 changes; do not reset, clean, or overwrite them to force the update. `repair`

@@ -17,9 +17,8 @@
 #     ./install.sh uninstall    # remove code after preserving state externally
 #
 #  The same file may be downloaded and run outside a checkout. In that mode it
-#  acquires the `stable` branch (tested releases) into ~/Applications/IterBrow,
-#  then continues there. Override with ITERBROW_INSTALL_DIR or ITERBROW_BRANCH
-#  (e.g. ITERBROW_BRANCH=main for the newest, less-tested code).
+#  acquires the `main` branch into ~/Applications/IterBrow, then continues
+#  there. Override with ITERBROW_INSTALL_DIR or ITERBROW_BRANCH.
 #
 #  Optional developer environments:
 #     ./install.sh --developer-extras
@@ -77,7 +76,7 @@ fi
 
 if [[ ! -f "$ROOT_DIR/package.json" || ! -f "$ROOT_DIR/scripts/requirements.txt" ]]; then
   INSTALL_DIR="${ITERBROW_INSTALL_DIR:-$HOME/Applications/IterBrow}"
-  INSTALL_BRANCH="${ITERBROW_BRANCH:-stable}"
+  INSTALL_BRANCH="${ITERBROW_BRANCH:-main}"
   if [[ -f "$INSTALL_DIR/package.json" && -f "$INSTALL_DIR/install.sh" ]]; then
     ok "Using existing IterBrow source at $INSTALL_DIR."
     exec /bin/bash "$INSTALL_DIR/install.sh" "${INSTALL_ARGS[@]}"
@@ -115,7 +114,7 @@ cd "$ROOT_DIR"
 
 if [[ "$INSTALL_MODE" == "update" || "$INSTALL_MODE" == "uninstall" ]]; then
   exec /bin/bash "$ROOT_DIR/scripts/iterbrow_lifecycle.sh" \
-    "$INSTALL_MODE" "$ROOT_DIR" "${ITERBROW_BRANCH:-stable}" "$LAUNCH_AFTER_INSTALL"
+    "$INSTALL_MODE" "$ROOT_DIR" "${ITERBROW_BRANCH:-main}" "$LAUNCH_AFTER_INSTALL"
 fi
 
 if [[ "$INSTALL_MODE" == "repair" ]]; then
