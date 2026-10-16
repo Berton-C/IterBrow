@@ -27,7 +27,6 @@ class ModeSettingTests(unittest.TestCase):
         env.start()
         self.addCleanup(env.stop)
 
-    @pending("M8-A1")
     def test_mode_defaults_to_open_and_invalid_falls_back(self):
         require_m8()
         s = soul_settings()
@@ -39,7 +38,6 @@ class ModeSettingTests(unittest.TestCase):
         self.assertEqual(soul_settings().mode(), "jam")
         self.assertEqual(soul_settings().for_person("bright")["mode"], "open")
 
-    @pending("M8-A1")
     def test_set_mode_writes_only_the_mode_atomically_and_private(self):
         require_m8()
         write_soul_settings(self.temp, "berton", {"forks": False, "felt": True}, tone="playful", budget_per_cycle=3)
@@ -61,7 +59,6 @@ class ModeSettingTests(unittest.TestCase):
         s.set_mode("haley", "jam")
         self.assertEqual(json.loads(path.read_text())["people"]["haley"], {"mode": "jam"})
 
-    @pending("M8-A1")
     def test_panel_and_main_js_carry_the_mode(self):
         html = (REPO / "renderer" / "index.html").read_text(encoding="utf-8")
         main = (REPO / "main.js").read_text(encoding="utf-8")
@@ -83,7 +80,6 @@ class ModeToolTests(unittest.TestCase):
         self.addCleanup(self.r.close)
         self.r.start()
 
-    @pending("M8-A2")
     def test_tool_switches_the_current_persons_mode(self):
         write_soul_settings(self.r.root, "bright", {"forks": True})
         self.assertEqual(self.r.text("soul_mode", mode="jam"), "MODE: jam (was open)")
@@ -92,7 +88,6 @@ class ModeToolTests(unittest.TestCase):
         self.assertEqual(saved["people"]["bright"]["mode"], "museum")
         self.assertEqual(self.r.text("soul_mode", mode="loud"), "ERROR: mode must be one of open, jam, quiet, critique, museum")
 
-    @pending("M8-A2")
     def test_presence_tells_iter_the_switch_words(self):
         write_soul_settings(self.r.root, "bright", {"forks": True})
         msgs, _ = run_transformation(self.r.root, "soul_presence.py", env_extra={"ITER_METTA_SOCKET": str(self.r.sock)})
@@ -114,13 +109,11 @@ class ModeBlockTests(unittest.TestCase):
         tools = [tool_entry("felt"), tool_entry("card"), tool_entry("shell")]
         return run_transformation(self.temp, "soul_presence.py", tools=tools, env_extra={"ITER_METTA_SOCKET": "/nonexistent/sock"})
 
-    @pending("M8-A3")
     def test_quiet_means_no_block_and_no_felt_tool(self):
         msgs, tools = self._presence("quiet", {f: True for f in FEATURES})
         self.assertEqual(msgs, [{"role": "system", "content": "base"}])
         self.assertEqual([t["function"]["name"] for t in tools], ["card", "shell"])
 
-    @pending("M8-A3")
     def test_each_mode_has_its_line_and_open_has_none(self):
         expected = {
             "jam": "Mode: jam — riff freely; playful variant names; a fork may hold three poles; felt notes welcome.",
@@ -136,7 +129,6 @@ class ModeBlockTests(unittest.TestCase):
         msgs, _ = self._presence("open")
         self.assertNotIn("Mode:", msgs[-1]["content"])
 
-    @pending("M8-A3")
     def test_cap_holds_with_every_feature_on_in_the_longest_mode(self):
         msgs, _ = self._presence("critique", {f: True for f in FEATURES}, budget_per_cycle=3, frequency="chatty")
         self.assertIn("Mode: critique", msgs[-1]["content"])
@@ -146,7 +138,6 @@ class ModeBlockTests(unittest.TestCase):
 class DefaultTests(unittest.TestCase):
     """M8-A4: margin is on by default."""
 
-    @pending("M8-A4")
     def test_margin_is_a_default_everywhere_the_defaults_are_stated(self):
         require_m8()
         temp = tempfile.mkdtemp(prefix="m8def-")

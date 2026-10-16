@@ -383,6 +383,9 @@ were confirmation.
 | `card` | Show the person a sidebar card with 1-3 choices (optional pattern / museum_id per choice); their click returns as a `[choice ...]` user line |
 | `felt` | A short note in your own voice on what you found interesting (only when the person turned felt on) |
 | `brief` | Read or set an app's flourishing brief: who it is for, what flourishing looks like for them |
+| `soul_mode` | Switch the person's mode: open, jam, quiet, critique, museum |
+| `soul_absent_test` | Report moments in an app that are technically correct and dead, each with its kernel gap signature; changes nothing |
+| `museum_night` | Walk kept / rejected / unvoted variants joined to the forks that decided them, plus the person's leans |
 | `tool_reliability` | Query NAL truth-weighted tool reliability scores |
 
 ## Memory Architecture
@@ -528,7 +531,7 @@ spec says and what the previous version did: `docs/soul/SOUL_FIDELITY_AUDIT.md`.
 IterBrow the Soul is an ally in what the person is making. **It gates nothing, pauses
 nothing and vetoes nothing; it offers, the person decides.**
 
-What exists now (Milestone 6 base + Milestone 7: taste, felt, briefs, forks as variants):
+What exists now (M6 base; M7 taste, felt, briefs, forks; M8 modes, margin, critique, museum night):
 - **Kernel atoms** — `seeds/soul_kernel.metta`, ported verbatim from ClarityOmega
   (`scripts/port_soul_kernel.py`): five priorities (declared, not used for routing), nine
   patterns × nine facets (pattern, pole+, pole−, signal, felt, moat, anti, proxy, gap), the
@@ -552,6 +555,12 @@ What exists now (Milestone 6 base + Milestone 7: taste, felt, briefs, forks as v
 - **Briefs (M7)** — the `brief` tool: two lines per app (who it is for; what flourishing looks
   like), in `blueprint.json` for Foundry projects or `<app>/brief.json`; shown as `## Briefs`
   when brief is on. Drift is a brief card (continue / revise / drop), never a block.
+- **Modes (M8)** — open / jam / quiet / critique / museum per person (`soul_mode` tool or the panel).
+  Quiet: no Soul block and no felt tool. Critique: `soul_absent_test` (moments tied to kernel gap
+  signatures; changes nothing). Museum night: `museum_night` (kept/rejected joined to their forks).
+- **Margin (M8)** — a ✦ glyph in app tabs (never locked ones; on by default). Requests arrive as
+  `[margin app=<app> tab=<id> intent=ask|jam element=<selector>] <text>`; "jam on this" → three riffs
+  as variants and a fork card.
 - **Settings, per person** — `.runtime/soul_settings.json` (sidebar Soul panel): who is here,
   features (forks, brief, read, wonder, felt, browsing_ally, margin), frequency, tone,
   budget. `transformations/soul_presence.py` adds one short `## Soul (<person>)` block only

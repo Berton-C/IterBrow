@@ -29,7 +29,6 @@ class SoulAbsentTests(unittest.TestCase):
         self.addCleanup(self.r.close)
         self.r.start()
 
-    @pending("M8-B1")
     def test_walk_cites_gap_signatures_from_the_lens_and_changes_nothing(self):
         write_soul_settings(self.r.root, "berton", {"brief": True}, mode="critique")
         app = make_app_dir(self.r.root, "crm")
@@ -51,7 +50,6 @@ class SoulAbsentTests(unittest.TestCase):
         self.assertEqual(len(atoms), 1)
         self.assertTrue(list(atoms.values())[0].startswith('(soul-critique "crm" "berton" 2 '), atoms)
 
-    @pending("M8-B1")
     def test_no_brief_is_said_plainly_and_unknown_patterns_are_refused(self):
         write_soul_settings(self.r.root, "berton", {"brief": True})
         make_app_dir(self.r.root, "music")
@@ -65,7 +63,6 @@ class SoulAbsentTests(unittest.TestCase):
         source = (ITER_SRC / "tools" / "soul_absent_test.py").read_text(encoding="utf-8")
         self.assertNotIn("AgencyBalance", source, "pattern names come from the lens, not the tool")
 
-    @pending("M8-B1")
     def test_critique_atoms_live_only_in_the_soul_view(self):
         self.r.call("transact", {"operations": [{"op": "upsert", "key": "state:soul_critique:c1",
                                                  "atom": '(soul-critique "crm" "berton" 2 1700000000000)'}],
@@ -78,7 +75,6 @@ class SoulAbsentTests(unittest.TestCase):
 class CritiqueCountTests(unittest.TestCase):
     """M8-B2 and M8-D5: honest counts."""
 
-    @pending("M8-B2")
     def test_authority_counts_include_critiques_and_margin_asks(self):
         import importlib.util
         spec = importlib.util.spec_from_file_location("dash", ITER_SRC / "transformations" / "dashboard_atomspace.py")
@@ -104,7 +100,6 @@ class MuseumNightTests(unittest.TestCase):
         self.addCleanup(self.r.close)
         self.r.start()
 
-    @pending("M8-C1")
     def test_walk_groups_votes_joins_forks_and_reads_only(self):
         write_soul_settings(self.r.root, "berton", {"forks": True}, mode="museum")
         kept = museum_save(self.r.root, "playful header")
@@ -129,7 +124,6 @@ class MuseumNightTests(unittest.TestCase):
         self.assertEqual({c: museum_get(self.r.root, c) for c in (kept, rejected, unvoted)}, museum_before, "reading only")
         self.assertEqual(self.r.call("status")["commit"], status_before, "no atom changes")
 
-    @pending("M8-C1")
     def test_filter_and_limit(self):
         write_soul_settings(self.r.root, "berton", {"forks": True})
         for index in range(4):

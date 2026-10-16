@@ -78,7 +78,9 @@ class RecipeTests(unittest.TestCase):
         for word in ("browser_tab_variants", "pattern", "museum_id", "links"):
             self.assertIn(word, content, word)
         self.assertLess(len(content) - len("base"), 900)
-        write_soul_settings(temp, "berton", {"forks": False, "brief": True})
+        # Margin (on by default since M8-A4) names browser_tab_variants for its riffs; switch it off
+        # too so this checks what it means to: the forks recipe is gone when forks is off.
+        write_soul_settings(temp, "berton", {"forks": False, "brief": True, "margin": False})
         msgs, _ = run_transformation(temp, "soul_presence.py", env_extra={"ITER_METTA_SOCKET": "/nonexistent/sock"})
         self.assertNotIn("browser_tab_variants", msgs[-1]["content"])
 

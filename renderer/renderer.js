@@ -180,6 +180,22 @@ function renderChatMessages() {
       body.className = 'body markdown';
       body.innerHTML = window.IterMarkdown.render(message.content);
       row.append(mark, body);
+    } else if (message.margin && message.role === 'user') {
+      // A request from inside an app tab (M8-D3): where it came from, then what was asked.
+      const note = document.createElement('div');
+      note.className = 'margin-note';
+      const selector = message.margin.element && message.margin.element.selector;
+      note.textContent = 'from ' + message.margin.app + (selector ? ' · ' + selector : '');
+      const body = document.createElement('div');
+      body.className = 'body';
+      const text = String(message.content || '').replace(/^\[margin [^\]]*\]\s*/, '');
+      if (text) body.textContent = text;
+      else {
+        const em = document.createElement('em');
+        em.textContent = 'jam on this';
+        body.appendChild(em);
+      }
+      row.append(note, body);
     } else if (message.card) {
       row.appendChild(renderCard(message.card, picks));
     } else if (message.choice) {
@@ -1129,14 +1145,16 @@ window.iterApi.loadSettings().then((settings) => {
 // Soul panel (docs/milestones/M6_soul_base.md section B). Per person: the
 // selector switches whose settings are shown and who answers cards.
 // ---------------------------------------------------------------------
-const SOUL_DEFAULTS = { features: { forks: true, brief: true, read: false, wonder: false, felt: false, browsing_ally: false, margin: false },
-  frequency: 'occasional', tone: 'warm', budget_per_cycle: 1 };
+const SOUL_DEFAULTS = { features: { forks: true, brief: true, read: false, wonder: false, felt: false, browsing_ally: false, margin: true },
+  frequency: 'occasional', tone: 'warm', budget_per_cycle: 1, mode: 'open' };
+const SOUL_MODES = ['open', 'jam', 'quiet', 'critique', 'museum'];
 let soulSettings = { schema_version: 1, person: 'guest', people: {} };
 
 function soulProfile(person) {
   const saved = soulSettings.people[person] || {};
   return { features: { ...SOUL_DEFAULTS.features, ...(saved.features || {}) },
     frequency: saved.frequency || SOUL_DEFAULTS.frequency, tone: saved.tone || SOUL_DEFAULTS.tone,
+    mode: SOUL_MODES.includes(saved.mode) ? saved.mode : SOUL_DEFAULTS.mode,
     budget_per_cycle: Number.isInteger(saved.budget_per_cycle) ? saved.budget_per_cycle : SOUL_DEFAULTS.budget_per_cycle };
 }
 
@@ -1146,6 +1164,8 @@ function showSoulProfile(person) {
   document.querySelectorAll('[data-soul-feature]').forEach((box) => { box.checked = !!profile.features[box.dataset.soulFeature]; });
   document.getElementById('soul-frequency').value = profile.frequency;
   document.getElementById('soul-tone').value = profile.tone;
+  const modeSelect = document.getElementById('soul-mode');
+  if (modeSelect) modeSelect.value = profile.mode;
   document.getElementById('soul-budget').value = String(profile.budget_per_cycle);
 }
 
@@ -1156,7 +1176,8 @@ function readSoulForm() {
   const budget = Math.max(0, Math.min(8, parseInt(document.getElementById('soul-budget').value, 10) || 0));
   return { ...soulSettings, person, people: { ...soulSettings.people,
     [person]: { features, frequency: document.getElementById('soul-frequency').value,
-      tone: document.getElementById('soul-tone').value, budget_per_cycle: budget } } };
+      tone: document.getElementById('soul-tone').value, budget_per_cycle: budget,
+      mode: (document.getElementById('soul-mode') || { value: 'open' }).value } } };
 }
 
 if (document.getElementById('soul-person') && window.iterApi.loadSoulSettings) {

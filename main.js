@@ -17,7 +17,7 @@ if (!hasSingleInstanceLock) app.quit();
 const { TabManager } = require('./bridge/tab_manager');
 const { inspectSocketPath, startBridgeServer } = require('./bridge/browser_bridge_server');
 const contextMenu = require('./bridge/context_menu');
-const { recordSoulChoice, flushSoulChoices, forgetSoulTaste } = require('./bridge/soul_choice');
+const { recordSoulChoice, flushSoulChoices, forgetSoulTaste, recordSoulMargin } = require('./bridge/soul_choice');
 const { makeChatBridge } = require('./bridge/chat_bridge');
 const { retirePreviousIter } = require('./bridge/iter_process_owner');
 const OPENAI_CATALOG = require('./iter/iterbrow_runtime/openai_models.json');
@@ -240,6 +240,7 @@ function cleanSoulSettings(input) {
     if (Number.isInteger(profile.budget_per_cycle) && profile.budget_per_cycle >= 0 && profile.budget_per_cycle <= 8) {
       clean.budget_per_cycle = profile.budget_per_cycle;
     }
+    if (['open', 'jam', 'quiet', 'critique', 'museum'].includes(profile.mode)) clean.mode = profile.mode;
     people[name.toLowerCase()] = clean;
   }
   return { schema_version: 1, person, people };
@@ -2382,6 +2383,8 @@ async function createWindow() {
     tabstripView.webContents.send('tabs:update', list);
     toolbarView.webContents.send('tabs:update', list);
     saveTabSessionDebounced();
+    // A lock toggle shows or hides the margin live (margin:state to every app tab).
+    pushMarginState();
   };
   // Fires just before a tab is actually removed (see TabManager.closeTab),
   // for every close path -- menu, sidebar UI, or Iter's bridge tools alike.
@@ -2576,11 +2579,68 @@ ipcMain.handle('soul:forget', async () => {
   const result = await forgetSoulTaste({ socket: ITER_METTA_SOCKET, person });
   return { ...result, person };
 });
+// The margin: the Soul in the tab (docs/milestones/M8_soul_presence.md D2). Access is decided
+// here from the sender's tab -- its appScope, whether it is locked -- and the saved person's
+// margin switch. The page names nothing: not the app, not the tab, not the person.
+ipcMain.handle('margin:enabled', (event) => {
+  const access = marginAccess(event);
+  return access.error ? { enabled: false } : { enabled: true, app: access.app };
+});
+
+ipcMain.handle('margin:send', async (event, payload) => {
+  const access = marginAccess(event);
+  if (access.error) throw new Error(access.error);
+  if (!chatBridge) throw new Error('Chat bridge is not ready');
+  const element = payload && payload.element && typeof payload.element === 'object' ? {
+    selector: String(payload.element.selector || '').slice(0, 200),
+    tag: String(payload.element.tag || '').slice(0, 40),
+    text: String(payload.element.text || '').slice(0, 80),
+  } : null;
+  const message = chatBridge.sendMargin({
+    app: access.app, tab: access.tab.id, intent: payload && payload.intent,
+    text: payload && typeof payload.text === 'string' ? payload.text : '', element: element && element.selector ? element : null,
+  });
+  recordSoulMargin({
+    socket: ITER_METTA_SOCKET, person: access.person, app: access.app,
+    intent: message.margin.intent, messageId: message.id, at: message.at,
+  }).catch((error) => pushLog('[soul] margin ask not recorded: ' + error.message));
+  return { ok: true, id: message.id };
+});
+
+function marginProfileOn() {
+  const settings = loadSoulSettings();
+  const profile = settings.people[settings.person] || {};
+  const features = profile.features || {};
+  // Default on (M8-A4) unless the person switched it off.
+  return { person: settings.person, on: typeof features.margin === 'boolean' ? features.margin : true };
+}
+
+function marginAccess(event) {
+  const tab = tabs && event && event.sender ? tabs.tabForWebContentsId(event.sender.id) : null;
+  if (!tab || !tab.appScope) return { tab, error: 'Not an app tab' };
+  if (tab.locked) return { tab, error: 'This tab is locked' };
+  const { person, on } = marginProfileOn();
+  if (!on) return { tab, person, error: 'Margin is off' };
+  return { tab, person, app: tab.appScope.appId };
+}
+
+// Push the margin's current state to every app tab (after a lock toggle or a Soul-panel save).
+function pushMarginState() {
+  if (!tabs) return;
+  const { on } = marginProfileOn();
+  for (const tab of tabs.appTabs()) {
+    try {
+      tab.view.webContents.send('margin:state', { enabled: on && !tab.locked });
+    } catch (_) {}
+  }
+}
+
 ipcMain.handle('soul:save', (_e, settings) => {
   const clean = cleanSoulSettings(settings);
   fs.mkdirSync(path.dirname(SOUL_SETTINGS_PATH), { recursive: true });
   fs.writeFileSync(SOUL_SETTINGS_PATH, JSON.stringify(clean, null, 2), { mode: 0o600 });
   fs.chmodSync(SOUL_SETTINGS_PATH, 0o600);
+  pushMarginState(); // margin:state -- the margin switch may have changed
   return clean;
 });
 

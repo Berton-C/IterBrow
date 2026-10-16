@@ -26,13 +26,11 @@ class MarginPageTests(unittest.TestCase):
         kwargs = {"body": body} if body else {}
         return json.loads(run_playwright(margin_page_script(api, setup, probe, **kwargs)).strip().splitlines()[-1])
 
-    @pending("M8-D1")
     def test_disabled_adds_nothing(self):
         require_m8()
         out = self._page(DISABLED_API, "0", "({root: !!document.querySelector('#iter-margin-root'), glyph: !!document.querySelector('#iter-margin-glyph')})")
         self.assertEqual(out, {"root": False, "glyph": False})
 
-    @pending("M8-D1")
     def test_glyph_is_quiet_and_opens_the_panel(self):
         out = self._page(ENABLED_API, "0", """(() => {
 const g = document.querySelector('#iter-margin-glyph'); if (!g) return {missing: true};
@@ -58,7 +56,6 @@ return { text: g.textContent, label: g.getAttribute('aria-label'), title: g.titl
         self.assertEqual((out["askLabel"], out["jamLabel"]), ("Ask about this", "Jam on this"))
         self.assertEqual(out["styleTags"], 0, "no stylesheet injected into the page")
 
-    @pending("M8-D1")
     def test_pointing_is_remembered_and_sent_with_the_text(self):
         out = self._page(ENABLED_API, """
 const p = document.querySelector('p.note.lead');
@@ -85,7 +82,6 @@ return { target, sent: window.__sent, status: document.querySelector('#iter-marg
         self.assertEqual(out["cleared"], "")
         self.assertTrue(out["enabled"])
 
-    @pending("M8-D1")
     def test_selector_prefers_id_then_classes_then_a_short_path(self):
         out = self._page(ENABLED_API, "0", """(async () => {
 const results = [];
@@ -102,7 +98,6 @@ return window.__sent.map((s) => [s.intent, s.text, s.element.selector]);
         self.assertEqual(out[1], ["jam", "", "p.note.lead"])
         self.assertRegex(out[2][2], r"^(body > )?ul(:nth-of-type\(1\))? > li(:nth-of-type\(1\))?$")
 
-    @pending("M8-D1")
     def test_empty_ask_is_refused_in_place_and_state_false_removes_everything(self):
         out = self._page(ENABLED_API, "document.querySelector('#iter-margin-glyph').click();", """(async () => {
 document.querySelector('#iter-margin-ask').click();
@@ -121,7 +116,6 @@ return { refused, sentCount, gone, back: !!document.querySelector('#iter-margin-
         self.assertTrue(out["gone"])
         self.assertTrue(out["back"])
 
-    @pending("M8-D1")
     def test_rejected_send_shows_the_error_and_re_enables(self):
         api = ("({enabled: () => Promise.resolve({enabled: true, app: 'orbit'}),"
                " send: () => Promise.reject(new Error('This tab is locked')), onState: () => {}})")
@@ -140,15 +134,56 @@ return { status: document.querySelector('#iter-margin-status').textContent, enab
 class WiringTests(unittest.TestCase):
     """M8-D2: preload installs it; main.js decides from the tab and the person, never from the page."""
 
-    @pending("M8-D2")
     def test_preload_installs_the_margin_with_an_ipc_api(self):
+        # App tabs run their preload sandboxed (tab_manager.js), and a sandboxed preload cannot
+        # require('./margin'); margin.js is embedded verbatim instead (scripts/sync_margin_preload.js).
         preload = (REPO / "bridge" / "app_preload.js").read_text(encoding="utf-8")
-        self.assertIn("require('./margin')", preload)
+        self.assertNotIn("require('./margin')", preload, "would throw in a sandboxed preload")
+        self.assertIn("IterMarginModule.installMargin(document", preload)
         for channel in ("margin:enabled", "margin:send", "margin:state"):
             self.assertIn(channel, preload, channel)
         self.assertIn("DOMContentLoaded", preload)
 
-    @pending("M8-D2")
+    @unittest.skipUnless(NODE, "needs node")
+    def test_embedded_margin_is_exactly_margin_js(self):
+        code, stdout, stderr = __import__("m8_support").node("""
+const fs = require('fs');
+const { embedded, BEGIN, END } = require(%s);
+const preload = fs.readFileSync(%s, 'utf8');
+const block = preload.slice(preload.indexOf(BEGIN), preload.indexOf(END) + END.length);
+process.stdout.write(JSON.stringify({ same: block === embedded(fs.readFileSync(%s, 'utf8')) }));
+""" % tuple(json.dumps(str(x)) for x in (REPO / "scripts" / "sync_margin_preload.js", REPO / "bridge" / "app_preload.js",
+                                         REPO / "bridge" / "margin.js")))
+        self.assertEqual(code, 0, stderr)
+        self.assertTrue(json.loads(stdout.strip().splitlines()[-1])["same"],
+                        "app_preload.js's margin copy differs from margin.js: run node scripts/sync_margin_preload.js")
+
+    @unittest.skipUnless(NODE, "needs node")
+    def test_preload_runs_under_a_sandbox_style_require(self):
+        """Only 'electron' may be required; the margin installs on DOMContentLoaded through the IPC api."""
+        code, stdout, stderr = __import__("m8_support").node("""
+const fs = require('fs'); const vm = require('vm');
+const required = []; const invoked = []; const listeners = {}; const exposed = {};
+const ipcRenderer = { invoke: (ch) => { invoked.push(ch); return Promise.resolve({ enabled: false }); }, on: (ch) => { listeners[ch] = true; } };
+const electron = { contextBridge: { exposeInMainWorld: (k, v) => { exposed[k] = v; } }, ipcRenderer };
+const sandboxRequire = (name) => { required.push(name); if (name !== 'electron') throw new Error('sandbox: cannot require ' + name); return electron; };
+const windowListeners = {};
+const window = { addEventListener: (ev, cb) => { windowListeners[ev] = cb; } };
+const document = { addEventListener() {}, removeEventListener() {}, getElementById: () => null, body: null };
+const context = { require: sandboxRequire, process: { argv: ['x', '--iter-app-id=orbit', '--iter-consumer-id=orbit-ui'] },
+                  window, document, console, Promise, JSON, Object, Array, String, Number, setTimeout };
+vm.createContext(context);
+vm.runInContext(fs.readFileSync(%s, 'utf8'), context);
+windowListeners.DOMContentLoaded();
+setTimeout(() => process.stdout.write(JSON.stringify({ required, invoked, listeners: Object.keys(listeners), exposed: Object.keys(exposed) })), 50);
+""" % json.dumps(str(REPO / "bridge" / "app_preload.js")))
+        self.assertEqual(code, 0, stderr)
+        out = json.loads(stdout.strip().splitlines()[-1])
+        self.assertEqual(set(out["required"]), {"electron"})
+        self.assertIn("margin:enabled", out["invoked"])
+        self.assertIn("margin:state", out["listeners"])
+        self.assertIn("iterApp", out["exposed"], "the app bridge still comes up")
+
     def test_main_checks_app_scope_lock_and_feature_for_both_handlers(self):
         main = (REPO / "main.js").read_text(encoding="utf-8")
         for handler in ("margin:enabled", "margin:send"):
@@ -166,7 +201,6 @@ class WiringTests(unittest.TestCase):
         self.assertNotIn("payload.person", send, "the page never names the person")
         self.assertIn("margin:state", main[main.index("onTabsChanged"):][:3000], "lock toggles push the state to app tabs")
 
-    @pending("M8-D2")
     def test_soul_save_pushes_margin_state(self):
         main = (REPO / "main.js").read_text(encoding="utf-8")
         save = main[main.index("ipcMain.handle('soul:save'"):][:1500]
@@ -182,7 +216,6 @@ class BridgeTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = self.temp.name
 
-    @pending("M8-D3")
     def test_send_margin_writes_the_line_and_journals_the_structure(self):
         require_m8()
         out = run_bridge(self.root, """
@@ -199,7 +232,6 @@ out = { first: m, second: j, inbox, history: bridge.history().map((x) => [x.role
         self.assertEqual(len(out["history"]), 2)
         self.assertEqual(out["history"][0][2]["intent"], "ask")
 
-    @pending("M8-D3")
     def test_send_margin_validates(self):
         code, stdout, stderr = __import__("m8_support").node("""
 const { makeChatBridge, marginLine } = require(%s);
@@ -220,7 +252,6 @@ process.stdout.write(JSON.stringify({ bad, line: marginLine({ app: 'orbit', tab:
         self.assertEqual(out["line"], "[margin app=orbit tab=3 intent=ask element=p] hi")
         self.assertEqual(out["noElement"], "[margin app=orbit tab=3 intent=jam element=page]")
 
-    @pending("M8-D3")
     def test_record_soul_margin_writes_one_atom(self):
         r = m8_root("m8marginatom")
         self.addCleanup(r.close)
@@ -247,7 +278,6 @@ class SidebarTests(unittest.TestCase):
                "onUiResume:()=>{},onIterStatus:()=>{},loadSettings:()=>Promise.resolve({})}")
         return json.loads(run_playwright(sidebar_page_script(setup, probe, api)).strip().splitlines()[-1])
 
-    @pending("M8-D3")
     def test_margin_rows_carry_a_note(self):
         require_m8()
         out = self._page({"schema_version": 1, "id": "user-m1", "role": "user", "at": 1700000000000,
@@ -272,7 +302,6 @@ return { note: row.querySelector('.margin-note').textContent, body: row.querySel
 class RecipeTests(unittest.TestCase):
     """M8-D4"""
 
-    @pending("M8-D4")
     def test_presence_margin_line_names_the_riffs(self):
         temp = tempfile.mkdtemp(prefix="m8recipe-")
         self.addCleanup(lambda: __import__("shutil").rmtree(temp, ignore_errors=True))

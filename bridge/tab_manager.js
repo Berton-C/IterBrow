@@ -189,6 +189,20 @@ class TabManager {
     return null;
   }
 
+  // The tab whose page sent an IPC message (the margin's authority: its app
+  // scope, its lock and its id come from here, never from the page).
+  tabForWebContentsId(webContentsId) {
+    for (const tab of this.tabs.values()) {
+      if (tab.view.webContents.id === Number(webContentsId)) return tab;
+    }
+    return null;
+  }
+
+  // Every open tab that holds an application scope (where the margin can live).
+  appTabs() {
+    return [...this.tabs.values()].filter((tab) => tab.appScope);
+  }
+
   isPWQSender(event) {
     if (!event || !event.sender || !event.senderFrame) return false;
     if (event.senderFrame !== event.sender.mainFrame) return false;

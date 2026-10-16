@@ -30,7 +30,7 @@ PAIRS = [("Safety", "Helpfulness"), ("AgencyBalance", "PurposeBeyondUtility"),
 FACETS = ["soul-pattern", "soul-pattern-pole+", "soul-pattern-pole-", "soul-pattern-signal", "soul-pattern-felt",
           "soul-pattern-moat", "soul-pattern-anti", "soul-pattern-proxy", "soul-pattern-gap"]
 FEATURES = ["forks", "brief", "read", "wonder", "felt", "browsing_ally", "margin"]
-DEFAULT_ON = {"forks", "brief"}
+DEFAULT_ON = {"forks", "brief", "margin"}
 
 
 def pending(item):

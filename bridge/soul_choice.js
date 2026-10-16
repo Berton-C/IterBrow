@@ -165,4 +165,23 @@ async function recordSoulChoice({ socket, iterDir, person, kind, cardId, pick, a
   }
 }
 
-module.exports = { recordSoulChoice, flushSoulChoices, forgetSoulTaste, atomFor, PREFIX };
+// One atom per margin request (docs/milestones/M8_soul_presence.md D3), so the dashboard can
+// count them from the authority. No queue: a miss is only a log line in main.js.
+async function recordSoulMargin({ socket, person, app, intent, messageId, at }) {
+  const id = String(messageId || '');
+  if (!/^[A-Za-z0-9_.-]{1,160}$/.test(id)) throw new Error('margin record needs a message id');
+  const atom = `(soul-margin ${quote(person || 'guest')} ${quote(app || '')} ${quote(intent || '')} ${Math.trunc(Number(at) || Date.now())})`;
+  try {
+    await call(socket, 'transact', {
+      operations: [{ op: 'upsert', key: `state:soul_margin:${id}`, atom }],
+      actor: 'person',
+      source: 'margin',
+    });
+  } catch (error) {
+    if (error.unreachable) return { written: false };
+    throw error;
+  }
+  return { written: true };
+}
+
+module.exports = { recordSoulChoice, flushSoulChoices, forgetSoulTaste, recordSoulMargin, atomFor, PREFIX };

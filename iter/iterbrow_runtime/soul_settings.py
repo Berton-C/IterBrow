@@ -12,12 +12,14 @@ from pathlib import Path
 
 FEATURES = ("forks", "brief", "read", "wonder", "felt", "browsing_ally", "margin")
 DEFAULT_FEATURES = {"forks": True, "brief": True, "read": False, "wonder": False,
-                    "felt": False, "browsing_ally": False, "margin": False}
+                    "felt": False, "browsing_ally": False, "margin": True}
 FREQUENCIES = ("whisper", "occasional", "chatty")
 TONES = ("warm", "plain", "playful")
+# Collaboration register (docs/milestones/M8_soul_presence.md A1). "open" is the default.
+MODES = ("open", "jam", "quiet", "critique", "museum")
 DEFAULT_PERSON = "guest"
 DEFAULT_PROFILE = {"features": dict(DEFAULT_FEATURES), "frequency": "occasional", "tone": "warm",
-                   "budget_per_cycle": 1}
+                   "budget_per_cycle": 1, "mode": "open"}
 MAX_BUDGET = 8
 
 
@@ -47,6 +49,8 @@ def _clean_profile(raw):
         profile["frequency"] = raw["frequency"]
     if raw.get("tone") in TONES:
         profile["tone"] = raw["tone"]
+    if raw.get("mode") in MODES:
+        profile["mode"] = raw["mode"]
     budget = raw.get("budget_per_cycle")
     if isinstance(budget, int) and not isinstance(budget, bool) and 0 <= budget <= MAX_BUDGET:
         profile["budget_per_cycle"] = budget
@@ -104,3 +108,38 @@ def tone():
 
 def budget():
     return current()["budget_per_cycle"]
+
+
+def mode():
+    return current()["mode"]
+
+
+def set_mode(name, new_mode):
+    """Set one person's mode, touching nothing else in the file (M8-A1).
+
+    Written atomically and private (0o600). Raises ValueError for an unknown mode."""
+    if new_mode not in MODES:
+        raise ValueError("mode must be one of %s" % ", ".join(MODES))
+    who = _clean_person(name)
+    data = _read()
+    people = data.get("people") if isinstance(data.get("people"), dict) else {}
+    profile = people.get(who) if isinstance(people.get(who), dict) else {}
+    people[who] = dict(profile, mode=new_mode)
+    data["people"] = people
+    data.setdefault("schema_version", 1)
+    data.setdefault("person", who)
+    path = settings_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.parent / (".%s.%d.tmp" % (path.name, os.getpid()))
+    try:
+        fd = os.open(str(temporary), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(json.dumps(data, indent=2) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(str(temporary), 0o600)
+        os.replace(str(temporary), str(path))
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+    return new_mode

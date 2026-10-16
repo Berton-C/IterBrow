@@ -71,6 +71,39 @@ function validCard(card) {
   return clean;
 }
 
+// A request from inside an app tab (docs/milestones/M8_soul_presence.md D3). Iter reads
+// `[margin app=<app> tab=<id> intent=<ask|jam> element=<selector|page>] <text>`.
+const MARGIN_INTENTS = new Set(['ask', 'jam']);
+const MARGIN_APP = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
+
+function cleanMargin(payload) {
+  const value = payload && typeof payload === 'object' ? payload : {};
+  if (!MARGIN_INTENTS.has(value.intent)) throw new Error('margin intent must be ask or jam');
+  if (typeof value.app !== 'string' || !MARGIN_APP.test(value.app)) throw new Error('margin app is invalid');
+  if (!Number.isInteger(value.tab) || value.tab < 0) throw new Error('margin tab is invalid');
+  if (value.text !== undefined && typeof value.text !== 'string') throw new Error('margin text must be a string');
+  const text = String(value.text || '').trim();
+  if (value.intent === 'ask' && !text) throw new Error('say what you would like to ask');
+  let element = null;
+  if (value.element !== undefined && value.element !== null) {
+    const raw = value.element;
+    if (typeof raw !== 'object' || typeof raw.selector !== 'string' || !raw.selector.trim() || raw.selector.length > 200) {
+      throw new Error('margin element is invalid');
+    }
+    element = { selector: raw.selector.replace(/[\]\r\n]/g, ' ').trim() };
+    if (typeof raw.tag === 'string') element.tag = raw.tag.slice(0, 40);
+    if (typeof raw.text === 'string') element.text = raw.text.slice(0, 80);
+  }
+  return { app: value.app, tab: value.tab, intent: value.intent, text, element };
+}
+
+function marginLine(payload) {
+  const where = payload.element && payload.element.selector ? payload.element.selector : 'page';
+  const head = `[margin app=${payload.app} tab=${payload.tab} intent=${payload.intent} element=${where}]`;
+  const text = String(payload.text || '').trim();
+  return text ? `${head} ${text}` : head;
+}
+
 function choiceLine(cardId, pick, person, label) {
   const head = `[choice card=${cardId} pick=${pick} by=${person}]`;
   return pick === 'dismiss' || !label ? head : `${head} ${label}`;
@@ -207,6 +240,24 @@ function makeChatBridge(iterRoot, onIncoming, options = {}) {
     return message;
   }
 
+  // A margin request from an app tab. main.js has already checked the tab (app scope, lock)
+  // and the person's switch; the payload is validated again here.
+  function sendMargin(payload) {
+    const clean = cleanMargin(payload);
+    const text = marginLine(clean);
+    const message = {
+      schema_version: SCHEMA_VERSION,
+      id: messageId('user'),
+      role: 'user',
+      content: text,
+      at: Date.now(),
+      margin: { app: clean.app, tab: clean.tab, intent: clean.intent, element: clean.element },
+    };
+    writeQueueAtomically(inboxDir, `${message.id}.txt`, text);
+    appendMessage(message);
+    return message;
+  }
+
   function decodeOutbox(name, raw) {
     try {
       const decoded = JSON.parse(raw);
@@ -273,6 +324,7 @@ function makeChatBridge(iterRoot, onIncoming, options = {}) {
   return {
     sendToIter,
     sendChoice,
+    sendMargin,
     history: () => messages.slice(-historyLimit).map((message) => ({ ...message })),
     pollNow: pollOutbox,
     // Re-read the journal after Reset (file removed) or Restore (file replaced).
@@ -282,4 +334,4 @@ function makeChatBridge(iterRoot, onIncoming, options = {}) {
   };
 }
 
-module.exports = { makeChatBridge, validCard, choiceLine };
+module.exports = { makeChatBridge, validCard, choiceLine, marginLine };

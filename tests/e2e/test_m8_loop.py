@@ -39,7 +39,6 @@ recordSoulMargin({ socket: %s, person: %s, app: message.margin.app, intent: mess
 
 
 class SoulPresenceLoopTests(unittest.TestCase):
-    @pending("M8-E1")
     def test_quiet_modes_margin_critique_and_museum_through_the_real_loop(self):
         require_m8()
         script = [

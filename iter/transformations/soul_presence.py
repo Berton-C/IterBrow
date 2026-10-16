@@ -17,15 +17,32 @@ for _path in (CODE_ROOT, ROOT):  # ROOT ends up first; the code tree is the fall
         sys.path.insert(0, _path)
 
 FEATURE_LINES = {
-    "forks": "forks (declared pair: both poles via browser_tab_variants, then a fork card: pattern + museum_id per choice, links to the tabs)",
-    "brief": "brief (two lines per app; a change that contradicts one gets a brief card, once: continue / revise / drop)",
-    "read": "read (match the person's tempo; correctable)",
-    "wonder": "wonder (keep set-aside ideas; offer one back rarely)",
+    "forks": "forks (declared pair → both poles via browser_tab_variants; fork card: pattern, museum_id, links)",
+    "brief": "brief (two lines per app; contradicting one → a brief card once: continue / revise / drop)",
+    "read": "read (match their tempo)",
+    "wonder": "wonder (keep cut ideas; offer one back)",
     "felt": "felt (a short note on what you found interesting; %s)",
-    "browsing_ally": "browsing ally (notice capture; hand the choice back)",
-    "margin": "margin (present inside app tabs you build)",
+    "browsing_ally": "browsing ally (notice capture; hand it back)",
+    "margin": 'margin ([margin …] lines from app tabs; "jam on this" → three riffs via browser_tab_variants + fork card)',
 }
 FREQUENCY = {"whisper": "rarely", "occasional": "occasionally", "chatty": "freely"}
+# One line per non-default mode (docs/milestones/M8_soul_presence.md A3); quiet has no block at all.
+MODE_LINES = {
+    "jam": "Mode: jam — riff freely; playful variant names; a fork may hold three poles; felt notes welcome.",
+    "critique": ("Mode: critique — walk the app as the person its brief names; report what is technically correct "
+                 "and dead with soul_absent_test; change nothing."),
+    "museum": ("Mode: museum night — walk kept and rejected variants with museum_night and say why, using what "
+               "you've learned of their taste."),
+}
+MODES_HINT = "soul_mode on a word: jam, quiet, critique, museum night, open."
+
+
+def _mode():
+    try:
+        from iterbrow_runtime import soul_settings
+        return soul_settings.mode()
+    except Exception:
+        return "open"
 
 
 def _learned(person):
@@ -49,6 +66,9 @@ def presence_block():
         from iterbrow_runtime import soul_settings
     except Exception:
         return ""
+    mode = _mode()
+    if mode == "quiet":
+        return ""
     features = soul_settings.enabled_features()
     if not features:
         return ""
@@ -57,9 +77,10 @@ def presence_block():
     described = [FEATURE_LINES[name] % frequency if name == "felt" else FEATURE_LINES[name] for name in features]
     lines = ["## Soul (%s)" % person,
              "On: " + "; ".join(described) + ".",
-             "Speak %s, %s tone. You offer; %s decides; nothing gates. %s Answers come back as user lines: "
-             "[choice card=<id> pick=<choice> by=<person>] <label>."
-             % (frequency, soul_settings.tone(), person, _budget_line(soul_settings.budget(), "felt" in features))]
+             "Speak %s, %s tone; you offer, %s decides, nothing gates. %s Picks return as "
+             "[choice card=… pick=… by=…] <label>."
+             % (frequency, soul_settings.tone(), person, _budget_line(soul_settings.budget(), "felt" in features)),
+             MODE_LINES.get(mode, MODES_HINT)]
     learned = _learned(person)
     if learned:
         lines.append("Learned: " + learned + ".")
@@ -75,7 +96,7 @@ def _without_felt(tools):
 def transform(messages, tools):
     try:
         from iterbrow_runtime import soul_settings
-        felt_on = soul_settings.enabled("felt")
+        felt_on = soul_settings.enabled("felt") and soul_settings.mode() != "quiet"
     except Exception:
         felt_on = False
     if not felt_on and isinstance(tools, list):

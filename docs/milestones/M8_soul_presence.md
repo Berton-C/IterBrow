@@ -1,6 +1,26 @@
 # Milestone 8 — Presence: the Soul in the tab, modes, critique, museum night
 
-Status: **scoped, tests written, implementation pending.** Roadmap: `docs/soul/SOUL_IN_THE_FOUNDRY.md`
+Status: **implemented 2026-10-16** (all `@pending` decorators removed).
+Implementation notes:
+- **Sandboxed preload.** App tabs run their preload with `sandbox: true`, and a sandboxed preload
+  cannot `require()` a sibling file, so `require('./margin')` would throw and take `window.iterApp`
+  down with it. `bridge/margin.js` stays the single source (the Playwright tests load it directly);
+  `scripts/sync_margin_preload.js` embeds it verbatim into `bridge/app_preload.js` between markers.
+  Two tests guard this: the embedded copy must equal `margin.js`, and the preload must run under a
+  sandbox-style `require` that serves only `electron`. The D2 test's `require('./margin')` assertion
+  became "not present" for the same reason. The margin runs in the preload's isolated world, so page
+  scripts cannot reach its send path.
+- **Presence block budget.** With margin on by default (A4) and the mode line or modes hint, the
+  feature and fixed lines were tightened again so both maximal cases stay under 900 characters (M7's
+  every-feature-plus-learned case, and A3's critique case). The modes hint shows only in `open` mode;
+  in the other modes the mode line replaces it.
+- **M7-D2 test follows A4**: its forks-off case now also switches margin off, because the margin line
+  names `browser_tab_variants` for its riffs (the test's intent, "the forks recipe is gone when forks
+  is off", is unchanged).
+- `tab_manager.js` gained `tabForWebContentsId` and `appTabs`; `main.js` decides margin access in
+  `marginAccess` (sender's tab → app scope, lock; saved person → switch) and pushes `margin:state` on
+  every tab change (locks) and Soul-panel save. `museum_night` folds the append-only museum log to the
+  latest record per id. Roadmap: `docs/soul/SOUL_IN_THE_FOUNDRY.md`
 (this milestone merges the roadmap's M8 modes with M9 "Iter in the tab"; the deep person-read and the
 twin are parked as a separate later build, "the Muse"). Base: M6 cards/settings/kernel, M7 taste/felt/
 briefs/forks. Tests: `tests/test_m8_*.py`, `tests/e2e/test_m8_loop.py`; helpers in `tests/m8_support.py`.
