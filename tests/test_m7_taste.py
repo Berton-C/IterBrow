@@ -16,7 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from m7_support import (pending, m7_root, require_m7, soul_lens, seed_choice, card_atoms, choice_atom,  # noqa: E402
                         run_transformation, write_soul_settings, stv, taste_n, museum_save, museum_get,
-                        run_bridge, card, outbox_message, NODE, REPO, ITER_SRC)
+                        run_bridge, card, outbox_message, NODE, REPO, ITER_SRC, FEATURES)
 
 SOUL_KEYS = ("state:soul_card:", "state:soul_card_choice:", "state:soul_taste:", "state:soul_dismiss:",
              "state:soul_taste_seen:", "state:soul_felt:")
@@ -250,6 +250,17 @@ class LensTests(unittest.TestCase):
         self.assertEqual(content.count("## Soul ("), 1)
         self.assertIn("Learned: you've leaned CreativeTranscendence over TimeCoherence (3 of 4 forks)", content)
         self.assertLess(len(content) - len("base"), 900)
+        # The cap holds in the largest case: every feature on, two leans and a dismissal line.
+        self._taste("WonderPreservation", "SharedUnderstanding", 1.0, 0.75, 3)
+        self.r.call("transact", {"operations": [{"op": "upsert", "key": "state:soul_dismiss:berton:read",
+                                                 "atom": '(soul-dismissed "berton" "read" 5)'}],
+                                 "actor": "iter", "source": "soul_taste"})
+        write_soul_settings(self.r.root, "berton", {f: True for f in FEATURES}, budget_per_cycle=3, frequency="chatty")
+        msgs, _ = run_transformation(self.r.root, "soul_presence.py", env_extra={"ITER_METTA_SOCKET": str(self.r.sock)})
+        content = msgs[-1]["content"]
+        self.assertEqual(content.count("Learned:"), 1)
+        self.assertIn("you dismiss most read cards", content)
+        self.assertLess(len(content) - len("base"), 900, "all features on must still fit the cap")
         write_soul_settings(self.r.root, "berton", {f: False for f in ("forks", "brief", "read", "wonder", "felt", "browsing_ally", "margin")})
         msgs, _ = run_transformation(self.r.root, "soul_presence.py", env_extra={"ITER_METTA_SOCKET": str(self.r.sock)})
         self.assertEqual(msgs, [{"role": "system", "content": "base"}], "all off: no trace, learned or not")

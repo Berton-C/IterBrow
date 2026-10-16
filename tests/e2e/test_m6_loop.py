@@ -9,6 +9,7 @@ no Electron here; the loop, the AtomSpace service and the channel are real.
 import json
 import subprocess
 import sys
+import time
 import unittest
 from pathlib import Path
 
@@ -54,11 +55,18 @@ recordSoulChoice({ socket: %s, iterDir: %s, person: 'berton', kind: card.card.ki
             self.assertTrue(result.get("written"), result)
 
             run.wait_for_reply("LOOP-DONE", timeout=300)
+            # The loop may have woken for another reason and replied before reading the click;
+            # the inbox line still wakes it again, so wait for it to land rather than racing it.
+            line = "[choice card=%s pick=b by=berton] Keep it obvious" % card_id
+            deadline = time.time() + 120
+            while time.time() < deadline:
+                seen = [m for m in run.experience() if m.get("role") == "user" and line in str(m.get("content", ""))]
+                if seen:
+                    break
+                time.sleep(0.5)
+            self.assertTrue(seen, "the choice line never reached the loop as a user message:\n" + run.read_log("iter.log")[-3000:])
             run.stop()
             requests = run.requests()
-            line = "[choice card=%s pick=b by=berton] Keep it obvious" % card_id
-            seen = [m for m in run.experience() if m.get("role") == "user" and line in str(m.get("content", ""))]
-            self.assertTrue(seen, "the choice line never reached the loop as a user message:\n" + run.read_log("iter.log")[-3000:])
             atoms = run.atoms("state:soul_choice:")
             self.assertEqual(list(atoms), ["state:soul_choice:" + card_id])
             self.assertIn('"berton" "fork" "%s" "b"' % card_id, atoms["state:soul_choice:" + card_id])

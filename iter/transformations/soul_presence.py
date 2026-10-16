@@ -17,15 +17,13 @@ for _path in (CODE_ROOT, ROOT):  # ROOT ends up first; the code tree is the fall
         sys.path.insert(0, _path)
 
 FEATURE_LINES = {
-    "forks": ("forks (when a design holds a declared pair, build both poles with browser_tab_variants, then send a "
-              "fork card whose choices carry pattern and museum_id, with links to the two tabs)"),
-    "brief": ("brief (each app keeps a two-line brief: who it is for, what flourishing looks like; when a change "
-              "contradicts it, say so once as a brief card: continue / revise / drop)"),
-    "read": "read (adjust tempo to the person; they can correct the read)",
+    "forks": "forks (declared pair: both poles via browser_tab_variants, then a fork card: pattern + museum_id per choice, links to the tabs)",
+    "brief": "brief (two lines per app; a change that contradicts one gets a brief card, once: continue / revise / drop)",
+    "read": "read (match the person's tempo; correctable)",
     "wonder": "wonder (keep set-aside ideas; offer one back rarely)",
     "felt": "felt (a short note on what you found interesting; %s)",
-    "browsing_ally": "browsing ally (notice capture while browsing; hand the choice back)",
-    "margin": "margin (be present inside app tabs you build)",
+    "browsing_ally": "browsing ally (notice capture; hand the choice back)",
+    "margin": "margin (present inside app tabs you build)",
 }
 FREQUENCY = {"whisper": "rarely", "occasional": "occasionally", "chatty": "freely"}
 
@@ -58,10 +56,10 @@ def presence_block():
     frequency = FREQUENCY.get(soul_settings.frequency(), "occasionally")
     described = [FEATURE_LINES[name] % frequency if name == "felt" else FEATURE_LINES[name] for name in features]
     lines = ["## Soul (%s)" % person,
-             "Features on: " + "; ".join(described) + ".",
-             "Speak %s, in a %s tone. You offer; %s decides. Nothing gates or blocks. %s"
-             % (frequency, soul_settings.tone(), person, _budget_line(soul_settings.budget(), "felt" in features)),
-             "Answers to cards arrive as user lines: [choice card=<id> pick=<choice> by=<person>] <label>."]
+             "On: " + "; ".join(described) + ".",
+             "Speak %s, %s tone. You offer; %s decides; nothing gates. %s Answers come back as user lines: "
+             "[choice card=<id> pick=<choice> by=<person>] <label>."
+             % (frequency, soul_settings.tone(), person, _budget_line(soul_settings.budget(), "felt" in features))]
     learned = _learned(person)
     if learned:
         lines.append("Learned: " + learned + ".")

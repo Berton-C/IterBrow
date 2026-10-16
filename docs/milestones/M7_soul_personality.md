@@ -9,7 +9,10 @@ tool results with a timestamp) and lets each click wake one request (a `send` wa
 the e2e's NACE check asserts no Soul content leaks into NACE or any non-`state:soul_*` key rather than
 an unchanged count, since NACE correctly learns efficacy for the `card`/`felt` calls themselves (the
 reducer's NACE/kb isolation is checked exactly in A2). Briefs live in `iterbrow_runtime/soul_briefs.py`.
-`metta_server.py`'s soul view now admits every `state:soul_*` key (the other views exclude them all). Roadmap: `docs/soul/SOUL_IN_THE_FOUNDRY.md`
+`metta_server.py`'s soul view now admits every `state:soul_*` key (the other views exclude them all).
+Audit 2026-10-16: the presence block exceeded the 900-char cap with all seven features on (1,074);
+the feature lines and the fixed lines were tightened (895 in the maximal case, now pinned by a test).
+`tests/e2e/test_m6_loop.py` waits for the click line to land instead of racing the loop's reply. Roadmap: `docs/soul/SOUL_IN_THE_FOUNDRY.md`
 (this milestone replaces the roadmap's M7 and pulls the felt channel forward from M8).
 Base: M6 (`docs/milestones/M6_soul_base.md`) — cards, per-person settings, the kernel seed in the
 `soul` view, `soul-choice` atoms. Tests: `tests/test_m7_*.py`, `tests/e2e/test_m7_loop.py`; helpers in
