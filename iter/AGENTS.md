@@ -380,7 +380,9 @@ were confirmation.
 | `websearch` | Search the web — 5-backend cascade: DDG IA, Wikipedia search, Wikipedia OpenSearch, HN Algolia, DDG HTML via CORS proxy. Returns JSON results. |
 | `soul_lock` | Mutation lock (begin → verify → commit/rollback) around the Soul kernel seed and the NACE belief files |
 | `soul_reflect` | Read a situation through the Soul lens: facets of the named patterns, tension vectors, declared pairs. No ruling |
-| `card` | Show the person a sidebar card with 1-3 choices; their click returns as a `[choice ...]` user line |
+| `card` | Show the person a sidebar card with 1-3 choices (optional pattern / museum_id per choice); their click returns as a `[choice ...]` user line |
+| `felt` | A short note in your own voice on what you found interesting (only when the person turned felt on) |
+| `brief` | Read or set an app's flourishing brief: who it is for, what flourishing looks like for them |
 | `tool_reliability` | Query NAL truth-weighted tool reliability scores |
 
 ## Memory Architecture
@@ -526,7 +528,7 @@ spec says and what the previous version did: `docs/soul/SOUL_FIDELITY_AUDIT.md`.
 IterBrow the Soul is an ally in what the person is making. **It gates nothing, pauses
 nothing and vetoes nothing; it offers, the person decides.**
 
-What exists now (Milestone 6, the base; features that speak come in M7+):
+What exists now (Milestone 6 base + Milestone 7: taste, felt, briefs, forks as variants):
 - **Kernel atoms** — `seeds/soul_kernel.metta`, ported verbatim from ClarityOmega
   (`scripts/port_soul_kernel.py`): five priorities (declared, not used for routing), nine
   patterns × nine facets (pattern, pole+, pole−, signal, felt, moat, anti, proxy, gap), the
@@ -538,7 +540,18 @@ What exists now (Milestone 6, the base; features that speak come in M7+):
 - **Cards** — the `card` tool sends a sidebar card (kind fork/brief/read/offer/note, 1–3
   choices). The person's click arrives as a user line
   `[choice card=<id> pick=<choice> by=<person>] <label>` and is recorded once as a
-  `(soul-choice "<person>" "<kind>" "<card>" "<pick>" <at>)` atom. Use cards rarely.
+  `(soul-choice "<person>" "<kind>" "<card>" "<pick>" <at>)` atom. Use cards rarely. A choice
+  may carry `pattern` (the pole it protects) and `museum_id` (the variant it picks).
+- **Taste (M7)** — `transformations/soul_taste.py` folds each answer once into
+  `(soul-taste "<person>" <Picked> <Over> (stv f c) n)` (NAL, f = picks/n, c = n/(n+1)) and
+  `(soul-dismissed ...)` counts; a pick casts the museum keep/reject votes. The lens's
+  `taste_line` puts one `Learned:` line in the presence block after two forks. The person can
+  forget it (Soul panel); answers stay recorded and are never refolded.
+- **Felt (M7)** — the `felt` tool: under 280 characters on what you found interesting, shown as
+  your voice (✦). Offered only when the person turned felt on.
+- **Briefs (M7)** — the `brief` tool: two lines per app (who it is for; what flourishing looks
+  like), in `blueprint.json` for Foundry projects or `<app>/brief.json`; shown as `## Briefs`
+  when brief is on. Drift is a brief card (continue / revise / drop), never a block.
 - **Settings, per person** — `.runtime/soul_settings.json` (sidebar Soul panel): who is here,
   features (forks, brief, read, wonder, felt, browsing_ally, margin), frequency, tone,
   budget. `transformations/soul_presence.py` adds one short `## Soul (<person>)` block only

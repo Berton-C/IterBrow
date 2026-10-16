@@ -113,7 +113,7 @@
       </select>
     </div>
     <div class="field">
-      <label for="soul-budget">Soul model calls per cycle (0 = none)</label>
+      <label for="soul-budget">Cards or felt notes per cycle (0 = only when asked)</label>
       <input id="soul-budget" type="number" min="0" max="8" step="1" value="1">
     </div>
     <div style="font-size:11px;color:var(--muted)">Nothing here gates or blocks anything. A feature that is off leaves no trace in what Iter is told. Each person keeps their own settings.</div>
@@ -121,6 +121,10 @@
       <button id="btn-save-soul">Save Soul settings</button>
     </div>
     <div id="soul-status" style="font-size:11px;color:var(--muted)"></div>
+    <div class="row">
+      <button id="btn-soul-forget" title="Deletes the leans Iter has learned from this person's card answers. The answers themselves stay recorded, and nothing is relearned from them.">Forget what you've learned about me</button>
+    </div>
+    <div id="soul-forget-status" style="font-size:11px;color:var(--muted)"></div>
   </div>
 </div>
 

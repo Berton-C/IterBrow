@@ -28,6 +28,8 @@ function validMessage(value) {
 // on an ordinary Iter message whose `content` is the markdown fallback, so an
 // older sidebar, the journal and the transcript still read it as text.
 const CARD_KINDS = new Set(['fork', 'brief', 'read', 'offer', 'note']);
+const PATTERN_ID = /^[A-Za-z][A-Za-z0-9_]{0,63}$/;
+const MUSEUM_ID = /^[A-Za-z0-9_.-]{1,64}$/;
 
 function nonEmptyString(value) {
   return typeof value === 'string' && value.trim().length > 0;
@@ -46,7 +48,11 @@ function validCard(card) {
     if (choice.id === 'dismiss') return null; // reserved for the dismiss control
     if (choice.hint !== undefined && typeof choice.hint !== 'string') return null;
     ids.add(choice.id);
-    choices.push({ id: choice.id, label: choice.label, ...(choice.hint ? { hint: choice.hint } : {}) });
+    const item = { id: choice.id, label: choice.label, ...(choice.hint ? { hint: choice.hint } : {}) };
+    // M7 metadata: kept when well formed, dropped (never fatal) otherwise.
+    if (typeof choice.pattern === 'string' && PATTERN_ID.test(choice.pattern)) item.pattern = choice.pattern;
+    if (typeof choice.museum_id === 'string' && MUSEUM_ID.test(choice.museum_id)) item.museum_id = choice.museum_id;
+    choices.push(item);
   }
   const clean = { id: card.id, kind: card.kind, title: card.title, body: card.body || '', choices };
   if (card.links !== undefined) {
@@ -213,6 +219,8 @@ function makeChatBridge(iterRoot, onIncoming, options = {}) {
           content: decoded.content,
           at: Number(decoded.at) || Date.now(),
         };
+        // A felt note (docs/milestones/M7_soul_personality.md B1): only `true` is kept.
+        if (decoded.felt === true) message.felt = true;
         if (decoded.card !== undefined) {
           const card = validCard(decoded.card);
           if (card) message.card = card;

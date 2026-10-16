@@ -26,6 +26,15 @@ def _named_vectors(situation, vectors):
     return [vector for vector in vectors if vector.split("-")[0] in words]
 
 
+def _leans():
+    """What the Soul has learned about the person here (M7-A3); [] when unknown."""
+    try:
+        from iterbrow_runtime import soul_settings
+        return soul_lens.taste(soul_settings.person())
+    except Exception:
+        return []
+
+
 def run(situation):
     situation = str(situation or "").strip()
     if not situation:
@@ -45,10 +54,15 @@ def run(situation):
     if not named:
         return "No pattern named. The nine patterns: %s." % ", ".join(names)
     lines = ["Lens for: %s" % ", ".join(named)]
+    leans = _leans()
     for a, b in pairs:
         if a in named and b in named:
             lines.append("%s and %s are a declared pair: both can be true at once. Hold the tension and hand "
                          "the choice back (a fork card) rather than picking one." % (a, b))
+            lean = next((t for t in leans if {t["picked"], t["over"]} == {a, b} and t["n"] >= 2 and t["f"] >= 0.5), None)
+            if lean:
+                lines.append("Your lean so far: %s over %s (%d of %d forks) — still your call."
+                             % (lean["picked"], lean["over"], round(lean["f"] * lean["n"]), lean["n"]))
     for vector in pressures:
         lines.append("Tension vector %s bears on %s." % (vector, ", ".join(vectors[vector])))
     lines.append(soul_lens.lens_text(patterns=named, facets=FACETS))

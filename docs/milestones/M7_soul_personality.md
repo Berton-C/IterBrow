@@ -1,6 +1,15 @@
 # Milestone 7 — A personality that learns: taste from choices, a voice, briefs, forks as variants
 
-Status: **scoped, tests written, implementation pending.** Roadmap: `docs/soul/SOUL_IN_THE_FOUNDRY.md`
+Status: **implemented 2026-10-16** (all `@pending` decorators removed; 46 tests active).
+Implementation notes: the budget line names felt notes only when felt is on (B3 wins over A5's
+literal wording; the A5 test checks both). Three test corrections, same intent: the service-down
+card test passes the socket override through the tool runner's `env` (patching the test process's
+environment cannot reach the subprocess); the e2e reads the card id with a regex (the loop prefixes
+tool results with a timestamp) and lets each click wake one request (a `send` waits for input); and
+the e2e's NACE check asserts no Soul content leaks into NACE or any non-`state:soul_*` key rather than
+an unchanged count, since NACE correctly learns efficacy for the `card`/`felt` calls themselves (the
+reducer's NACE/kb isolation is checked exactly in A2). Briefs live in `iterbrow_runtime/soul_briefs.py`.
+`metta_server.py`'s soul view now admits every `state:soul_*` key (the other views exclude them all). Roadmap: `docs/soul/SOUL_IN_THE_FOUNDRY.md`
 (this milestone replaces the roadmap's M7 and pulls the felt channel forward from M8).
 Base: M6 (`docs/milestones/M6_soul_base.md`) — cards, per-person settings, the kernel seed in the
 `soul` view, `soul-choice` atoms. Tests: `tests/test_m7_*.py`, `tests/e2e/test_m7_loop.py`; helpers in
@@ -99,7 +108,8 @@ line under the button says `Forgot n beliefs for <person>.`
 
 **M7-A5 — Two M6 gaps closed.** (a) Budget reaches the prompt: the presence block says
 `Up to <budget> cards or felt notes per cycle.` (`0` → `No cards or felt notes unless asked.`), advisory
-only. (b) `main.js` flushes `.runtime/soul_choice_pending.jsonl` when the AtomSpace service reports
+only. With felt off the line says `cards` only (`Up to <budget> cards per cycle.` / `No cards unless asked.`):
+B3's "off means absent" wins over the literal wording. (b) `main.js` flushes `.runtime/soul_choice_pending.jsonl` when the AtomSpace service reports
 ready (the same place it logs `[atomspace] ready`), not only on the next click; `bridge/soul_choice.js`
 exports `flushSoulChoices({socket, iterDir})` → `{flushed: n}`.
 

@@ -154,6 +154,7 @@ function renderChatMessages() {
   for (const message of ordered) {
     const row = document.createElement('div');
     row.className = 'msg row ' + message.role;
+    if (message.felt === true && message.role === 'iter') row.classList.add('felt');
     const continues = previous && previous.role === message.role && message.role !== 'sys'
       && Math.abs(Number(message.at || 0) - Number(previous.at || 0)) < GROUP_WINDOW_MS;
     if (continues) row.classList.add('continued');
@@ -169,7 +170,17 @@ function renderChatMessages() {
       head.append(author, time);
       row.appendChild(head);
     }
-    if (message.card) {
+    if (message.felt === true && message.role === 'iter') {
+      // A felt note (M7-B2): Iter's own voice, nothing to answer.
+      const mark = document.createElement('span');
+      mark.className = 'felt-mark';
+      mark.setAttribute('aria-hidden', 'true');
+      mark.textContent = '✦';
+      const body = document.createElement('div');
+      body.className = 'body markdown';
+      body.innerHTML = window.IterMarkdown.render(message.content);
+      row.append(mark, body);
+    } else if (message.card) {
       row.appendChild(renderCard(message.card, picks));
     } else if (message.choice) {
       row.appendChild(renderChoiceNote(message));
@@ -1164,4 +1175,17 @@ if (document.getElementById('soul-person') && window.iterApi.loadSoulSettings) {
       status.textContent = 'Could not save: ' + (error && error.message ? error.message : error);
     }
   });
+  // Forget acts on the saved current person (main.js reads it), so save first if the selector changed.
+  const forget = document.getElementById('btn-soul-forget');
+  if (forget && window.iterApi.forgetSoulTaste) {
+    forget.addEventListener('click', async () => {
+      const status = document.getElementById('soul-forget-status');
+      try {
+        const result = await window.iterApi.forgetSoulTaste();
+        status.textContent = `Forgot ${result.deleted} belief${result.deleted === 1 ? '' : 's'} for ${result.person}.`;
+      } catch (error) {
+        status.textContent = 'Could not forget: ' + (error && error.message ? error.message : error);
+      }
+    });
+  }
 }

@@ -64,3 +64,76 @@ def lens_text(patterns=None, facets=("description", "gap"), query=soul_query):
                 parts.append(("%s: %s" % (LABELS[name], value)) if LABELS[name] else value)
         lines.append("- %s — %s" % (pattern, " ".join(parts)))
     return "\n".join(lines)
+
+
+# ---- Taste: what the Soul has learned from a person's card answers --------
+# docs/milestones/M7_soul_personality.md section A. The atoms are written by
+# transformations/soul_taste.py; these readers use read_atoms (exact, no MeTTa
+# evaluation), or a {key: atom} dict the caller already holds (the dashboard).
+LEAN_MIN_FORKS = 2
+LEAN_MIN_F = 0.67
+DISMISS_MIN = 3
+_TASTE = re.compile(r'^\(soul-taste "((?:[^"\\]|\\.)*)" (\S+) (\S+) \(stv ([0-9.]+) ([0-9.]+)\) (\d+)\)$')
+_DISMISS = re.compile(r'^\(soul-dismissed "((?:[^"\\]|\\.)*)" "((?:[^"\\]|\\.)*)" (\d+)\)$')
+_CHOICE = re.compile(r'^\(soul-choice "((?:[^"\\]|\\.)*)" "((?:[^"\\]|\\.)*)" "((?:[^"\\]|\\.)*)" "((?:[^"\\]|\\.)*)" (\d+)\)$')
+
+
+def read_atoms(prefix):
+    from iterbrow_runtime.cognitive_events import _call_atomspace
+    return _call_atomspace("read_atoms", prefix=prefix)["atoms"]
+
+
+def _atoms(prefix, atoms):
+    if atoms is None:
+        return read_atoms(prefix)
+    return {key: atom for key, atom in atoms.items() if key.startswith(prefix)}
+
+
+def taste(person, atoms=None):
+    """[{picked, over, f, c, n}] for one person, most confident first."""
+    out = []
+    for atom in _atoms("state:soul_taste:%s:" % person, atoms).values():
+        match = _TASTE.match(atom.strip())
+        if match and match.group(1) == person:
+            out.append({"picked": match.group(2), "over": match.group(3), "f": float(match.group(4)),
+                        "c": float(match.group(5)), "n": int(match.group(6))})
+    out.sort(key=lambda t: (t["c"], t["f"]), reverse=True)
+    return out
+
+
+def dismissals(person, atoms=None):
+    """{card kind: times dismissed} for one person."""
+    out = {}
+    for atom in _atoms("state:soul_dismiss:%s:" % person, atoms).values():
+        match = _DISMISS.match(atom.strip())
+        if match and match.group(1) == person:
+            out[match.group(2)] = int(match.group(3))
+    return out
+
+
+def answered(person, atoms=None):
+    """{card kind: cards answered (not dismissed)} for one person."""
+    out = {}
+    for atom in _atoms("state:soul_choice:", atoms).values():
+        match = _CHOICE.match(atom.strip())
+        if match and match.group(1) == person and match.group(4) != "dismiss":
+            out[match.group(2)] = out.get(match.group(2), 0) + 1
+    return out
+
+
+def taste_line(person, atoms=None):
+    """One sentence of what the Soul has learned about `person`, or ""."""
+    parts = []
+    for lean in taste(person, atoms):
+        if lean["n"] >= LEAN_MIN_FORKS and lean["f"] >= LEAN_MIN_F:
+            parts.append("you've leaned %s over %s (%d of %d forks)"
+                         % (lean["picked"], lean["over"], round(lean["f"] * lean["n"]), lean["n"]))
+        if len(parts) == 2:
+            break
+    dismissed = dismissals(person, atoms)
+    if dismissed:
+        kept = answered(person, atoms)
+        for kind in sorted(dismissed):
+            if dismissed[kind] >= DISMISS_MIN and dismissed[kind] > kept.get(kind, 0):
+                parts.append("you dismiss most %s cards" % kind)
+    return "; ".join(parts)

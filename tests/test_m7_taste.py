@@ -30,7 +30,6 @@ class CardMetadataTests(unittest.TestCase):
         self.addCleanup(self.r.close)
         self.r.start()
 
-    @pending("M7-A1")
     def test_card_with_patterns_and_museum_ids_records_its_offer(self):
         write_soul_settings(self.r.root, "berton")
         out = self.r.text("card", kind="fork", title="Which way?", body="Two poles.",
@@ -53,7 +52,6 @@ class CardMetadataTests(unittest.TestCase):
         self.assertEqual(message["card"]["choices"][0]["pattern"], "CreativeTranscendence")
         self.assertEqual(message["card"]["choices"][0]["museum_id"], "comp-aaaaaaaaaaaa")
 
-    @pending("M7-A1")
     def test_unknown_pattern_is_refused_before_anything_is_sent(self):
         before = len(list((Path(self.r.root) / ".runtime" / "electron_ui" / "outbox").glob("*.json"))) if (Path(self.r.root) / ".runtime" / "electron_ui" / "outbox").exists() else 0
         out = self.r.text("card", kind="fork", title="Which way?", body="",
@@ -63,13 +61,11 @@ class CardMetadataTests(unittest.TestCase):
         self.assertEqual(before, after)
         self.assertEqual(self.r.call("read_atoms", {"prefix": "state:soul_card:"})["atoms"], {})
 
-    @pending("M7-A1")
     def test_pattern_names_come_from_the_atoms_not_a_python_list(self):
         source = (ITER_SRC / "tools" / "card.py").read_text(encoding="utf-8")
         self.assertNotIn("AgencyBalance", source, "the nine names live in the seed, not in card.py")
         self.assertIn("soul_lens", source)
 
-    @pending("M7-A1")
     def test_card_without_metadata_still_records_the_offer_with_none(self):
         out = self.r.text("card", kind="read", title="Tempo?", body="", choices=["Faster", "Slower"])
         card_id = out.split()[1]
@@ -79,15 +75,14 @@ class CardMetadataTests(unittest.TestCase):
             self.assertIn(" none ", atom)
             self.assertTrue(atom.endswith('"-")'), atom)
 
-    @pending("M7-A1")
     def test_service_down_card_still_goes_out_marked_unrecorded(self):
         write_soul_settings(self.r.root, "berton")
-        with unittest.mock.patch.dict(os.environ, {"ITER_METTA_SOCKET": "/nonexistent/sock"}):
-            out = self.r.text("card", kind="fork", title="Which way?", body="", choices=["a", "b"])
+        # The tool runs in a subprocess; the runner's env override is what reaches it.
+        out = self.r.text("card", env={"ITER_METTA_SOCKET": "/nonexistent/sock"},
+                          kind="fork", title="Which way?", body="", choices=["a", "b"])
         self.assertTrue(out.startswith("CARD-SENT: card-"), out)
         self.assertIn("(unrecorded)", out)
 
-    @pending("M7-A1")
     def test_views_other_than_soul_never_see_card_metadata(self):
         self.r.call("transact", {"operations": card_atoms("card-v", "fork", "berton",
                                                            [("a", "CreativeTranscendence", None), ("b", "TimeCoherence", None)]),
@@ -103,7 +98,6 @@ class CardMetadataTests(unittest.TestCase):
 class BridgeMetadataTests(unittest.TestCase):
     """M7-A1 (bridge side): validCard keeps pattern/museum_id and drops bad values without failing the card."""
 
-    @pending("M7-A1")
     def test_valid_card_keeps_pattern_and_museum_id_and_drops_junk(self):
         code, stdout, stderr = __import__("m7_support").node("""
 const { validCard } = require(%s);
@@ -136,7 +130,6 @@ class ReducerTests(unittest.TestCase):
     def _reduce(self):
         return run_transformation(self.r.root, "soul_taste.py", env_extra={"ITER_METTA_SOCKET": str(self.r.sock)})
 
-    @pending("M7-A2")
     def test_one_pick_makes_two_beliefs_with_nal_truth(self):
         seed_choice(self.r, "berton", "fork", "card-1", "a",
                     [("a", "CreativeTranscendence", None), ("b", "TimeCoherence", None)])
@@ -151,7 +144,6 @@ class ReducerTests(unittest.TestCase):
         self.assertEqual(taste_n(other), 1)
         self.assertIn("state:soul_taste_seen:card-1", self.r.call("read_atoms", {"prefix": "state:soul_taste_seen:"})["atoms"])
 
-    @pending("M7-A2")
     def test_evidence_accumulates_and_each_choice_counts_once(self):
         pair = [("a", "CreativeTranscendence", None), ("b", "TimeCoherence", None)]
         seed_choice(self.r, "berton", "fork", "card-1", "a", pair, at=1)
@@ -166,7 +158,6 @@ class ReducerTests(unittest.TestCase):
         self.assertAlmostEqual(c, 0.75, places=2)
         self.assertEqual(len(self.r.call("read_atoms", {"prefix": "state:soul_taste_seen:"})["atoms"]), 3)
 
-    @pending("M7-A2")
     def test_dismiss_counts_per_kind_and_gives_no_taste(self):
         pair = [("a", "CreativeTranscendence", None), ("b", "TimeCoherence", None)]
         seed_choice(self.r, "bright", "read", "card-1", "dismiss", pair)
@@ -176,7 +167,6 @@ class ReducerTests(unittest.TestCase):
         dismissed = self.r.call("read_atoms", {"prefix": "state:soul_dismiss:bright:"})["atoms"]
         self.assertEqual(dismissed["state:soul_dismiss:bright:read"], '(soul-dismissed "bright" "read" 2)')
 
-    @pending("M7-A2")
     def test_choices_without_card_metadata_are_marked_seen_and_yield_nothing(self):
         self.r.call("transact", {"operations": [{"op": "upsert", "key": "state:soul_choice:card-old",
                                                  "atom": choice_atom("berton", "fork", "card-old", "a")}],
@@ -185,7 +175,6 @@ class ReducerTests(unittest.TestCase):
         self.assertEqual(self._tastes(), {})
         self.assertIn("state:soul_taste_seen:card-old", self.r.call("read_atoms", {"prefix": "state:soul_taste_seen:"})["atoms"])
 
-    @pending("M7-A2")
     def test_reducer_is_scoped_to_the_person_on_the_choice_and_touches_nothing_else(self):
         nace_before = self.r.call("read_atoms", {"prefix": "state:nace_belief:"})["atoms"]
         kb_before = self.r.call("read_atoms", {"prefix": "state:kb_"})["atoms"]
@@ -196,7 +185,6 @@ class ReducerTests(unittest.TestCase):
         self.assertEqual(self.r.call("read_atoms", {"prefix": "state:nace_belief:"})["atoms"], nace_before)
         self.assertEqual(self.r.call("read_atoms", {"prefix": "state:kb_"})["atoms"], kb_before)
 
-    @pending("M7-A2")
     def test_nothing_new_costs_one_read_and_no_transaction(self):
         status_before = self.r.call("status")
         self._reduce()
@@ -223,7 +211,6 @@ class LensTests(unittest.TestCase):
                                                  "atom": '(soul-taste "%s" %s %s (stv %s %s) %d)' % (person, picked, over, f, c, n)}],
                                  "actor": "iter", "source": "soul_taste"})
 
-    @pending("M7-A3")
     def test_taste_and_taste_line_from_atoms(self):
         self._env()
         self._taste("CreativeTranscendence", "TimeCoherence", 0.75, 0.8, 4)
@@ -239,7 +226,6 @@ class LensTests(unittest.TestCase):
         self.assertNotIn("TimeCoherence over", line)
         self.assertEqual(lens.taste_line("bright"), "")
 
-    @pending("M7-A3")
     def test_dismissals_reach_the_line_only_when_they_dominate(self):
         self._env()
         self.r.call("transact", {"operations": [{"op": "upsert", "key": "state:soul_dismiss:berton:read",
@@ -255,7 +241,6 @@ class LensTests(unittest.TestCase):
                                      "actor": "person", "source": "sidebar"})
         self.assertNotIn("dismiss", lens.taste_line("berton"))
 
-    @pending("M7-A3")
     def test_presence_block_carries_the_learned_line_and_stays_short(self):
         self._env()
         self._taste("CreativeTranscendence", "TimeCoherence", 0.75, 0.8, 4)
@@ -269,7 +254,6 @@ class LensTests(unittest.TestCase):
         msgs, _ = run_transformation(self.r.root, "soul_presence.py", env_extra={"ITER_METTA_SOCKET": str(self.r.sock)})
         self.assertEqual(msgs, [{"role": "system", "content": "base"}], "all off: no trace, learned or not")
 
-    @pending("M7-A3")
     def test_no_learned_line_before_two_forks(self):
         self._env()
         self._taste("CreativeTranscendence", "TimeCoherence", 1.0, 0.5, 1)
@@ -277,7 +261,6 @@ class LensTests(unittest.TestCase):
         msgs, _ = run_transformation(self.r.root, "soul_presence.py", env_extra={"ITER_METTA_SOCKET": str(self.r.sock)})
         self.assertNotIn("Learned:", msgs[-1]["content"])
 
-    @pending("M7-A3")
     def test_reflect_names_the_lean_for_a_declared_pair_without_a_verdict(self):
         self._env()
         self._taste("CreativeTranscendence", "TimeCoherence", 0.75, 0.8, 4)
@@ -299,7 +282,6 @@ class ForgetTests(unittest.TestCase):
         self.addCleanup(self.r.close)
         self.r.start()
 
-    @pending("M7-A4")
     def test_forget_deletes_only_that_persons_beliefs(self):
         ops = []
         for person in ("berton", "bright"):
@@ -326,7 +308,6 @@ forgetSoulTaste({ socket: %s, person: 'berton' }).then((r) => process.stdout.wri
         run_transformation(self.r.root, "soul_taste.py", env_extra={"ITER_METTA_SOCKET": str(self.r.sock)})
         self.assertEqual(self.r.call("read_atoms", {"prefix": "state:soul_taste:berton:"})["atoms"], {})
 
-    @pending("M7-A4")
     def test_panel_button_and_ipc_take_the_person_from_the_saved_settings(self):
         html = (REPO / "renderer" / "index.html").read_text(encoding="utf-8")
         main = (REPO / "main.js").read_text(encoding="utf-8")
@@ -342,19 +323,22 @@ forgetSoulTaste({ socket: %s, person: 'berton' }).then((r) => process.stdout.wri
 class GapTests(unittest.TestCase):
     """M7-A5: budget reaches the prompt; the pending choice queue flushes when the service comes up."""
 
-    @pending("M7-A5")
     def test_budget_line_in_presence_block(self):
         temp = tempfile.mkdtemp(prefix="m7budget-")
         self.addCleanup(lambda: __import__("shutil").rmtree(temp, ignore_errors=True))
-        write_soul_settings(temp, "berton", {"forks": True}, budget_per_cycle=3)
+        write_soul_settings(temp, "berton", {"forks": True, "felt": True}, budget_per_cycle=3)
         msgs, _ = run_transformation(temp, "soul_presence.py", env_extra={"ITER_METTA_SOCKET": "/nonexistent/sock"})
         self.assertIn("Up to 3 cards or felt notes per cycle.", msgs[-1]["content"])
-        write_soul_settings(temp, "berton", {"forks": True}, budget_per_cycle=0)
+        write_soul_settings(temp, "berton", {"forks": True, "felt": True}, budget_per_cycle=0)
         msgs, _ = run_transformation(temp, "soul_presence.py", env_extra={"ITER_METTA_SOCKET": "/nonexistent/sock"})
         self.assertIn("No cards or felt notes unless asked.", msgs[-1]["content"])
+        # Felt off leaves no mention of felt (M7-B3), so the budget line counts cards only.
+        write_soul_settings(temp, "berton", {"forks": True}, budget_per_cycle=2)
+        msgs, _ = run_transformation(temp, "soul_presence.py", env_extra={"ITER_METTA_SOCKET": "/nonexistent/sock"})
+        self.assertIn("Up to 2 cards per cycle.", msgs[-1]["content"])
+        self.assertNotIn("felt", msgs[-1]["content"])
 
     @unittest.skipUnless(NODE, "needs node")
-    @pending("M7-A5")
     def test_flush_exists_and_main_calls_it_on_service_ready(self):
         r = m7_root("m7flush")
         self.addCleanup(r.close)
@@ -378,7 +362,6 @@ flushSoulChoices({ socket: %s, iterDir: %s }).then((r) => process.stdout.write(J
 class DashboardTests(unittest.TestCase):
     """M7-A honest surfaces: taste/felt counts and the learned line from the authority."""
 
-    @pending("M7-A3")
     def test_authority_counts_include_tastes_felt_and_learned_line(self):
         import importlib.util
         spec = importlib.util.spec_from_file_location("dash", ITER_SRC / "transformations" / "dashboard_atomspace.py")

@@ -17,7 +17,7 @@ if (!hasSingleInstanceLock) app.quit();
 const { TabManager } = require('./bridge/tab_manager');
 const { inspectSocketPath, startBridgeServer } = require('./bridge/browser_bridge_server');
 const contextMenu = require('./bridge/context_menu');
-const { recordSoulChoice } = require('./bridge/soul_choice');
+const { recordSoulChoice, flushSoulChoices, forgetSoulTaste } = require('./bridge/soul_choice');
 const { makeChatBridge } = require('./bridge/chat_bridge');
 const { retirePreviousIter } = require('./bridge/iter_process_owner');
 const OPENAI_CATALOG = require('./iter/iterbrow_runtime/openai_models.json');
@@ -900,6 +900,14 @@ function serviceRunsStaleCode(status) {
   return status.code_hash !== serviceCodeHash();
 }
 
+// Card answers made while the service was down are queued by recordSoulChoice;
+// record them as soon as the service is ready (docs/milestones/M7_soul_personality.md A5).
+function flushPendingSoulChoices() {
+  flushSoulChoices({ socket: ITER_METTA_SOCKET, iterDir: ITER_DIR })
+    .then((result) => { if (result.flushed) pushLog(`[soul] recorded ${result.flushed} queued choice(s)`); })
+    .catch((error) => pushLog('[soul] queued choices not recorded yet: ' + error.message));
+}
+
 async function startMettaServerOwned() {
   await retireOwnedLegacyMettaServer();
   let currentStatus = null;
@@ -910,7 +918,10 @@ async function startMettaServerOwned() {
     return { error: `AtomSpace socket belongs to another checkout: ${currentStatus.state_dir}` };
   }
   if (currentStatus && currentStatus.ready && currentStatus.epoch && Number.isInteger(currentStatus.commit)) {
-    if (!serviceRunsStaleCode(currentStatus)) return { already: true, status: currentStatus };
+    if (!serviceRunsStaleCode(currentStatus)) {
+      flushPendingSoulChoices();
+      return { already: true, status: currentStatus };
+    }
     const running = currentStatus.code_hash ? String(currentStatus.code_hash).slice(0, 12) : 'a pre-fingerprint build';
     pushLog(`[atomspace] service code changed on disk (running ${running}, on disk ${serviceCodeHash().slice(0, 12)}); restarting the service to load it`);
     try {
@@ -981,6 +992,7 @@ async function startMettaServerOwned() {
     pushLog('[atomspace] started authoritative service (pid ' + mettaProcess.pid + '); log: ' + logPath);
     const status = await waitForAtomspaceReady();
     pushLog(`[atomspace] ready epoch=${status.epoch} commit=${status.commit} atoms=${status.runtime_atom_count}`);
+    flushPendingSoulChoices(); // flushSoulChoices: queued card answers, now that the service is up
     return { started: true, pid: mettaProcess && mettaProcess.pid, status };
   } catch (e) {
     pushLog('[atomspace] FAILED to start authoritative service: ' + e.message);
@@ -2557,6 +2569,13 @@ ipcMain.handle('settings:save', (_e, settings) => {
 });
 // Soul settings live in their own file (never merged into settings.json).
 ipcMain.handle('soul:load', () => loadSoulSettings());
+// Forget what the Soul learned about the person who is here (M7-A4). The person
+// comes from the saved soul settings, never from the renderer.
+ipcMain.handle('soul:forget', async () => {
+  const person = loadSoulSettings().person;
+  const result = await forgetSoulTaste({ socket: ITER_METTA_SOCKET, person });
+  return { ...result, person };
+});
 ipcMain.handle('soul:save', (_e, settings) => {
   const clean = cleanSoulSettings(settings);
   fs.mkdirSync(path.dirname(SOUL_SETTINGS_PATH), { recursive: true });

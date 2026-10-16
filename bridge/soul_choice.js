@@ -107,9 +107,42 @@ async function writeOne(socketPath, entry) {
 
 async function flush(socketPath, iterDir) {
   const entries = readPending(iterDir);
-  if (!entries.length) return;
-  for (const entry of entries) await writeOne(socketPath, entry);
+  if (!entries.length) return 0;
+  let written = 0;
+  for (const entry of entries) if (await writeOne(socketPath, entry)) written += 1;
   fs.rmSync(pendingPath(iterDir), { force: true });
+  return written;
+}
+
+// Flush queued choices (docs/milestones/M7_soul_personality.md A5): main.js calls
+// this when the AtomSpace service reports ready, so a choice made while the
+// service was down is recorded without waiting for the next click.
+async function flushSoulChoices({ socket, iterDir }) {
+  const pending = readPending(iterDir).length;
+  if (!pending) return { flushed: 0 };
+  await flush(socket, iterDir);
+  return { flushed: pending };
+}
+
+// Forget what the Soul learned about one person (M7-A4): every taste belief and
+// dismissal count for that person, in one transaction. Choices and seen markers
+// stay, so the reducer never rebuilds a forgotten taste from old choices.
+async function forgetSoulTaste({ socket, person }) {
+  const who = String(person || '').trim().toLowerCase();
+  if (!/^[a-z0-9_-]{1,40}$/.test(who)) throw new Error('forget needs a person');
+  const keys = [];
+  for (const prefix of [`state:soul_taste:${who}:`, `state:soul_dismiss:${who}:`]) {
+    const result = await call(socket, 'read_atoms', { prefix });
+    keys.push(...Object.keys((result && result.atoms) || {}));
+  }
+  if (keys.length) {
+    await call(socket, 'transact', {
+      operations: keys.map((key) => ({ op: 'remove', key })),
+      actor: 'person',
+      source: 'sidebar',
+    });
+  }
+  return { deleted: keys.length };
 }
 
 async function recordSoulChoice({ socket, iterDir, person, kind, cardId, pick, at }) {
@@ -132,4 +165,4 @@ async function recordSoulChoice({ socket, iterDir, person, kind, cardId, pick, a
   }
 }
 
-module.exports = { recordSoulChoice, atomFor, PREFIX };
+module.exports = { recordSoulChoice, flushSoulChoices, forgetSoulTaste, atomFor, PREFIX };

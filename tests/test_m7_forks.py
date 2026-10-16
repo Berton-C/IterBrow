@@ -26,7 +26,6 @@ class VoteTests(unittest.TestCase):
     def _reduce(self):
         return run_transformation(self.r.root, "soul_taste.py", env_extra={"ITER_METTA_SOCKET": str(self.r.sock)})
 
-    @pending("M7-D1")
     def test_pick_keeps_the_picked_variant_and_rejects_the_other(self):
         a, b = museum_save(self.r.root, "playful header"), museum_save(self.r.root, "plain header")
         seed_choice(self.r, "berton", "fork", "card-1", "b",
@@ -39,7 +38,6 @@ class VoteTests(unittest.TestCase):
         tastes = self.r.call("read_atoms", {"prefix": "state:soul_taste:berton:"})["atoms"]
         self.assertIn("state:soul_taste:berton:TimeCoherence:CreativeTranscendence", tastes)
 
-    @pending("M7-D1")
     def test_dismiss_casts_nothing(self):
         a, b = museum_save(self.r.root, "x"), museum_save(self.r.root, "y")
         seed_choice(self.r, "berton", "fork", "card-2", "dismiss", [("a", None, a), ("b", None, b)])
@@ -47,7 +45,6 @@ class VoteTests(unittest.TestCase):
         self.assertIsNone(museum_get(self.r.root, a)["vote"])
         self.assertIsNone(museum_get(self.r.root, b)["vote"])
 
-    @pending("M7-D1")
     def test_missing_museum_id_is_skipped_not_fatal(self):
         a = museum_save(self.r.root, "only one exists")
         seed_choice(self.r, "berton", "fork", "card-3", "a", [("a", None, a), ("b", None, "comp-000000000000")])
@@ -55,7 +52,6 @@ class VoteTests(unittest.TestCase):
         self.assertEqual(museum_get(self.r.root, a)["vote"], "keep")
         self.assertIn("state:soul_taste_seen:card-3", self.r.call("read_atoms", {"prefix": "state:soul_taste_seen:"})["atoms"])
 
-    @pending("M7-D1")
     def test_votes_are_cast_once(self):
         a, b = museum_save(self.r.root, "x"), museum_save(self.r.root, "y")
         seed_choice(self.r, "berton", "fork", "card-4", "a", [("a", None, a), ("b", None, b)])
@@ -73,7 +69,6 @@ class VoteTests(unittest.TestCase):
 class RecipeTests(unittest.TestCase):
     """M7-D2"""
 
-    @pending("M7-D2")
     def test_presence_gives_the_recipe_only_when_forks_is_on(self):
         temp = tempfile.mkdtemp(prefix="m7recipe-")
         self.addCleanup(lambda: __import__("shutil").rmtree(temp, ignore_errors=True))
@@ -87,7 +82,6 @@ class RecipeTests(unittest.TestCase):
         msgs, _ = run_transformation(temp, "soul_presence.py", env_extra={"ITER_METTA_SOCKET": "/nonexistent/sock"})
         self.assertNotIn("browser_tab_variants", msgs[-1]["content"])
 
-    @pending("M7-D2")
     def test_card_tool_description_mentions_the_metadata_and_stays_short(self):
         from tools._metadata_static import static_tool_metadata
         description = static_tool_metadata(ITER_SRC / "tools" / "card.py")["description"]

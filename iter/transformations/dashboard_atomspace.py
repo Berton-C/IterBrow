@@ -32,7 +32,7 @@ def upload_html(html_doc):
 
 
 KB_KEYS = ("statements", "terms_known", "terms_provisional", "evidence", "derived", "nace_beliefs",
-           "soul_choices", "soul_last")
+           "soul_choices", "soul_last", "soul_tastes", "soul_felt", "soul_learned")
 _SOUL_CHOICE = None
 
 
@@ -65,7 +65,7 @@ def authority_counts(read_atoms, derive):
     try:
         kb = read_atoms("state:kb_")
         nace = read_atoms("state:nace_belief:")
-        soul = read_atoms("state:soul_choice:")
+        soul = read_atoms("state:soul_")
     except Exception:
         return dict({"status": "authority unreachable", "loaded": False}, **{key: None for key in KB_KEYS})
     from iterbrow_runtime.kb_terms import parse_term_atom
@@ -93,7 +93,31 @@ def authority_counts(read_atoms, derive):
         "nace_beliefs": len(nace),
         "soul_choices": soul_choice_counts(soul)[0],
         "soul_last": soul_choice_counts(soul)[1],
+        "soul_tastes": sum(1 for key in soul if key.startswith("state:soul_taste:")),
+        "soul_felt": sum(1 for key in soul if key.startswith("state:soul_felt:")),
+        "soul_learned": _learned_line(soul),
     }
+
+
+def _soul_modules():
+    """iterbrow_runtime from ITER_DIR, falling back to the code tree this file lives in."""
+    import sys
+    code_root = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+    iter_dir = os.path.realpath(os.environ.get("ITER_DIR") or os.getcwd())
+    for path in (code_root, iter_dir):  # ITER_DIR ends up first
+        if path not in sys.path:
+            sys.path.insert(0, path)
+    from iterbrow_runtime import soul_lens, soul_settings
+    return soul_lens, soul_settings
+
+
+def _learned_line(soul_atoms):
+    """The current person's learned line (M7-A3), from atoms already read; None when there is none."""
+    try:
+        soul_lens, soul_settings = _soul_modules()
+        return soul_lens.taste_line(soul_settings.person(), atoms=soul_atoms) or None
+    except Exception:
+        return None
 
 
 def build_kb_graph(kb_atoms, derived):
@@ -207,15 +231,20 @@ def _soul_section(counts):
         person, features = "unknown", []
     if not counts.get("loaded"):
         body = '<span class="label">authority unreachable</span>'
-    elif not counts.get("soul_choices"):
+    elif not counts.get("soul_choices") and not counts.get("soul_felt"):
         body = '<span class="label">no Soul activity yet</span>'
     else:
         last = counts.get("soul_last") or {}
         when = time.strftime("%Y-%m-%d %H:%M", time.localtime(last.get("at", 0) / 1000.0)) if last else ""
-        body = ('<span class="graph-chip">choices <strong>%s</strong></span>'
-                '<span class="graph-chip">last <strong>%s → %s</strong> %s</span>'
-                % (counts["soul_choices"], _escape_html(last.get("kind", "")), _escape_html(last.get("pick", "")),
-                   _escape_html(when)))
+        body = '<span class="graph-chip">choices <strong>%s</strong></span>' % (counts.get("soul_choices") or 0)
+        if last:
+            body += ('<span class="graph-chip">last <strong>%s → %s</strong> %s</span>'
+                     % (_escape_html(last.get("kind", "")), _escape_html(last.get("pick", "")), _escape_html(when)))
+        if counts.get("soul_felt"):
+            body += '<span class="graph-chip">felt notes <strong>%s</strong></span>' % counts["soul_felt"]
+        if counts.get("soul_learned"):
+            body += ('<div style="flex-basis:100%%;font-size:12px">Learned: %s</div>'
+                     % _escape_html(counts["soul_learned"]))
     note = "%s · features on: %s" % (person, ", ".join(features) if features else "none")
     return ('<section class="card"><div class="card-head"><h2 class="card-title">Soul</h2>'
             '<span class="card-note">' + _escape_html(note) + '</span></div>'

@@ -69,3 +69,14 @@ def send_card(card, content):
         "content": str(content), "card": card, "at": int(time.time() * 1000),
     }, ensure_ascii=False, sort_keys=True))
     return message_id
+
+
+def send_felt(content):
+    """An Iter message in its own voice: a short note on what it found interesting
+    (docs/milestones/M7_soul_personality.md B1). Returns the outbox message id."""
+    message_id = "iter-%s" % uuid.uuid4()
+    _publish(OUTBOX, message_id + ".json", json.dumps({
+        "schema_version": 1, "id": message_id, "role": "iter",
+        "content": str(content), "felt": True, "at": int(time.time() * 1000),
+    }, ensure_ascii=False, sort_keys=True))
+    return message_id

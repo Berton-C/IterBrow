@@ -42,7 +42,6 @@ class BriefToolTests(unittest.TestCase):
         self.addCleanup(self.r.close)
         self.r.start()
 
-    @pending("M7-C1")
     def test_brief_on_a_foundry_project_is_a_checkpointed_blueprint_change(self):
         write_soul_settings(self.r.root, "berton", {"brief": True})
         before = make_project(self.r.root)
@@ -67,7 +66,6 @@ class BriefToolTests(unittest.TestCase):
         self.assertEqual(self.r.text("brief", app="orbit"),
                          "orbit: for Bright, planning a week without dread. Flourishing: she closes it feeling lighter than when she opened it.")
 
-    @pending("M7-C1")
     def test_brief_on_a_plain_app_dir_is_a_json_file(self):
         write_soul_settings(self.r.root, "berton", {"brief": True})
         make_app_dir(self.r.root, "crm")
@@ -78,7 +76,6 @@ class BriefToolTests(unittest.TestCase):
         self.assertEqual(sorted(brief), ["at", "by", "flourishing", "for"])
         self.assertEqual(self.r.text("brief", app="crm"), "crm: for Berton, keeping track of people he cares about. Flourishing: he remembers to reach out.")
 
-    @pending("M7-C1")
     def test_read_without_a_brief_and_bad_calls(self):
         write_soul_settings(self.r.root, "berton", {"brief": True})
         make_app_dir(self.r.root, "music")
@@ -103,7 +100,6 @@ class BriefPromptTests(unittest.TestCase):
         msgs, _ = run_transformation(self.r.root, "soul_brief.py", env_extra={"ITER_METTA_SOCKET": str(self.r.sock)})
         return msgs[-1]["content"]
 
-    @pending("M7-C2")
     def test_briefs_block_lists_every_app_with_a_brief_sorted(self):
         make_project(self.r.root, "orbit")
         make_app_dir(self.r.root, "crm")
@@ -118,7 +114,6 @@ class BriefPromptTests(unittest.TestCase):
                                                           "orbit: for Bright. Flourishing: lighter."])
         self.assertNotIn("music", block)
 
-    @pending("M7-C2")
     def test_feature_off_or_no_briefs_adds_nothing(self):
         make_app_dir(self.r.root, "crm")
         self.assertEqual(self._block({"brief": True}), "base", "no app has a brief")
@@ -131,7 +126,6 @@ class BriefPromptTests(unittest.TestCase):
 class DriftCardTests(unittest.TestCase):
     """M7-C3: drift is a brief card with continue / revise / drop; the presence block says so when brief is on."""
 
-    @pending("M7-C3")
     def test_presence_describes_the_drift_card_when_brief_is_on(self):
         temp = tempfile.mkdtemp(prefix="m7drift-")
         self.addCleanup(lambda: __import__("shutil").rmtree(temp, ignore_errors=True))
@@ -144,7 +138,6 @@ class DriftCardTests(unittest.TestCase):
         msgs, _ = run_transformation(temp, "soul_presence.py", env_extra={"ITER_METTA_SOCKET": "/nonexistent/sock"})
         self.assertNotIn("revise", msgs[-1]["content"])
 
-    @pending("M7-C3")
     def test_card_tool_accepts_the_drift_ids_for_kind_brief(self):
         r = m7_root("m7driftcard")
         self.addCleanup(r.close)

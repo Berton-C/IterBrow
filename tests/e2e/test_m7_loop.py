@@ -10,6 +10,7 @@ the channel are real.
 """
 import json
 import os
+import re
 import subprocess
 import sys
 import unittest
@@ -17,7 +18,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from harness import IterRun, send, tool, nop  # noqa: E402
+from harness import IterRun, send, tool  # noqa: E402
 from m7_support import pending, require_m7, museum_save, museum_get, stv, taste_n, NODE, REPO  # noqa: E402
 
 
@@ -43,7 +44,6 @@ recordSoulChoice({ socket: %s, iterDir: %s, person: %s, kind: card.card.kind, ca
 
 
 class SoulPersonalityLoopTests(unittest.TestCase):
-    @pending("M7-E1")
     def test_forks_become_taste_votes_and_a_learned_line(self):
         require_m7()
         script = [
@@ -51,16 +51,13 @@ class SoulPersonalityLoopTests(unittest.TestCase):
                   choices=[{"id": "a", "label": "Playful", "pattern": "CreativeTranscendence", "museum_id": "{{museum_a}}"},
                            {"id": "b", "label": "On time", "pattern": "TimeCoherence", "museum_id": "{{museum_b}}"}])],
             [send("CARD-1-DONE")],
-            [nop(0)],
+            # A send waits for input: each click below wakes exactly one request.
             [tool("card", kind="fork", title="Footer?", body="Two poles again.",
                   choices=[{"id": "a", "label": "Playful", "pattern": "CreativeTranscendence", "museum_id": "{{museum_c}}"},
                            {"id": "b", "label": "On time", "pattern": "TimeCoherence", "museum_id": "{{museum_d}}"}])],
             [send("CARD-2-DONE")],
-            [nop(0)],
             [tool("felt", text="Building both headers side by side was the fun part today.")],
             [send("FELT-DONE")],
-            [nop(0)],
-            [nop(0)],
             [send("LOOP-DONE")],
         ]
         run = IterRun(script, name="m7")
@@ -73,13 +70,12 @@ class SoulPersonalityLoopTests(unittest.TestCase):
         (runtime / "soul_settings.json").write_text(json.dumps({"schema_version": 1, "person": "berton",
                                                                  "people": {"berton": {"features": {"forks": True, "felt": True}}}}))
         with run:
-            nace_before = len(run.atoms("state:nace_belief:"))
             kb_before = len(run.atoms("state:kb_statement:"))
 
             def card_id_after(marker):
                 run.wait_for_reply(marker, timeout=300)
                 sent = [m for m in run.experience() if m.get("role") == "tool" and "CARD-SENT" in m.get("content", "")]
-                return sent[-1]["content"].split()[1]
+                return re.search(r"CARD-SENT: (card-[0-9a-f]{12})", sent[-1]["content"]).group(1)
 
             first = card_id_after("CARD-1-DONE")
             self.assertEqual(sorted(run.atoms("state:soul_card_choice:%s:" % first)), ["state:soul_card_choice:%s:a" % first, "state:soul_card_choice:%s:b" % first])
@@ -89,6 +85,7 @@ class SoulPersonalityLoopTests(unittest.TestCase):
             self.assertNotEqual(first, second)
             click(run, second, "a", "Playful")
             run.wait_for_reply("FELT-DONE", timeout=300)
+            run.say("thanks")
             run.wait_for_reply("LOOP-DONE", timeout=300)
             run.stop()
 
@@ -117,7 +114,16 @@ class SoulPersonalityLoopTests(unittest.TestCase):
                             "no learned line in any request:\n" + "\n---\n".join(s[-600:] for s in systems[-3:]))
 
             # Isolation: nothing outside the soul view moved; other views never see soul atoms.
-            self.assertEqual(len(run.atoms("state:nace_belief:")), nace_before)
+            # NACE learns tool efficacy from the card/felt calls themselves (that is its job), so its
+            # count may grow; what must hold is that no Soul atom lands outside state:soul_* and the
+            # kb is untouched. (The reducer's own NACE/kb isolation is checked in test_m7_taste A2.)
+            soul_heads = ("(soul-taste", "(soul-card", "(soul-felt", "(soul-dismissed", "(soul-choice")
+            everything = {**run.atoms("state:"), **run.atoms("event:")}
+            leaked = [key for key, atom in everything.items()
+                      if not key.startswith("state:soul_") and atom.lstrip().startswith(soul_heads)]
+            self.assertEqual(leaked, [])
+            nace_atoms = run.atoms("state:nace_belief:")
+            self.assertFalse([a for a in nace_atoms.values() if "soul" in a.lower()], "no Soul content in NACE beliefs")
             self.assertEqual(len(run.atoms("state:kb_statement:")), kb_before)
             from harness import atomspace_call
             for view in ("current", "full", "kb"):

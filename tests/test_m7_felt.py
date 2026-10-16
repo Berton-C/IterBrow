@@ -23,7 +23,6 @@ class FeltToolTests(unittest.TestCase):
         self.addCleanup(self.r.close)
         self.r.start()
 
-    @pending("M7-B1")
     def test_felt_publishes_a_flagged_message_and_records_an_atom(self):
         write_soul_settings(self.r.root, "berton", {"felt": True})
         out = self.r.text("felt", text="The way the tab strip breathes when a pin lands — I liked building that.")
@@ -37,13 +36,11 @@ class FeltToolTests(unittest.TestCase):
         atoms = self.r.call("read_atoms", {"prefix": "state:soul_felt:"})["atoms"]
         self.assertEqual(atoms["state:soul_felt:%s" % message_id].split()[:2], ["(soul-felt", '"berton"'])
 
-    @pending("M7-B1")
     def test_long_notes_are_refused(self):
         out = self.r.text("felt", text="x" * 281)
         self.assertEqual(out, "ERROR: keep a felt note under 280 characters")
         self.assertEqual(self.r.call("read_atoms", {"prefix": "state:soul_felt:"})["atoms"], {})
 
-    @pending("M7-B1")
     def test_felt_atoms_live_only_in_the_soul_view(self):
         self.r.call("transact", {"operations": [{"op": "upsert", "key": "state:soul_felt:iter-x",
                                                  "atom": '(soul-felt "berton" 1700000000000)'}],
@@ -62,7 +59,6 @@ class FeltBridgeTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = self.temp.name
 
-    @pending("M7-B1")
     def test_felt_flag_is_kept_and_junk_is_dropped(self):
         f1 = {"schema_version": 1, "id": "iter-f1", "role": "iter", "at": 1700000000000, "content": "a note", "felt": True}
         f2 = {"schema_version": 1, "id": "iter-f2", "role": "iter", "at": 1700000000001, "content": "plain", "felt": "yes"}
@@ -87,7 +83,6 @@ class FeltRenderTests(unittest.TestCase):
                "onUiResume:()=>{},onIterStatus:()=>{},loadSettings:()=>Promise.resolve({})}")
         return json.loads(run_playwright(sidebar_page_script(setup, probe, api)).strip().splitlines()[-1])
 
-    @pending("M7-B2")
     def test_felt_message_renders_as_a_voice(self):
         out = self._page({"schema_version": 1, "id": "iter-f1", "role": "iter", "at": 1700000000000,
                           "content": "I liked *that* one.", "felt": True}, """(() => {
@@ -120,19 +115,16 @@ class FeltOffTests(unittest.TestCase):
         tools = [tool_entry("felt"), tool_entry("card"), tool_entry("shell")]
         return run_transformation(self.temp, "soul_presence.py", tools=tools, env_extra={"ITER_METTA_SOCKET": "/nonexistent/sock"})
 
-    @pending("M7-B3")
     def test_felt_off_removes_the_tool_and_leaves_others(self):
         msgs, tools = self._presence({"forks": True, "felt": False})
         self.assertEqual([t["function"]["name"] for t in tools], ["card", "shell"])
         self.assertNotIn("felt", msgs[-1]["content"])
 
-    @pending("M7-B3")
     def test_all_off_still_removes_felt_and_adds_no_block(self):
         msgs, tools = self._presence({f: False for f in FEATURES})
         self.assertEqual([t["function"]["name"] for t in tools], ["card", "shell"])
         self.assertEqual(msgs, [{"role": "system", "content": "base"}])
 
-    @pending("M7-B3")
     def test_felt_on_keeps_the_tool_and_names_the_frequency(self):
         msgs, tools = self._presence({"felt": True}, frequency="whisper")
         self.assertEqual([t["function"]["name"] for t in tools], ["felt", "card", "shell"])

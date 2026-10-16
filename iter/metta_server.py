@@ -321,14 +321,14 @@ class MettaSpace:
         elif view == "soul":
             query_snapshot = {**snapshot, "atoms": {
                 key: atom for key, atom in snapshot["atoms"].items()
-                if key.startswith(SOUL_CHOICE_PREFIX)
+                if key.startswith(SOUL_PREFIX)
             }}
         else:
             # "current" is the explicit internal working view (no event atoms);
             # historical "full" queries keep every other atom.
             query_snapshot = {**snapshot, "atoms": {
                 key: atom for key, atom in snapshot["atoms"].items()
-                if not key.startswith(KB_PREFIX) and not key.startswith(SOUL_CHOICE_PREFIX)
+                if not key.startswith(KB_PREFIX) and not key.startswith(SOUL_PREFIX)
                 and not (view == "current" and key.startswith("event:"))
             }}
         view_hash = hashlib.sha256(json.dumps(query_snapshot["atoms"], sort_keys=True).encode()).hexdigest()

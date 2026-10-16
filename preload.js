@@ -44,6 +44,7 @@ contextBridge.exposeInMainWorld('iterApi', {
   loadSettings: () => ipcRenderer.invoke('settings:load'),
   loadSoulSettings: () => ipcRenderer.invoke('soul:load'),
   saveSoulSettings: (settings) => ipcRenderer.invoke('soul:save', settings),
+  forgetSoulTaste: () => ipcRenderer.invoke('soul:forget'),
   saveSettings: (settings) => ipcRenderer.invoke('settings:save', settings),
 
   permissionsStatus: () => ipcRenderer.invoke('permissions:status'),

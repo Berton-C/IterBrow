@@ -408,3 +408,8 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent); }
 .soul-feature { display: flex; gap: 8px; align-items: flex-start; font-size: 12px; line-height: 1.35; cursor: pointer; }
 .soul-feature input { margin-top: 2px; flex: none; }
 .card button.choice.picked, .card button.choice.picked:disabled { background: var(--accent, #2563eb); color: #fff; opacity: 1; border-color: var(--accent, #2563eb); }
+
+/* Felt notes (M7-B2): Iter's own voice, quieter than a reply, no controls. */
+.msg.row.felt { position: relative; padding-left: 18px; }
+.msg.row.felt .felt-mark { position: absolute; left: 2px; top: 2px; color: var(--accent, #b48cff); font-size: 12px; line-height: 1.6; }
+.msg.row.felt .body { font-style: italic; opacity: 0.92; }
