@@ -72,7 +72,10 @@ Everything later depends on being able to *ask the person something and record t
   was tested); settings scoping; seeds load in the `soul` view and never in `current`;
   `soul_check`/`soul_voice` gone from the prompt; AGENTS.md section matches code.
 
-### M7 — Foundry Soul I: brief, forks, soul-absent test
+### M7 — A personality that learns (spec: `docs/milestones/M7_soul_personality.md`)
+Superseded in scope by the M7 spec: taste beliefs from choices first (`soul-taste`, NAL-revised in the
+soul view, read by the lens, one learned line in the presence block, forgettable), the felt channel
+pulled forward from M8, then briefs and forks as variants. Soul-absent test moves to M8. Original:
 - **Flourishing brief**: `blueprint.json.flourishing_brief` (who this is for; what flourishing
   looks like for them), two lines, editable from the sidebar; for apps without a blueprint
   (CRM, Little Orbit, NodeQuest) a `brief.json` beside the entrypoint. Iter reads it into the
@@ -90,7 +93,7 @@ Everything later depends on being able to *ask the person something and record t
   two real museum ids and the pick lands as `soul-choice` + vote; soul-absent output cites
   patterns from the kernel atoms, not keywords.
 
-### M8 — Person-read and tempo; modes
+### M8 — Person-read and tempo; modes; soul-absent test (felt channel moved to M7)
 - **Channel A port**: a person-read (state, active need, tone) from message cadence
   (`messages.jsonl` timestamps), edit rhythm (app command provenance), stall/idle signals,
   and the last few messages. Shown as one correctable line in the sidebar; a correction is a
