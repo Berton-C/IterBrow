@@ -93,7 +93,9 @@ pulled forward from M8, then briefs and forks as variants. Soul-absent test move
   two real museum ids and the pick lands as `soul-choice` + vote; soul-absent output cites
   patterns from the kernel atoms, not keywords.
 
-### M8 — Person-read and tempo; modes; soul-absent test (felt channel moved to M7)
+### M8 — Presence: the Soul in the tab, modes, critique, museum night (spec: `docs/milestones/M8_soul_presence.md`)
+Merges this entry's modes and soul-absent test with M9's "Iter in the tab" (the margin glyph). The
+person-read, tempo and the twin are parked as a separate later build ("the Muse"). Original:
 - **Channel A port**: a person-read (state, active need, tone) from message cadence
   (`messages.jsonl` timestamps), edit rhythm (app command provenance), stall/idle signals,
   and the last few messages. Shown as one correctable line in the sidebar; a correction is a
