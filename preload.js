@@ -68,6 +68,9 @@ contextBridge.exposeInMainWorld('iterApi', {
   historyClear: () => ipcRenderer.invoke('history:clear'),
   onHistoryOpen: (cb) => ipcRenderer.on('history:open', () => cb()),
   toolbarOverlay: (height) => ipcRenderer.send('toolbar:overlay', height),
+  // M11-D: reader mode (toolbar button) and its notice.
+  readerOpen: (tabId) => ipcRenderer.invoke('reader:open', tabId),
+  onReaderNotice: (cb) => ipcRenderer.on('reader:notice', (_e, notice) => cb(notice)),
   saveSettings: (settings) => ipcRenderer.invoke('settings:save', settings),
 
   permissionsStatus: () => ipcRenderer.invoke('permissions:status'),

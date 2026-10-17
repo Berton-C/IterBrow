@@ -22,6 +22,7 @@ const browsingAlly = require('./bridge/browsing_ally');
 const nativeLocation = require('./bridge/location');
 const bookmarks = require('./bridge/bookmarks');
 const browsingHistory = require('./bridge/history');
+const reader = require('./bridge/reader');
 const { makeChatBridge } = require('./bridge/chat_bridge');
 const { retirePreviousIter } = require('./bridge/iter_process_owner');
 const OPENAI_CATALOG = require('./iter/iterbrow_runtime/openai_models.json');
@@ -1571,7 +1572,8 @@ function saveTabSession() {
   try {
     const list = tabs.list(); // [{id, title, url, active, locked, pinned}]
     const session = {
-      tabs: list.map((t) => ({ url: t.url, locked: t.locked, pinned: t.pinned })),
+      // A reader page (M11-D2) is saved as the page it was made from, not as its data: document.
+      tabs: list.map((t) => ({ url: reader.readerSource(t.url) || t.url, locked: t.locked, pinned: t.pinned })),
       activeIndex: list.findIndex((t) => t.active),
     };
     fs.mkdirSync(path.dirname(TABS_SESSION_PATH), { recursive: true });
@@ -1741,6 +1743,42 @@ function attachHistoryRecorder(contents, tab) {
 }
 
 // ---------------------------------------------------------------------
+// Reader mode (M11-D2) -- the person's click (toolbar 📖 or Shift+Cmd+R), so it works on a locked
+// tab too; never on an app tab or a non-web page. The article becomes a data: document in the same
+// tab, so Back returns to the page; the URL carries the original after #iter-reader=.
+// ---------------------------------------------------------------------
+const READER_MAX_URL = 1900000; // Chromium refuses navigations to URLs over 2 MB
+
+function sendReaderNotice(text) {
+  try { if (toolbarView) toolbarView.webContents.send('reader:notice', { text }); } catch (_) {}
+}
+
+async function openReader(tabId) {
+  const tab = tabs && tabs.tabs.get(Number(tabId));
+  if (!tab || tab.appScope || !/^https?:\/\//i.test(String(tab.url || ''))) return { ok: false, reason: 'not-a-page' };
+  let article = null;
+  try { article = await tab.view.webContents.executeJavaScript(reader.READER_SCRIPT); } catch (_) { article = null; }
+  if (!article || typeof article.html !== 'string' || !article.html || !(Number(article.textLength) >= 400)) {
+    sendReaderNotice('No article found on this page');
+    return { ok: false, reason: 'no-article' };
+  }
+  const source = tab.url;
+  const doc = reader.renderReader({
+    title: String(article.title || tab.title || '').slice(0, 300),
+    byline: String(article.byline || '').slice(0, 200),
+    html: article.html,
+    url: source,
+  });
+  const url = 'data:text/html;charset=utf-8,' + encodeURIComponent(doc) + reader.READER_MARK + encodeURIComponent(source);
+  if (url.length > READER_MAX_URL) {
+    sendReaderNotice('This article is too long for reader mode');
+    return { ok: false, reason: 'too-long' };
+  }
+  tab.view.webContents.loadURL(url);
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------
 // Tab groups -- named, saved sets of tabs the user can reopen, switch to,
 // or bulk-close as a unit. Added 2026-09-14.
 // ---------------------------------------------------------------------
@@ -1861,7 +1899,8 @@ function reopenClosedTabAt(index) {
 function recordClosedTab(snapshot) {
   if (!snapshot || !snapshot.url || snapshot.url === 'about:blank') return;
   const list = loadClosedTabs();
-  list.unshift({ url: snapshot.url, title: snapshot.title || snapshot.url, closedAt: Date.now() });
+  const url = reader.readerSource(snapshot.url) || snapshot.url; // a reader page reopens as its page (M11-D2)
+  list.unshift({ url, title: snapshot.title || url, closedAt: Date.now() });
   saveClosedTabs(list.slice(0, CLOSED_TABS_LIMIT));
   Menu.setApplicationMenu(buildAppMenu()); // rebuild so the Recently Closed submenu picks up the new entry immediately
 }
@@ -2308,7 +2347,8 @@ function buildAppMenu() {
         },
         {
           label: 'Force Reload Active Tab',
-          accelerator: 'Shift+CmdOrCtrl+R',
+          // Option+Cmd+R, as Safari's "Reload Page From Origin": Shift+Cmd+R is Reader Mode (M11-D2).
+          accelerator: 'Alt+CmdOrCtrl+R',
           click: () => {
             const tab = activeTab();
             if (tab) tab.view.webContents.reloadIgnoringCache();
@@ -2464,6 +2504,25 @@ function buildAppMenu() {
             if (!toolbarView) return;
             toolbarView.webContents.focus();
             toolbarView.webContents.send('find:open');
+          },
+        },
+        {
+          // M11-D2: the article of the active page, clean, in the same tab (Back returns).
+          label: 'Reader Mode',
+          accelerator: 'Shift+CmdOrCtrl+R',
+          click: () => { const tab = activeTab(); if (tab) openReader(tab.id); },
+        },
+        {
+          // M11-D3: the page's largest video floats; again brings it back. Needs the user gesture flag.
+          label: 'Picture in Picture',
+          accelerator: 'Shift+CmdOrCtrl+P',
+          click: async () => {
+            const tab = activeTab();
+            if (!tab || tab.appScope) return;
+            const result = await tab.view.webContents.executeJavaScript(reader.PIP_SCRIPT, true)
+              .catch(() => ({ ok: false, reason: 'error' }));
+            if (result && result.reason === 'no-video') sendReaderNotice('No video on this page');
+            else if (result && !result.ok) pushLog(`[pip] ${result.reason}`);
           },
         },
         { type: 'separator' },
@@ -2756,6 +2815,8 @@ ipcMain.handle('bookmarks:open', (_e, url) => { openOrFocusUrl(String(url || '')
 ipcMain.handle('history:search', (_e, q) => browsingHistory.search(loadHistory(), String(q || '').slice(0, 200), 8));
 ipcMain.handle('history:openUrl', (_e, url) => { openOrFocusUrl(String(url || '')); return true; });
 ipcMain.handle('history:clear', () => { deleteHistory(); return true; });
+// M11-D2: reader mode from the toolbar button.
+ipcMain.handle('reader:open', (_e, tabId) => openReader(tabId));
 ipcMain.handle('tabs:list', () => tabs.list());
 ipcMain.handle('tabs:new', (_e, url) => tabs.createTab(url));
 ipcMain.handle('tabs:close', (_e, id) => tabs.closeTab(id));

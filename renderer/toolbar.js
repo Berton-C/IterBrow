@@ -7,6 +7,7 @@ const btnReload = document.getElementById('btn-reload');
 const addr = document.getElementById('addr');
 const lockIndicator = document.getElementById('lock-indicator');
 const btnBookmark = document.getElementById('btn-bookmark'); // M11-B3
+const btnReader = document.getElementById('btn-reader'); // M11-D2
 
 let activeTabId = null;
 let addrFocused = false;
@@ -15,14 +16,16 @@ addr.addEventListener('focus', () => { addrFocused = true; });
 addr.addEventListener('blur', () => { addrFocused = false; });
 
 let activeUrl = '';
+let activeIsApp = false;
 
 function renderFromTabs(list) {
   const active = list.find((t) => t.active);
   activeTabId = active ? active.id : null;
   activeUrl = active ? String(active.url || '') : '';
+  activeIsApp = !!(active && active.app);
   renderPageButtons();
   // Don't stomp on text the user is actively typing/selecting.
-  if (active && !addrFocused) addr.value = active.url;
+  if (active && !addrFocused) addr.value = readerSourceOf(active.url) || active.url;
   btnBack.disabled = !active || !active.canGoBack;
   btnForward.disabled = !active || !active.canGoForward;
   lockIndicator.classList.toggle('visible', !!(active && active.locked));
@@ -144,9 +147,22 @@ function setBookmarked(on) {
   btnBookmark.setAttribute('aria-pressed', on ? 'true' : 'false');
 }
 
-// Buttons whose use depends on what the active tab is showing.
+// A reader page (M11-D2) is a data: document whose URL ends with #iter-reader=<the page>.
+function readerSourceOf(url) {
+  const value = String(url || '');
+  const at = value.lastIndexOf('#iter-reader=');
+  if (!value.startsWith('data:text/html') || at < 0) return null;
+  try {
+    const source = decodeURIComponent(value.slice(at + '#iter-reader='.length));
+    return /^https?:\/\//i.test(source) ? source : null;
+  } catch (_) { return null; }
+}
+
+// Buttons whose use depends on what the active tab is showing. Locked tabs keep them: these are the
+// person's clicks. Disabled only where the action can't apply.
 function renderPageButtons() {
   if (btnBookmark) btnBookmark.disabled = !activeTabId || !/^(https?|file):/i.test(activeUrl);
+  if (btnReader) btnReader.disabled = !activeTabId || !/^https?:\/\//i.test(activeUrl) || activeIsApp;
 }
 
 if (btnBookmark) {
@@ -252,4 +268,22 @@ if (historyBar && window.iterApi.onHistoryOpen) {
     }
   });
   document.getElementById('history-close').addEventListener('click', hideHistory);
+}
+
+
+// ---- M11-D2: reader mode (docs/milestones/M11_browser_track.md D2) ----
+const readerNotice = document.getElementById('reader-notice');
+let readerNoticeTimer = null;
+
+if (btnReader) {
+  renderPageButtons();
+  btnReader.addEventListener('click', () => { if (activeTabId) window.iterApi.readerOpen(activeTabId); });
+}
+if (readerNotice && window.iterApi.onReaderNotice) {
+  window.iterApi.onReaderNotice((notice) => {
+    readerNotice.textContent = String((notice && notice.text) || '');
+    readerNotice.classList.add('visible');
+    if (readerNoticeTimer) clearTimeout(readerNoticeTimer);
+    readerNoticeTimer = setTimeout(() => { readerNotice.classList.remove('visible'); readerNoticeTimer = null; }, 4000);
+  });
 }

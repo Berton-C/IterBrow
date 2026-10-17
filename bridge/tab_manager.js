@@ -52,6 +52,7 @@ class TabManager {
       active: t.id === this.activeId,
       locked: !!t.locked,
       pinned: !!t.pinned,
+      app: t.appScope ? t.appScope.appId : null, // M11-D2: the toolbar keeps app-tab-only buttons off
       canGoBack: t.view.webContents.navigationHistory.canGoBack(),
       canGoForward: t.view.webContents.navigationHistory.canGoForward(),
     }));

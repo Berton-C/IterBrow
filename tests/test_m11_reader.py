@@ -20,7 +20,6 @@ class ReaderScriptTests(unittest.TestCase):
     def _run(self, html, name, probe="window.__out"):
         return json.loads(run_playwright(page_script_eval(html, reader_script(name), probe)).strip().splitlines()[-1])
 
-    @pending("M11-D1")
     def test_extracts_the_article_and_strips_everything_live(self):
         require_m11()
         out = self._run(ARTICLE_HTML, "READER_SCRIPT")
@@ -37,12 +36,10 @@ class ReaderScriptTests(unittest.TestCase):
         self.assertIn('src="https://example.org/sky.jpg"', html)
         self.assertIn('alt="A blue sky"', html)
 
-    @pending("M11-D1")
     def test_short_pages_yield_no_article(self):
         out = self._run("<html><head><title>Tiny</title></head><body><div><p>Hello.</p></div></body></html>", "READER_SCRIPT")
         self.assertEqual(out, {"title": "Tiny", "html": "", "textLength": 0, "byline": ""})
 
-    @pending("M11-D1")
     def test_largest_text_block_without_article_tags(self):
         body = "".join("<div class='x'><a href='/l%d'>link</a></div>" % i for i in range(20))
         body += "<div id='story'>%s</div>" % ("<p>The story goes on and on with plenty of words to read. </p>" * 20)
@@ -55,7 +52,6 @@ class ReaderScriptTests(unittest.TestCase):
 class ReaderDocumentTests(unittest.TestCase):
     """M11-D1 (document)"""
 
-    @pending("M11-D1")
     def test_render_reader_escapes_and_wraps(self):
         require_m11()
         out = bridge_json("reader.js", """process.stdout.write(JSON.stringify(M.renderReader({
@@ -74,7 +70,6 @@ class ReaderDocumentTests(unittest.TestCase):
 class WiringTests(unittest.TestCase):
     """M11-D2 / M11-D3 (main.js)"""
 
-    @pending("M11-D2")
     def test_reader_menu_button_and_data_url(self):
         main = main_js()
         self.assertIn("require('./bridge/reader')", main)
@@ -91,7 +86,6 @@ class WiringTests(unittest.TestCase):
         for name in ("readerOpen", "onReaderNotice"):
             self.assertIn(name, preload, name)
 
-    @pending("M11-D3")
     def test_pip_menu_runs_with_a_user_gesture(self):
         main = main_js()
         menu = section(main, "label: 'Picture in Picture'", after=1200)
@@ -105,7 +99,6 @@ class WiringTests(unittest.TestCase):
 class PipScriptTests(unittest.TestCase):
     """M11-D3 (page script)"""
 
-    @pending("M11-D3")
     def test_pip_picks_the_largest_video_and_reports_none(self):
         require_m11()
         html = """<html><body>
@@ -126,7 +119,6 @@ for (const v of document.querySelectorAll('video')) v.requestPictureInPicture = 
 class ToolbarReaderTests(unittest.TestCase):
     """M11-D2 (toolbar)"""
 
-    @pending("M11-D2")
     def test_reader_button_enabled_only_on_web_pages_and_notice_hides_itself(self):
         require_m11()
         out = toolbar("0", """(async () => {
