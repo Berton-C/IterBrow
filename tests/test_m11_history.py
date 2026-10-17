@@ -18,7 +18,6 @@ from m11_support import (pending, require_m11, bridge_json, main_js, preload_js,
 class PureHistoryTests(unittest.TestCase):
     """M11-C1"""
 
-    @pending("M11-C1")
     def test_should_record_is_the_ally_rule(self):
         require_m11()
         out = bridge_json("history.js", """process.stdout.write(JSON.stringify([
@@ -31,7 +30,6 @@ class PureHistoryTests(unittest.TestCase):
   M.shouldRecord({ url: 'about:blank', locked: false, appScope: null }, true) ]));""")
         self.assertEqual(out, [True, False, False, False, False, False, False])
 
-    @pending("M11-C1")
     def test_append_coalesces_and_caps(self):
         out = bridge_json("history.js", """
 let lines = [];
@@ -48,7 +46,6 @@ process.stdout.write(JSON.stringify({ lines, titled, capped: capped.map((l) => l
         self.assertEqual([l["title"] for l in out["titled"]], ["A", "A — the page", "B"], "only the latest line for the URL is retitled")
         self.assertEqual(out["capped"], ["https://n.test/%d" % i for i in range(2, 12)])
 
-    @pending("M11-C1")
     def test_search_newest_first_unique_by_url_with_visits(self):
         out = bridge_json("history.js", """
 const lines = [ { at: 1, url: 'https://docs.python.org/3/library/asyncio.html', title: 'asyncio' },
@@ -66,7 +63,6 @@ process.stdout.write(JSON.stringify([ M.search(lines, 'python'), M.search(lines,
 class WiringTests(unittest.TestCase):
     """M11-C2"""
 
-    @pending("M11-C2")
     def test_main_records_only_by_the_rule_and_the_switch_leaves_no_trace(self):
         main = main_js()
         self.assertIn("require('./bridge/history')", main)
@@ -101,7 +97,6 @@ class WiringTests(unittest.TestCase):
 class HistoryBarTests(unittest.TestCase):
     """M11-C3"""
 
-    @pending("M11-C3")
     def test_bar_searches_navigates_opens_and_closes(self):
         require_m11()
         out = toolbar("0", """(async () => {

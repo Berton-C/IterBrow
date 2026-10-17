@@ -62,6 +62,12 @@ contextBridge.exposeInMainWorld('iterApi', {
   bookmarkToggle: (tabId) => ipcRenderer.invoke('bookmarks:toggle', tabId),
   bookmarkOpen: (url) => ipcRenderer.invoke('bookmarks:open', url),
   onBookmarkState: (cb) => ipcRenderer.on('bookmarks:state', (_e, state) => cb(state)),
+  // M11-C: history search (toolbar history bar).
+  historySearch: (q) => ipcRenderer.invoke('history:search', q),
+  historyOpen: (url) => ipcRenderer.invoke('history:openUrl', url),
+  historyClear: () => ipcRenderer.invoke('history:clear'),
+  onHistoryOpen: (cb) => ipcRenderer.on('history:open', () => cb()),
+  toolbarOverlay: (height) => ipcRenderer.send('toolbar:overlay', height),
   saveSettings: (settings) => ipcRenderer.invoke('settings:save', settings),
 
   permissionsStatus: () => ipcRenderer.invoke('permissions:status'),

@@ -70,6 +70,8 @@
       <div class="field"><label>Model (must match LM Studio's Developer panel exactly)</label><input id="lm-model" value="qwen/qwen3.8-27b"></div>
       <div style="font-size:10px;color:var(--muted)">Requires: LM Studio server running, "Enable CORS" is not needed here (Electron talks to it directly, not via a web page's fetch), context length ≥ 32768, and tool_choice="required" support (llama.cpp engine).</div>
     </div>
+    <!-- M11-C2: the person's browsing history; off deletes it at once. -->
+    <div class="field"><label><input type="checkbox" id="setting-history" checked> Keep browsing history (never locked tabs, never app tabs)</label></div>
     <div class="row">
       <button id="btn-save-settings">Save settings</button>
     </div>

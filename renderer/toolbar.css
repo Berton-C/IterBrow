@@ -40,7 +40,8 @@ input:focus { border-color: var(--accent); }
 #navbar {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  height: 72px; /* TOOLBAR_HEIGHT in main.js; fixed so the view can grow for the history list (M11-C3) */
+  box-sizing: border-box;
   border-bottom: 1px solid var(--line);
 }
 #navbar-row1, #navbar-row2 {
@@ -81,3 +82,16 @@ input:focus { border-color: var(--accent); }
 /* M11-B3: the bookmark star. */
 #btn-bookmark { min-width: 30px; }
 #btn-bookmark.on { color: #c58a00; }
+
+/* M11-C3: history search. The results list sits under the toolbar; main.js grows the toolbar view by
+   exactly its height while it shows (toolbar:overlay). */
+#history-bar { display: none; align-items: center; gap: 4px; flex: 0 0 auto; }
+#history-bar.visible { display: inline-flex; }
+#history-text { width: 260px; flex: 0 0 auto; }
+#history-bar button { padding: 3px 7px; }
+#history-results { display: none; list-style: none; margin: 0; padding: 4px 0; position: absolute; left: 0; right: 0; top: 72px;
+  background: var(--bg); border-bottom: 1px solid var(--line); box-shadow: 0 6px 16px rgba(0, 0, 0, .08); }
+#history-results.visible { display: block; }
+#history-results li { display: flex; gap: 10px; align-items: baseline; padding: 5px 14px; cursor: pointer; font-size: 13px; }
+#history-results li .host { color: var(--muted); font-size: 12px; }
+#history-results li.active, #history-results li:hover { background: var(--panel2, #f0f2ee); }

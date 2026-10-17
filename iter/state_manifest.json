@@ -227,6 +227,14 @@
       "owner": "core.tabs"
     },
     {
+      "path": ".runtime/history.jsonl",
+      "role": "application_state",
+      "format": "jsonl",
+      "portable": true,
+      "reset": false,
+      "owner": "core.tabs"
+    },
+    {
       "path": ".runtime/tab_groups.json",
       "role": "application_state",
       "format": "json",

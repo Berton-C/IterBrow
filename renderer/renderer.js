@@ -584,6 +584,8 @@ function syncProviderPanels() {
 }
 providerSel.addEventListener('change', syncProviderPanels);
 
+const settingHistory = document.getElementById('setting-history');
+
 async function saveSettingsFromForm() {
   // Merge onto the current settings rather than replacing the whole file --
   // saveSettings() is a straight overwrite (see main.js), so building a
@@ -597,6 +599,8 @@ async function saveSettingsFromForm() {
     openrouter: { ...current.openrouter, endpoint: orEndpoint.value, model: orModel.value, apiKey: orKey.value },
     openai: { ...current.openai, model: oaModel.value, apiKey: oaKey.value.trim(), reasoning: oaReasoning.value },
     lmstudio: { ...current.lmstudio, endpoint: lmEndpoint.value, model: lmModel.value },
+    // M11-C2: unchecked deletes the history file at once (main.js settings:save).
+    keepHistory: settingHistory ? settingHistory.checked : current.keepHistory !== false,
   };
   await window.iterApi.saveSettings(settings);
 }
@@ -623,6 +627,7 @@ window.iterApi.loadSettings().then((settings) => {
   paintOpenAIUsage(settings.lastModelUsage);
   lmEndpoint.value = settings.lmstudio.endpoint;
   lmModel.value = settings.lmstudio.model;
+  if (settingHistory) settingHistory.checked = settings.keepHistory !== false;
   syncProviderPanels();
 });
 

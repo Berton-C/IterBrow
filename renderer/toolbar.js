@@ -108,6 +108,7 @@ function hideFind(notify) {
 
 if (findBar && window.iterApi.onFindOpen) {
   window.iterApi.onFindOpen(() => {
+    if (typeof hideHistory === 'function') hideHistory(); // one search bar at a time (M11-C3)
     findBar.classList.add('visible');
     findText.focus();
     findText.select();
@@ -153,4 +154,102 @@ if (btnBookmark) {
   renderPageButtons();
   btnBookmark.addEventListener('click', () => { if (activeTabId) window.iterApi.bookmarkToggle(activeTabId); });
   if (window.iterApi.onBookmarkState) window.iterApi.onBookmarkState((state) => setBookmarked(!!(state && state.bookmarked)));
+}
+
+
+// ---- M11-C3: history search (docs/milestones/M11_browser_track.md C3) ----
+// Cmd+Y opens it; typing searches the person's history (debounced); Up/Down move, Enter or a click
+// opens the result (focusing a tab already showing it), Escape closes. One search bar at a time.
+const historyBar = document.getElementById('history-bar');
+const historyText = document.getElementById('history-text');
+const historyList = document.getElementById('history-results');
+let historyResults = [];
+let historyActive = 0;
+let historyTimer = null;
+let historySeq = 0;
+
+function historyHost(url) {
+  try { return new URL(url).host; } catch (_) { return ''; }
+}
+
+function reportHistoryOverlay() {
+  if (!window.iterApi.toolbarOverlay) return;
+  const showing = historyBar.classList.contains('visible') && historyResults.length > 0;
+  window.iterApi.toolbarOverlay(showing ? historyList.offsetHeight : 0);
+}
+
+function renderHistory() {
+  historyList.replaceChildren(...historyResults.map((item, index) => {
+    const li = document.createElement('li');
+    li.setAttribute('role', 'option');
+    li.classList.toggle('active', index === historyActive);
+    const title = document.createElement('span');
+    title.className = 'title';
+    title.textContent = item.title || item.url;
+    const host = document.createElement('span');
+    host.className = 'host';
+    host.textContent = historyHost(item.url);
+    li.append(title, host);
+    li.addEventListener('mousedown', (event) => event.preventDefault()); // keep focus in the input
+    li.addEventListener('click', () => openHistory(item.url));
+    return li;
+  }));
+  historyList.classList.toggle('visible', historyBar.classList.contains('visible') && historyResults.length > 0);
+  reportHistoryOverlay();
+}
+
+function runHistorySearch() {
+  const seq = ++historySeq;
+  Promise.resolve(window.iterApi.historySearch(historyText.value)).then((results) => {
+    if (seq !== historySeq) return; // a newer search is on its way
+    historyResults = Array.isArray(results) ? results.slice(0, 8) : [];
+    historyActive = 0;
+    renderHistory();
+  }).catch(() => {});
+}
+
+function hideHistory() {
+  if (!historyBar || !historyBar.classList.contains('visible')) return;
+  historyBar.classList.remove('visible');
+  historyList.classList.remove('visible');
+  if (historyTimer) { clearTimeout(historyTimer); historyTimer = null; }
+  reportHistoryOverlay();
+}
+
+function openHistory(url) {
+  if (!url) return;
+  window.iterApi.historyOpen(url);
+  hideHistory();
+}
+
+if (historyBar && window.iterApi.onHistoryOpen) {
+  window.iterApi.onHistoryOpen(() => {
+    hideFind(true);
+    historyBar.classList.add('visible');
+    historyText.focus();
+    historyText.select();
+    if (historyText.value.trim()) runHistorySearch();
+    else renderHistory();
+  });
+  historyText.addEventListener('input', () => {
+    if (historyTimer) clearTimeout(historyTimer);
+    historyTimer = setTimeout(() => { historyTimer = null; runHistorySearch(); }, 120);
+  });
+  historyText.addEventListener('keydown', (event) => {
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      if (!historyResults.length) return;
+      const step = event.key === 'ArrowDown' ? 1 : -1;
+      historyActive = (historyActive + step + historyResults.length) % historyResults.length;
+      renderHistory();
+    } else if (event.key === 'Enter') {
+      event.preventDefault();
+      const pick = historyResults[historyActive];
+      if (pick) openHistory(pick.url);
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      hideHistory();
+    }
+  });
+  document.getElementById('history-close').addEventListener('click', hideHistory);
 }

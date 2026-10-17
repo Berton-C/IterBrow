@@ -21,6 +21,7 @@ const { recordSoulChoice, flushSoulChoices, forgetSoulTaste, recordSoulMargin } 
 const browsingAlly = require('./bridge/browsing_ally');
 const nativeLocation = require('./bridge/location');
 const bookmarks = require('./bridge/bookmarks');
+const browsingHistory = require('./bridge/history');
 const { makeChatBridge } = require('./bridge/chat_bridge');
 const { retirePreviousIter } = require('./bridge/iter_process_owner');
 const OPENAI_CATALOG = require('./iter/iterbrow_runtime/openai_models.json');
@@ -107,6 +108,10 @@ const CLOSED_TABS_LIMIT = 20;
 // closed_tabs.json: kept across Factory Reset, carried by export/import (state_manifest.json).
 const BOOKMARKS_PATH = path.join(ITER_DIR, '.runtime', 'bookmarks.json');
 const BOOKMARKS_MENU_LIMIT = 30;
+// The person's browsing history (M11-C2): one {at, url, title} per line, ordinary web tabs only
+// (never locked tabs, never app tabs). Exists on disk only while settings.keepHistory is on.
+const HISTORY_PATH = path.join(ITER_DIR, '.runtime', 'history.jsonl');
+const HISTORY_CAP = 5000;
 // Named, saved sets of tabs the user can open/switch-to/close as a unit --
 // e.g. "Research" vs "Work" vs "Recipes" -- added 2026-09-14 per user
 // request. Same local-UI-state reasoning as TABS_SESSION_PATH/CLOSED_TABS_PATH
@@ -212,6 +217,7 @@ function loadSettings() {
     lmstudio: { endpoint: 'http://127.0.0.1:1234/v1', model: 'qwen/qwen3.8-27b' },
     sidebarWidth: DEFAULT_SIDEBAR_WIDTH,
     iterAutoStart: false,
+    keepHistory: true, // M11-C2: the person's browsing history (switch in Settings)
   };
   try {
     const saved = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf8'));
@@ -1666,6 +1672,75 @@ function openOrFocusUrl(url) {
 }
 
 // ---------------------------------------------------------------------
+// Browsing history (M11-C2) -- the person's, never Iter's: no tool reads or writes it. Held in
+// memory and rewritten whole (so the cap and the 5 s rule hold), a moment after each change and
+// on quit. Off means no file at all.
+// ---------------------------------------------------------------------
+let historyLines = null;
+let historyWriteTimer = null;
+
+function loadHistory() {
+  if (historyLines) return historyLines;
+  historyLines = [];
+  try {
+    for (const raw of fs.readFileSync(HISTORY_PATH, 'utf8').split('\n')) {
+      if (!raw.trim()) continue;
+      try {
+        const line = JSON.parse(raw);
+        if (line && typeof line.url === 'string') historyLines.push({ at: Number(line.at), url: line.url, title: String(line.title || '') });
+      } catch (_) { /* skip a torn line */ }
+    }
+  } catch (_) { /* no history yet */ }
+  if (historyLines.length > HISTORY_CAP) historyLines = historyLines.slice(-HISTORY_CAP);
+  return historyLines;
+}
+
+function flushHistory() {
+  if (historyWriteTimer) { clearTimeout(historyWriteTimer); historyWriteTimer = null; }
+  if (!historyLines || !historyOn()) return;
+  try {
+    fs.mkdirSync(path.dirname(HISTORY_PATH), { recursive: true });
+    const tmp = `${HISTORY_PATH}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, historyLines.map((line) => JSON.stringify(line)).join('\n') + (historyLines.length ? '\n' : ''));
+    fs.renameSync(tmp, HISTORY_PATH);
+  } catch (err) {
+    pushLog(`[history] failed to save: ${err.message}`);
+  }
+}
+
+function scheduleHistoryWrite() {
+  if (historyWriteTimer) clearTimeout(historyWriteTimer);
+  historyWriteTimer = setTimeout(flushHistory, 400);
+}
+
+function deleteHistory() {
+  if (historyWriteTimer) { clearTimeout(historyWriteTimer); historyWriteTimer = null; }
+  historyLines = [];
+  try { fs.rmSync(HISTORY_PATH, { force: true }); } catch (_) {}
+}
+
+// The person's switch: Settings -> "Keep browsing history" (settings.keepHistory, default on).
+function historyOn() {
+  return loadSettings().keepHistory !== false;
+}
+
+// Wired per tab from tabs.onTabCreated: did-navigate records a visit, page-title-updated retitles it.
+// The tab's own url is updated by TabManager after this listener runs, so the event's URL is used.
+function attachHistoryRecorder(contents, tab) {
+  contents.on('did-navigate', (_e, navUrl) => {
+    if (!browsingHistory.shouldRecord({ url: navUrl, locked: tab.locked, appScope: tab.appScope }, historyOn())) return;
+    historyLines = browsingHistory.append(loadHistory(), { at: Date.now(), url: navUrl, title: '' }, HISTORY_CAP);
+    scheduleHistoryWrite();
+  });
+  contents.on('page-title-updated', (_e, title) => {
+    const url = contents.getURL();
+    if (!browsingHistory.shouldRecord({ url, locked: tab.locked, appScope: tab.appScope }, historyOn())) return;
+    historyLines = browsingHistory.titled(loadHistory(), url, title);
+    scheduleHistoryWrite();
+  });
+}
+
+// ---------------------------------------------------------------------
 // Tab groups -- named, saved sets of tabs the user can reopen, switch to,
 // or bulk-close as a unit. Added 2026-09-14.
 // ---------------------------------------------------------------------
@@ -1892,9 +1967,13 @@ function contentBounds() {
   };
 }
 
+// M11-C3: while the history bar shows results, the toolbar view grows by exactly the list's height
+// and overlays the top of the page (the page itself never moves); 0 restores the normal height.
+let toolbarOverlayHeight = 0;
+
 function toolbarBounds() {
   const [w] = win.getContentSize();
-  return { x: sidebarWidth, y: tabstripHeight, width: Math.max(0, w - sidebarWidth), height: TOOLBAR_HEIGHT };
+  return { x: sidebarWidth, y: tabstripHeight, width: Math.max(0, w - sidebarWidth), height: TOOLBAR_HEIGHT + toolbarOverlayHeight };
 }
 
 // Full-width tab strip -- spans x:0 to the window's right edge (unlike the
@@ -2276,6 +2355,21 @@ function buildAppMenu() {
               }))
             : [{ label: '(No recently closed tabs)', enabled: false }],
         },
+        { type: 'separator' },
+        {
+          // M11-C2/C3: the toolbar's history bar.
+          label: 'Search History…',
+          accelerator: 'CmdOrCtrl+Y',
+          click: () => {
+            if (!toolbarView) return;
+            toolbarView.webContents.focus();
+            toolbarView.webContents.send('history:open');
+          },
+        },
+        {
+          label: 'Clear History',
+          click: () => deleteHistory(),
+        },
       ],
     },
     {
@@ -2533,13 +2627,16 @@ async function createWindow() {
   // Every browser tab gets the full context menu: spelling, edit, link,
   // selection search, back/forward/reload, inspect. The person's own clicks
   // are never subject to the tab lock (the lock refuses the agent, not them).
-  tabs.onTabCreated = (contents, tab) => contextMenu.attach(contents, {
+  tabs.onTabCreated = (contents, tab) => {
+    attachHistoryRecorder(contents, tab); // M11-C2
+    contextMenu.attach(contents, {
     openLinkInNewTab: (url) => { if (/^https?:\/\//i.test(url)) tabs.createTabAfter(tab.id, url); },
     searchSelection: (text) => tabs.createTabAfter(tab.id, 'https://www.google.com/search?q=' + encodeURIComponent(text)),
     back: () => { if (contents.navigationHistory.canGoBack()) contents.navigationHistory.goBack(); },
     forward: () => { if (contents.navigationHistory.canGoForward()) contents.navigationHistory.goForward(); },
     reload: () => contents.reload(),
-  }, () => win);
+    }, () => win);
+  };
   tabs.onTabsChanged = (list) => {
     tabstripView.webContents.send('tabs:update', list);
     toolbarView.webContents.send('tabs:update', list);
@@ -2655,6 +2752,10 @@ async function createWindow() {
 ipcMain.handle('bookmarks:list', () => loadBookmarks());
 ipcMain.handle('bookmarks:toggle', (_e, tabId) => toggleBookmarkForTab(tabId));
 ipcMain.handle('bookmarks:open', (_e, url) => { openOrFocusUrl(String(url || '')); return true; });
+// M11-C2: history search (the person's; no Iter tool reaches it).
+ipcMain.handle('history:search', (_e, q) => browsingHistory.search(loadHistory(), String(q || '').slice(0, 200), 8));
+ipcMain.handle('history:openUrl', (_e, url) => { openOrFocusUrl(String(url || '')); return true; });
+ipcMain.handle('history:clear', () => { deleteHistory(); return true; });
 ipcMain.handle('tabs:list', () => tabs.list());
 ipcMain.handle('tabs:new', (_e, url) => tabs.createTab(url));
 ipcMain.handle('tabs:close', (_e, id) => tabs.closeTab(id));
@@ -2786,6 +2887,9 @@ ipcMain.handle('settings:load', () => {
 });
 ipcMain.handle('settings:save', (_e, settings) => {
   saveSettings(settings);
+  // M11-C2: keepHistory off deletes .runtime/history.jsonl at once and stops recording;
+  // on again starts an empty history.
+  if (settings && settings.keepHistory === false) deleteHistory();
   return { saved: true };
 });
 // Soul settings live in their own file (never merged into settings.json).
@@ -3021,6 +3125,15 @@ ipcMain.handle('sidebar:resize-end', () => sidebarResizeEnd());
 // repositions the sidebar/toolbar/page to make room. Clamped to a sane
 // range and a no-op if unchanged, so a duplicate or bogus report can't
 // cause layout thrash or swallow the window.
+ipcMain.on('toolbar:overlay', (event, height) => {
+  if (!win || !toolbarView || event.sender !== toolbarView.webContents) return;
+  const h = Math.max(0, Math.min(420, Math.round(Number(height) || 0)));
+  if (h === toolbarOverlayHeight) return;
+  toolbarOverlayHeight = h;
+  // Raise the toolbar above the page views while it overlays them (re-adding bumps z-order).
+  if (h > 0) win.contentView.addChildView(toolbarView);
+  toolbarView.setBounds(toolbarBounds());
+});
 ipcMain.on('tabstrip:height', (_e, height) => {
   const h = Math.max(MIN_TABSTRIP_HEIGHT, Math.min(MAX_TABSTRIP_HEIGHT, Math.round(Number(height) || DEFAULT_TABSTRIP_HEIGHT)));
   if (h === tabstripHeight) return;
@@ -3216,6 +3329,7 @@ if (hasSingleInstanceLock) {
     appQuitting = true;
     quitPromise = (async () => {
       if (win) saveTabSession();
+      flushHistory();
       if (iterStartPromise) await iterStartPromise.catch(() => {});
       if (iterStopPromise) await iterStopPromise;
       await stopIterAndWait(5000, { preserveDesired: true });
