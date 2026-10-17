@@ -2686,15 +2686,18 @@ async function createWindow() {
   // Every browser tab gets the full context menu: spelling, edit, link,
   // selection search, back/forward/reload, inspect. The person's own clicks
   // are never subject to the tab lock (the lock refuses the agent, not them).
-  tabs.onTabCreated = (contents, tab) => {
-    attachHistoryRecorder(contents, tab); // M11-C2
-    contextMenu.attach(contents, {
+  tabs.onTabCreated = (contents, tab) => contextMenu.attach(contents, {
     openLinkInNewTab: (url) => { if (/^https?:\/\//i.test(url)) tabs.createTabAfter(tab.id, url); },
     searchSelection: (text) => tabs.createTabAfter(tab.id, 'https://www.google.com/search?q=' + encodeURIComponent(text)),
     back: () => { if (contents.navigationHistory.canGoBack()) contents.navigationHistory.goBack(); },
     forward: () => { if (contents.navigationHistory.canGoForward()) contents.navigationHistory.goForward(); },
     reload: () => contents.reload(),
-    }, () => win);
+  }, () => win);
+  // M11-C2: every tab also gets the history recorder (it records only by the person's rule and switch).
+  const attachTabContextMenu = tabs.onTabCreated;
+  tabs.onTabCreated = (contents, tab) => {
+    attachTabContextMenu(contents, tab);
+    attachHistoryRecorder(contents, tab);
   };
   tabs.onTabsChanged = (list) => {
     tabstripView.webContents.send('tabs:update', list);

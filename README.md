@@ -693,6 +693,13 @@ Export and automatic backup. Transfer credentials separately through a secure ch
 - **Activity log drawer:** shows the agent's raw stdout — every tool call, LLM response, and error
   — if you want to see exactly what it's doing and why.
 
+**Everyday browser.** Bookmark the tab you're on with ⌘D (the ☆ in the toolbar does the same; the
+Bookmarks menu lists them). Search your history with ⌘Y — history is kept only for ordinary web tabs,
+never locked tabs or app tabs, and switching "Keep browsing history" off in Settings deletes it at
+once (History → Clear History empties it without switching it off). Reader Mode (⇧⌘R, or 📖) shows
+the article of the page you're on, clean, in the same tab; Back returns to the page. Picture in
+Picture (⇧⌘P) floats the page's video. Find in page is ⌘F. Force Reload is ⌥⌘R (⇧⌘R is Reader Mode).
+
 **Location (Map Station).** Electron's built-in geolocation needs a billed Google API key, so Map
 Station asks a small native Core Location helper instead, and only Map Station can ask. Install one:
 `brew install corelocationcli`, or, with Xcode's Command Line Tools, `scripts/build_location_helper.sh`

@@ -1,6 +1,37 @@
 # Milestone 11 — Browser track II: a browser people leave open
 
-Status: **scoped 2026-10-17**. Base: M6–M10. Tests: `tests/test_m11_*.py`; helpers in
+Status: **implemented 2026-10-17** (all `@pending` decorators removed).
+Implementation notes:
+- **Shortcut clash (D2).** ⇧⌘R was already *Force Reload Active Tab*; two menu items cannot share an
+  accelerator (only the first fires). Reader Mode takes ⇧⌘R as specified (Safari's binding) and Force
+  Reload moves to ⌥⌘R (Safari's "Reload Page From Origin"). README says so.
+- **Reader URL (D2).** The `data:` URL ends with `#iter-reader=<original URL>` (a fragment, not part of
+  the document). The address bar shows the original page, and session restore and Recently Closed
+  save the original rather than the article document. Pages whose reader URL would pass Chromium's
+  2 MB limit get a notice instead. The reader document also carries a CSP that refuses all scripts
+  (the page runs `READER_SCRIPT` in its own world and could tamper with what its DOM returns).
+- **History bar overlay (C3).** The toolbar is a fixed 72 px view, so the results list would be
+  clipped. While results show, the toolbar view grows by exactly the list's height and sits above the
+  page (`toolbar:overlay`, sender-checked); the page never moves. `#navbar` is pinned at 72 px.
+- **History bar open (C3).** Opening re-runs the search only when there is text (the C3 test expects
+  the first search to be the typed one); an empty bar shows nothing until you type.
+- **`tabs.list()` gains `app`** (the app id or null) so the toolbar can keep the reader button off
+  app tabs.
+- **`sync_margin_preload.js --check`** did not exist (the script always synced and exited 0); it now
+  writes nothing and exits 1 when the embedded margin is stale.
+- **Swift helper detection (A2/A4).** `/usr/bin/swiftc` on macOS is a shim that offers to install the
+  Command Line Tools, so main.js's hint and the build script look for a real toolchain
+  (`/Library/Developer/CommandLineTools` or Xcode) instead of trusting PATH.
+- **Test fixture (A1).** The epoch input `1760702400` is 2025-10-17, but the assertion expects
+  2026-10-17; the input was corrected to `1792238400`. The assertion is unchanged.
+- **Not verified from the cloud:** the macOS permission prompt and a real fix (Berton, on the Mac:
+  `brew install corelocationcli` or `scripts/build_location_helper.sh`, restart, Map Station →
+  Locate me, allow once). Unverified: macOS attributes a helper's location request to the app that
+  launched it, so in a source checkout (`npm start`) the prompt may name Electron, and whether
+  Electron's own Info.plist carries a location usage string decides whether a prompt appears at all.
+  If Map Station reports "denied" with no prompt, that is the first thing to check.
+
+Base: M6–M10. Tests: `tests/test_m11_*.py`; helpers in
 `tests/m11_support.py`. Every test starts `@pending("M11-xx")`; remove the decorator as each passes.
 `M11_IMPLEMENTED` is keyed on `bridge/location.js` (A1, the first file this milestone creates).
 No end-to-end run: nothing in this milestone passes through the loop, the AtomSpace or a model.
