@@ -27,6 +27,7 @@ IDLE = [{"name": "nop", "arguments": {"wait_seconds": 5}}]
 
 
 MEMORY_ID = re.compile(r"REMEMBER-SUCCESS: stored (\S+)")
+WONDER_ID = re.compile(r"WONDER-KEPT: (wonder-[0-9a-f]{8})")
 
 
 def _last_memory_id(messages):
@@ -41,13 +42,29 @@ def _last_memory_id(messages):
     return found
 
 
-def _fill(value, memory_id):
-    if isinstance(value, str) and "{{memory_id}}" in value:
-        return value.replace("{{memory_id}}", memory_id or "NO-MEMORY-ID-YET")
+def _last_match(messages, pattern):
+    found = None
+    for message in messages:
+        content = message.get("content")
+        if isinstance(content, list):
+            content = " ".join(str(part.get("text", part)) if isinstance(part, dict) else str(part)
+                               for part in content)
+        for match in pattern.finditer(str(content or "")):
+            found = match.group(1)
+    return found
+
+
+def _fill(value, memory_id, wonder_id=None):
+    if isinstance(value, str):
+        if "{{memory_id}}" in value:
+            value = value.replace("{{memory_id}}", memory_id or "NO-MEMORY-ID-YET")
+        if "{{wonder_id}}" in value:  # M9: the id a `wonder add` minted (WONDER-KEPT: wonder-...)
+            value = value.replace("{{wonder_id}}", wonder_id or "NO-WONDER-ID-YET")
+        return value
     if isinstance(value, dict):
-        return {key: _fill(item, memory_id) for key, item in value.items()}
+        return {key: _fill(item, memory_id, wonder_id) for key, item in value.items()}
     if isinstance(value, list):
-        return [_fill(item, memory_id) for item in value]
+        return [_fill(item, memory_id, wonder_id) for item in value]
     return value
 
 
@@ -88,9 +105,10 @@ class Handler(BaseHTTPRequestHandler):
             }) + "\n")
         turn = TURNS[n] if n < len(TURNS) else IDLE
         memory_id = _last_memory_id(body["messages"])
+        wonder_id = _last_match(body["messages"], WONDER_ID)
         calls = [{"id": "call_%d_%d" % (n, i), "type": "function",
                   "function": {"name": c["name"],
-                               "arguments": json.dumps(_fill(c.get("arguments", {}), memory_id))}}
+                               "arguments": json.dumps(_fill(c.get("arguments", {}), memory_id, wonder_id))}}
                  for i, c in enumerate(turn)]
         response = {"id": "fake-%d" % n, "object": "chat.completion", "created": 0, "model": "fake",
                     "choices": [{"index": 0, "finish_reason": "tool_calls",

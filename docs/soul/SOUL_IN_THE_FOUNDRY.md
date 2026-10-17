@@ -117,7 +117,8 @@ person-read, tempo and the twin are parked as a separate later build ("the Muse"
 - Tests: glyph absent on locked tabs; margin round-trip through the real bridge; a riff produces
   museum entries tied to the element.
 
-### M10 — Wonder, service-before-growth voice, the browsing ally
+### M9 — Wonder, the voice of growth, the browsing ally, find-in-page (spec: `docs/milestones/M9_soul_wonder_ally.md`)
+This entry (the old M10) pulled forward, plus the first browser-track item. Original:
 - **Wonder jar** per app and per person: "what ifs" cut from a build are kept; one is offered
   back occasionally (frequency dial). Not a backlog; no due dates.
 - **Service before growth, with a voice**: the existing deferral speaks as a card ("I'd like
