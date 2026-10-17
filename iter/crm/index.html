@@ -91,8 +91,8 @@ function setPaused(value){
 const app={consumerId: 'crm-ui'};
 const api=window.iterApp||{};
 function notice(message,failed=false){const b=$('#saveBar');b.textContent=message;b.style.color=failed?'var(--hot)':'';b.classList.add('show');setTimeout(()=>b.classList.remove('show'),failed?5000:900)}
-function acceptContext(context){const records=context.records||{};D={contacts:records.contacts||[],tasks:records.tasks||[],events:records.events||[],captures:records.captures||[]};appRevision=Number(context.revision||0);appCommit=Number(context.commit||0)}
-async function loadAll(allowPaused=false){if(!api.appContext)throw new Error('application contract is unavailable');const start=epoch;const context=await api.appContext();if(start!==epoch||(paused&&!allowPaused))return false;acceptContext(context);return true}
+function acceptContext(context){const records=context.records||{};D={contacts:records.contacts||[],tasks:records.tasks||[],events:records.events||[],captures:records.captures||[],news:context.news||{items:[],status:'error'}};appRevision=Number(context.revision||0);appCommit=Number(context.commit||0)}
+async function loadAll(allowPaused=false){if(!api.appContext)throw new Error('application contract is unavailable');const start=epoch;const context=await window.iterApp.appContext();if(start!==epoch||(paused&&!allowPaused))return false;acceptContext(context);return true}
 function syncUndo(){const b=$('#undo');b.disabled=paused||refreshing||pendingWrites>0||!lastCommandId;b.title=lastCommandId?'Undo the last change made in this tab':'No local change is available to undo'}
 async function commitRecord(type,collection,record){
  if(paused||refreshing||pendingWrites){paused?pausedNotice():notice('CRM is catching up; retry shortly',true);return false}
@@ -138,20 +138,11 @@ const dd=t=>t?Math.round((new Date(t)-new Date(today()))/864e5):null;
 const dueCls=t=>{const d=dd(t);return(d!==null&&d<0)?'due hot':'due'};
 const dueTxt=t=>{const d=dd(t);return d===null?'&mdash;':d<0?(-d)+'d overdue':d===0?'today':d===1?'tomorrow':d<7?'in '+d+'d':new Date(t).toLocaleDateString(undefined,{month:'short',day:'numeric'})};
 const uid=p=>p+'_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
-// Curated from BBC, NPR and Guardian public RSS feeds; snapshot captured 2026-09-30 05:28 UTC.
-const headlinesCapturedAt='2026-09-30T05:28:56Z';
-const headlines=[
- {source:'BBC World',published:'2026-09-30T04:01:52Z',title:'Three takeaways from Trump’s “Super Intelligence” summit',summary:'The White House meeting came as technology leaders and experts called for tighter rules around AI.',url:'www.bbc.co.uk/news/articles/cme30dz5vkzko?at_medium=RSS&at_campaign=rss'},
- {source:'BBC World',published:'2026-09-29T22:33:39Z',title:'South Africa to clean up high-risk areas after 12 women killed',summary:'The killings sparked a national outcry about the scale of violence against women.',url:'www.bbc.co.uk/news/articles/c51kx9ze1mdzo?at_medium=RSS&at_campaign=rss'},
- {source:'NPR World',published:'2026-09-29T17:17:04Z',title:'Potential Taiwan tension sparked “last minute” change in Trump-Xi National Archives visit',summary:'The sudden change followed Chinese displeasure over a document the U.S. had planned to show.',url:'www.npr.org/2026/09/29/nx-s1-5984989/digital-archives-trump-xi'},
- {source:'The Guardian',published:'2026-09-30T04:40:25Z',title:'Inflation leaps to 4% stoking fears of fifth interest rate hike before Christmas',summary:'Australia’s annual inflation rose from 3.5%; higher global oil prices were cited as a factor.',url:'www.theguardian.com/australia-news/2026/sep/30/australia-inflation-rise-stokes-fears-fifth-interest-rate-hike-before-christmas'},
- {source:'The Guardian',published:'2026-09-30T04:00:10Z',title:'Missile alerts cost Ukraine $45m for every hour they halt businesses',summary:'Ukraine’s economy minister cited the estimate as Kyiv weighs how to keep businesses operating during Russian strikes.',url:'www.theguardian.com/world/2026/sep/30/missile-alerts-cost-ukraine-businesses-halt'},
- {source:'The Guardian',published:'2026-09-29T23:27:30Z',title:'Hundreds detained as student protests across France turn violent',summary:'More than 400 people were detained amid school blockades over class sizes, timetables and staff shortages.',url:'www.theguardian.com/world/2026/sep/29/french-students-police-clash-school-blockades-violent'}
-];
-function headlineHref(path){return 'https'+String.fromCharCode(58,47,47)+path}
-function renderHeadlines(){const now=Date.parse(headlinesCapturedAt),cutoff=now-24*60*60*1000;
- const recent=headlines.filter(h=>{const t=Date.parse(h.published);return Number.isFinite(t)&&t>=cutoff&&t<=now}).sort((a,b)=>Date.parse(b.published)-Date.parse(a.published));
- return '<section class="headlines" aria-labelledby="headlineHeading"><h2 id="headlineHeading">Top Headlines — Last 24 Hours</h2><div class="headline-meta">Selected briefs from public RSS feeds · captured '+new Date(headlinesCapturedAt).toLocaleString(undefined,{dateStyle:'medium',timeStyle:'short',timeZone:'UTC'})+' UTC</div>'+(recent.length?recent.map(h=>'<article class="headline"><div class="headline-title"><a href="'+esc(headlineHref(h.url))+'" target="_blank" rel="noopener noreferrer">'+esc(h.title)+' ↗</a></div><div class="headline-summary">'+esc(h.summary)+'</div><div class="headline-source">'+esc(h.source)+' · '+new Date(h.published).toLocaleString(undefined,{dateStyle:'medium',timeStyle:'short',timeZone:'UTC'})+' UTC</div></article>').join(''):'<div class="empty">No headlines in the last 24 hours.</div>')+'<div class="headline-meta">Snapshot, not live-updating. Links open the original reporting.</div></section>';
+function headlineDate(value){const time=Date.parse(value);return Number.isFinite(time)?new Date(time).toLocaleString(undefined,{dateStyle:'medium',timeStyle:'short',timeZone:'UTC'})+' UTC':'date unavailable'}
+function renderHeadlines(){const news=D.news||{},items=Array.isArray(news.items)?news.items:[];
+ const fetched=news.fetched_at?' · updated '+headlineDate(news.fetched_at):'';
+ const state=news.status==='stale'?'Last refresh failed; showing cached stories':news.status==='error'?'Could not refresh headlines':'Automatically refreshes every 15 minutes';
+ return '<section class="headlines" aria-labelledby="headlineHeading"><h2 id="headlineHeading">Top Headlines — Last 24 Hours</h2><div class="headline-meta">BBC, NPR and The Guardian public RSS feeds'+esc(fetched)+'</div>'+(items.length?items.map(h=>'<article class="headline"><div class="headline-title"><a href="'+esc(h.url)+'" target="_blank" rel="noopener noreferrer">'+esc(h.title)+' ↗</a></div>'+(h.summary?'<div class="headline-summary">'+esc(h.summary)+'</div>':'')+'<div class="headline-source">'+esc(h.source)+' · '+headlineDate(h.published)+'</div></article>').join(''):'<div class="empty">'+(news.status==='error'?'Headlines are temporarily unavailable.':'No headlines in the last 24 hours.')+'</div>')+'<div class="headline-meta">'+esc(state)+(news.error?' · '+esc(news.error):'')+'. Links open the original reporting.</div></section>';
 }
 document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{view=b.dataset.v;openId=null;document.querySelectorAll('nav button').forEach(x=>x.classList.toggle('on',x===b));render()});
 $('#clock').textContent=new Date().toLocaleTimeString([],{hour:'numeric',minute:'2-digit'});
@@ -225,5 +216,6 @@ function wire(){
 }
 $('#pauseControl').onclick=()=>setPaused(!paused);
 syncPause();
-loadAll(true).then(ok=>{if(ok)render();document.body.dataset.iterReady='true';setInterval(pollChanges,1500)}).catch(e=>notice('LOAD FAILED: '+(e&&e.message?e.message:e),true));
+let headlineRefreshBusy=false;async function refreshHeadlines(){if(headlineRefreshBusy||document.hidden)return;headlineRefreshBusy=true;try{if(await loadAll()&&view==='briefing')render()}catch(e){if(D.news)D.news.status='stale';if(view==='briefing')render()}finally{headlineRefreshBusy=false}}
+loadAll(true).then(ok=>{if(ok)render();document.body.dataset.iterReady='true';setInterval(pollChanges,1500);setInterval(refreshHeadlines,Math.max(60000,Number(D.news&&D.news.refresh_interval_seconds||900)*1000));document.addEventListener('visibilitychange',()=>{if(!document.hidden)refreshHeadlines()})}).catch(e=>notice('LOAD FAILED: '+(e&&e.message?e.message:e),true));
 </script></body></html>

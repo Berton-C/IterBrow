@@ -34,6 +34,10 @@
   #sendBtn:disabled{opacity:.4}
   #status{position:absolute;z-index:1000;top:14px;right:14px;background:rgba(16,20,24,.92);border:1px solid #232a33;border-radius:12px;padding:8px 13px;font-size:11.5px;color:var(--muted);max-width:320px}
   #status b{color:var(--accent)}
+  #locateBtn{position:absolute;z-index:1000;top:62px;right:14px;min-height:42px;padding:0 14px;border:1px solid #2c3542;border-radius:12px;background:rgba(16,20,24,.94);color:var(--text);font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 6px 20px rgba(0,0,0,.35)}
+  #locateBtn:hover:not(:disabled){border-color:var(--accent);color:var(--accent)}
+  #locateBtn:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+  #locateBtn:disabled{opacity:.65;cursor:wait}
   #pulse{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--accent);margin-right:6px;animation:pulse 1.6s infinite}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
   .card{position:absolute;z-index:1000;bottom:16px;right:14px;width:340px;max-height:44vh;overflow-y:auto;background:rgba(16,20,24,.94);border:1px solid #232a33;border-radius:16px;padding:12px;display:none}
@@ -68,6 +72,7 @@
 <body>
 <div id="map"></div>
 <div id="status"><span id="pulse"></span><span id="statusText">Booting Map Station...</span></div>
+<button id="locateBtn" type="button" aria-label="Refresh the map at my current location" title="Request your current location and reload the map">◎ Locate me</button>
 <div id="dock">
   <header>
     <div class="logo">&#9670;</div>
@@ -151,19 +156,67 @@
     $('resultsCard').style.display = 'block';
   }
 
-  function locate() {
-    if (!navigator.geolocation) { setStatus('Geolocation unavailable - using map center'); const c = map.getCenter(); placeUser(c.lat, c.lng, 'You (approx)'); return; }
-    setStatus('Locating you...');
+  const pendingLocationKey = 'iterMapPendingLocation';
+  function announceLocation(lat, lon, label) {
+    window.dispatchEvent(new CustomEvent('iter-location-ready', { detail: { lat, lon, label } }));
+  }
+  function useApproximateCenter(message) {
+    if (!state.pos) {
+      const c = map.getCenter();
+      placeUser(c.lat, c.lng, 'You (approx)');
+    }
+    setStatus('GPS unavailable - showing an approximate map-center pin');
+    if (message) log(message + ' The pin is approximate; drag it or double-click the map to adjust it.');
+  }
+  function restorePendingLocation() {
+    try {
+      const raw = sessionStorage.getItem(pendingLocationKey);
+      if (!raw) return false;
+      sessionStorage.removeItem(pendingLocationKey);
+      const p = JSON.parse(raw);
+      if (!Number.isFinite(p.lat) || !Number.isFinite(p.lon) || Math.abs(p.lat) > 90 || Math.abs(p.lon) > 180) return false;
+      placeUser(p.lat, p.lon, 'You (GPS)');
+      setStatus('<b>Location refreshed</b> &middot; ' + p.lat.toFixed(4) + ', ' + p.lon.toFixed(4));
+      setTimeout(() => announceLocation(p.lat, p.lon, 'You (GPS)'), 0);
+      return true;
+    } catch (_) { return false; }
+  }
+  function locate(options = {}) {
+    const button = $('locateBtn');
+    if (!navigator.geolocation) {
+      useApproximateCenter('This app cannot access geolocation in this browser.');
+      return;
+    }
+    if (button) { button.disabled = true; button.textContent = 'Locating…'; }
+    setStatus(options.reload ? 'Getting your location before reloading…' : 'Locating you…');
     navigator.geolocation.getCurrentPosition(
-      p => { const lat = p.coords.latitude, lon = p.coords.longitude;
-        placeUser(lat, lon, 'You (GPS)');
-        setStatus('<b>Location locked</b> &middot; ' + lat.toFixed(4) + ', ' + lon.toFixed(4));
-        log('Position acquired. Map centered on you. Ask away - restaurants, metro, travel plans...');
+      p => {
+        const lat = p.coords.latitude, lon = p.coords.longitude;
+        if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) {
+          useApproximateCenter('The location service returned invalid coordinates.');
+        } else if (options.reload) {
+          try {
+            sessionStorage.setItem(pendingLocationKey, JSON.stringify({ lat, lon }));
+            location.reload();
+            return;
+          } catch (_) {
+            placeUser(lat, lon, 'You (GPS)');
+            setStatus('Location found, but page reload is unavailable; map centered without reloading.');
+          }
+        } else {
+          placeUser(lat, lon, 'You (GPS)');
+          setStatus('<b>Location locked</b> &middot; ' + lat.toFixed(4) + ', ' + lon.toFixed(4));
+          log('Position acquired. Map centered on you. Ask away - restaurants, metro, travel plans...');
+          announceLocation(lat, lon, 'You (GPS)');
+        }
+        if (button) { button.disabled = false; button.textContent = '◎ Locate me'; }
       },
-      err => { setStatus('Location unavailable - using map center (drag pin or double-click to move)');
-        const c = map.getCenter(); placeUser(c.lat, c.lng, 'You (approx)');
-        log('Could not get GPS (' + err.message + '). I placed you at the map center - drag the orange pin or tell me a city.'); },
-      { enableHighAccuracy: true, timeout: 10000 }
+      err => {
+        const reason = err.code === 1 ? 'Location permission was denied.' : err.code === 3 ? 'Location request timed out.' : 'Current location is unavailable.';
+        useApproximateCenter(reason);
+        if (button) { button.disabled = false; button.textContent = '◎ Locate me'; }
+      },
+      { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
     );
   }
 
@@ -208,6 +261,7 @@
     }, 900);
   }
 
+  $('locateBtn').onclick = () => locate({ reload: true });
   $('sendBtn').onclick = () => { const v = $('cmd').value.trim(); if (v) { $('cmd').value = ''; handle(v); } };
   $('cmd').addEventListener('keydown', e => { if (e.key === 'Enter') $('sendBtn').onclick(); });
   document.querySelectorAll('.chip').forEach(c => c.onclick = () => handle(c.dataset.q));
@@ -245,71 +299,62 @@
   map.on('dblclick', e => { placeUser(e.latlng.lat, e.latlng.lng, 'You (manual)'); setStatus('<b>Position set</b> &middot; ' + e.latlng.lat.toFixed(4) + ', ' + e.latlng.lng.toFixed(4)); });
 
   log('Welcome to <b>Map Station</b> - I am Iter, your on-map agent. Getting your location...');
-  locate();
+  if (!restorePendingLocation()) locate();
 
   window.iterMap = {
     map, placeUser, addResult, clearResults, showResultsCard,
     getPos: () => state.pos || map.getCenter(),
-    results: (title, arr) => { clearResults(); arr.forEach(addResult); try{ localStorage.setItem('iterMapCache', JSON.stringify(arr)); }catch(e){}; showResultsCard(title, arr);
-      if (arr.length) { const b = L.latLngBounds(arr.map(r => [r.lat, r.lon])); map.fitBounds(b, { padding: [40,40] }); } },
+    results: (title, arr, fit = true) => { clearResults(); arr.forEach(addResult); try{ localStorage.setItem('iterMapCache', JSON.stringify(arr)); }catch(e){}; showResultsCard(title, arr);
+      if (fit && arr.length) { const b = L.latLngBounds(arr.map(r => [r.lat, r.lon])); map.fitBounds(b, { padding: [40,40] }); } },
     say: (html) => log(html)
   };
 })();
 </script>
 
 <script>
+// Restore saved result data without ever restoring an old hard-coded home pin.
 try {
-  const __c = localStorage.getItem('iterMapCache');
-  if (__c) {
-    const __d = JSON.parse(__c);
-    if (Array.isArray(__d) && __d.length) {
-      setTimeout(() => {
-        if (window.iterMap) {
-          window.iterMap.results('Around your home (restored from last live pull)', __d);
-          window.iterMap.placeUser(37.8140375, -122.2606056, 'You - 2617 Harrison St, Oakland');
-          window.iterMap.say('Restored ' + __d.length + ' places from cache — the freshest live pull replaces this as soon as it lands.');
-        }
-      }, 900);
-    }
-  }
-} catch(e) {}
+  const saved = JSON.parse(localStorage.getItem('iterMapCache') || '[]');
+  if (Array.isArray(saved) && saved.length) setTimeout(() => {
+    if (window.iterMap) window.iterMap.results('Saved places (may be from an earlier map area)', saved, false);
+  }, 900);
+} catch (_) {}
 </script>
 <script>
 (function(){
-  // Auto live-refresh: pulls fresh core-category data shortly after load.
-  // Enrichment categories (poi/travel) from cache are preserved via merge.
-  setTimeout(() => {
-    const pos = { lat: 37.8140375, lon: -122.2606056 };
+  // Refresh nearby OSM data around the acquired (or explicitly approximate) position.
+  let refreshed = false;
+  function refreshAt(pos) {
+    if (refreshed || !pos || !Number.isFinite(pos.lat) || !Number.isFinite(pos.lon)) return;
+    refreshed = true;
     const q = '[out:json][timeout:20];(node["amenity"~"restaurant|cafe|pharmacy"](around:800,' + pos.lat + ',' + pos.lon + ');node["railway"="station"](around:2000,' + pos.lat + ',' + pos.lon + '););out 40;';
     fetch('https://maps.mail.ru/osm/tools/overpass/api/interpreter', {
-      method: 'POST',
-      body: 'data=' + encodeURIComponent(q),
+      method: 'POST', body: 'data=' + encodeURIComponent(q),
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
     }).then(r => r.text()).then(t => {
-      if (!t.trim().startsWith('{')) return; // blocked -> keep restored cache silently
-      const j = JSON.parse(t);
-      const fresh = [];
+      if (!t.trim().startsWith('{')) return;
+      const j = JSON.parse(t), fresh = [];
       (j.elements || []).forEach(e => {
-        const tg = e.tags || {};
-        let cat = 'poi';
+        const tg = e.tags || {}; let cat = 'poi';
         if (tg.amenity === 'restaurant') cat = 'restaurant';
         else if (tg.amenity === 'cafe') cat = 'cafe';
         else if (tg.amenity === 'pharmacy') cat = 'pharmacy';
         else if (tg.railway === 'station' || tg.station === 'subway') cat = 'metro';
-        fresh.push({ name: tg.name || 'Spot', lat: e.lat, lon: e.lon, cat, meta: [tg.cuisine, tg.operator].filter(Boolean).join(' \u00b7 ') });
+        fresh.push({ name: tg.name || 'Spot', lat: e.lat, lon: e.lon, cat, meta: [tg.cuisine, tg.operator].filter(Boolean).join(' · ') });
       });
-      if (!fresh.length) return;
+      if (!fresh.length || !window.iterMap) return;
       let old = [];
-      try { old = JSON.parse(localStorage.getItem('iterMapCache') || '[]'); } catch (e) {}
+      try { old = JSON.parse(localStorage.getItem('iterMapCache') || '[]'); } catch (_) {}
       const keys = new Set(fresh.map(r => r.name + '|' + r.lat.toFixed(4)));
       const keep = old.filter(r => !['restaurant','cafe','pharmacy','metro'].includes(r.cat) && !keys.has(r.name + '|' + r.lat.toFixed(4)));
       const merged = fresh.concat(keep);
-      if (window.iterMap) {
-        window.iterMap.results('Around your home (live OSM)', merged);
-        window.iterMap.say('Auto-refresh: ' + merged.length + ' places live — core categories updated.');
-      }
-    }).catch(e => { /* keep restored cache silently */ });
-  }, 1500);
+      window.iterMap.results('Nearby this location (live OSM)', merged, false);
+      window.iterMap.say('Nearby refresh: ' + merged.length + ' places loaded around the displayed pin.');
+    }).catch(() => { /* retain saved results if the service is unavailable */ });
+  }
+  window.addEventListener('iter-location-ready', e => refreshAt(e.detail));
+  // A button-triggered reload restores its one-shot location before this script runs.
+  setTimeout(() => { if (window.iterMap) refreshAt(window.iterMap.getPos()); }, 1500);
 })();
 </script>
 </body>

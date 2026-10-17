@@ -2330,6 +2330,19 @@ function isCapturePageOrigin(webContents) {
   return url.startsWith('file://') && url.includes('/renderer/capture.html');
 }
 
+// Geolocation is exposed only to the bundled Map Station page. Ordinary web
+// tabs and every other local page continue to receive an explicit denial.
+function isMapStationPageOrigin(webContents) {
+  const url = (webContents && webContents.getURL && webContents.getURL()) || '';
+  try {
+    const pagePath = path.resolve(decodeURIComponent(new URL(url).pathname));
+    const mapPath = path.resolve(ITER_DIR, 'mapstation', 'index.html');
+    return new URL(url).protocol === 'file:' && pagePath === mapPath;
+  } catch (_) {
+    return false;
+  }
+}
+
 const MAC_PRIVACY_PANES = {
   camera: 'x-apple.systempreferences:com.apple.preference.security?Privacy_Camera',
   microphone: 'x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone',
@@ -2345,10 +2358,12 @@ async function createWindow() {
   await recoverAppRevisionsBeforeTabs();
   session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
     if (permission === 'media') return callback(isCapturePageOrigin(webContents));
+    if (permission === 'geolocation') return callback(isMapStationPageOrigin(webContents));
     callback(false);
   });
   session.defaultSession.setPermissionCheckHandler((webContents, permission) => {
     if (permission === 'media') return isCapturePageOrigin(webContents);
+    if (permission === 'geolocation') return isMapStationPageOrigin(webContents);
     return false;
   });
 

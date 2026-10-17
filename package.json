@@ -77,7 +77,8 @@
       "gatekeeperAssess": false,
       "extendInfo": {
         "NSCameraUsageDescription": "Iter Browser uses the camera only when you or Iter open a device-capture tab to take a photo.",
-        "NSMicrophoneUsageDescription": "Iter Browser uses the microphone only when you or Iter open a device-capture tab to record audio."
+        "NSMicrophoneUsageDescription": "Iter Browser uses the microphone only when you or Iter open a device-capture tab to record audio.",
+        "NSLocationWhenInUseUsageDescription": "Iter Browser uses location only when you use Map Station to center the map near your current location."
       }
     },
     "extraResources": []

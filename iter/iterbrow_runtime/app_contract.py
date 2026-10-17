@@ -8,6 +8,14 @@ used directly so packaged builds include it through ``iterbrow_runtime/**/*``.
 """
 
 import fcntl
+import concurrent.futures
+import html
+import urllib.parse
+import urllib.request
+import xml.etree.ElementTree as ET
+from datetime import datetime, timezone, timedelta
+from email.utils import parsedate_to_datetime
+from html.parser import HTMLParser
 import hashlib
 import json
 import os
@@ -254,6 +262,140 @@ def _load_state(app_id, call_fn=_call_atomspace, through_commit=None,
         "commit": int(status.get("commit", 0)),
         "state_hash": status.get("state_hash"),
     }
+
+
+# News is fetched only by the supervised backend context path; the renderer never
+# makes network requests. Fixed public RSS endpoints, bounded response sizes and
+# per-request timeouts keep this integration narrow and predictable.
+_NEWS_FEEDS = (
+    ("BBC World", "https://feeds.bbci.co.uk/news/world/rss.xml"),
+    ("NPR World", "https://feeds.npr.org/1004/rss.xml"),
+    ("The Guardian World", "https://www.theguardian.com/world/rss"),
+)
+_NEWS_REFRESH_SECONDS = 15 * 60
+_NEWS_MAX_BYTES = 1_500_000
+_NEWS_ALLOWED_HOSTS = ("bbc.co.uk", "bbc.com", "npr.org", "theguardian.com")
+
+
+class _TextOnly(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.parts = []
+
+    def handle_data(self, data):
+        if data.strip():
+            self.parts.append(data.strip())
+
+
+def _plain_text(value, limit=500):
+    parser = _TextOnly()
+    try:
+        parser.feed(str(value or ""))
+        text = " ".join(parser.parts)
+    except Exception:
+        text = str(value or "")
+    return re.sub(r"\s+", " ", html.unescape(text)).strip()[:limit]
+
+
+def _news_timestamp(value):
+    try:
+        dt = parsedate_to_datetime(value)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+    except Exception:
+        try:
+            dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt.astimezone(timezone.utc)
+        except Exception:
+            return None
+
+
+def _fetch_news_feed(feed):
+    source, url = feed
+    request = urllib.request.Request(url, headers={"User-Agent": "IterBrow CRM news brief/1.0 (+RSS reader)"})
+    with urllib.request.urlopen(request, timeout=5) as response:
+        payload = response.read(_NEWS_MAX_BYTES + 1)
+    if len(payload) > _NEWS_MAX_BYTES:
+        raise ValueError("RSS response exceeded size limit")
+    root = ET.fromstring(payload)
+    items = []
+    for node in root.findall(".//item")[:30]:
+        title = _plain_text(node.findtext("title"), 240)
+        link = (node.findtext("link") or "").strip()
+        description = _plain_text(node.findtext("description"), 500)
+        published_raw = node.findtext("pubDate") or node.findtext("{http://purl.org/dc/elements/1.1/}date") or ""
+        published = _news_timestamp(published_raw)
+        parsed = urllib.parse.urlparse(link)
+        host = (parsed.hostname or "").lower()
+        if (not title or not published or parsed.scheme != "https" or
+                not any(host == domain or host.endswith("." + domain) for domain in _NEWS_ALLOWED_HOSTS)):
+            continue
+        items.append({"source": source, "title": title, "summary": description,
+                      "url": link, "published": published.isoformat().replace("+00:00", "Z")})
+    return items
+
+
+def _news_cache_path(root):
+    return Path(root) / ".runtime" / "crm_news_headlines.json"
+
+
+def _load_news_cache(root):
+    try:
+        value = json.loads(_news_cache_path(root).read_text(encoding="utf-8"))
+        return value if isinstance(value, dict) and isinstance(value.get("items"), list) else {}
+    except Exception:
+        return {}
+
+
+def _news_brief(root):
+    path = _news_cache_path(root)
+    now = datetime.now(timezone.utc)
+    cached = _load_news_cache(root)
+    fetched = _news_timestamp(cached.get("fetched_at", ""))
+    error = ""
+    if not fetched or (now - fetched).total_seconds() >= _NEWS_REFRESH_SECONDS:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(_NEWS_FEEDS)) as pool:
+            futures = {pool.submit(_fetch_news_feed, feed): feed[0] for feed in _NEWS_FEEDS}
+            batches = []
+            failures = []
+            failed_sources = set()
+            for future, source in futures.items():
+                try:
+                    batches.extend(future.result())
+                except Exception as exc:
+                    failed_sources.add(source)
+                    failures.append("%s: %s" % (source, str(exc)[:100]))
+        if batches:
+            # A successful refresh replaces successful feeds, but a failed feed
+            # keeps its prior entries so one provider outage does not erase it.
+            retained = [item for item in cached.get("items", [])
+                        if item.get("source") in failed_sources]
+            cached = {"fetched_at": now.isoformat().replace("+00:00", "Z"),
+                      "items": batches + retained}
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(cached, ensure_ascii=False), encoding="utf-8")
+            os.replace(tmp, path)
+            fetched = now
+            error = "; ".join(failures)[:180]
+        else:
+            error = ("; ".join(failures) or "RSS feeds returned no usable stories")[:180]
+            # Preserve last successful cache and disclose its age in the renderer.
+            fetched = _news_timestamp(cached.get("fetched_at", ""))
+    cutoff = now - timedelta(hours=24)
+    recent = []
+    for item in cached.get("items", []):
+        published = _news_timestamp(item.get("published", ""))
+        if published and cutoff <= published <= now:
+            recent.append(item)
+    recent.sort(key=lambda item: item.get("published", ""), reverse=True)
+    return {"items": recent[:15], "fetched_at": cached.get("fetched_at"),
+            "refresh_interval_seconds": _NEWS_REFRESH_SECONDS,
+            "status": "partial" if error and fetched == now else ("stale" if error and fetched else ("error" if error else "ok")),
+            "error": error}
 
 
 def _public_context(state):
@@ -640,7 +782,10 @@ def service(request):
     try:
         state, cache_status = _load_service_state(root, app_id)
         if action == "context":
-            return {**_public_context(state), "cache": cache_status}
+            context = _public_context(state)
+            if app_id == "crm":
+                context["news"] = _news_brief(root)
+            return {**context, "cache": cache_status}
         if action == "bootstrap":
             if app_id != "crm":
                 raise ValueError("bootstrap is not registered for app_id")
