@@ -57,6 +57,11 @@ contextBridge.exposeInMainWorld('iterApi', {
   findNext: () => ipcRenderer.invoke('find:next'),
   findPrev: () => ipcRenderer.invoke('find:prev'),
   findClose: () => ipcRenderer.invoke('find:close'),
+  // M11-B: bookmarks (toolbar star and menu).
+  bookmarks: () => ipcRenderer.invoke('bookmarks:list'),
+  bookmarkToggle: (tabId) => ipcRenderer.invoke('bookmarks:toggle', tabId),
+  bookmarkOpen: (url) => ipcRenderer.invoke('bookmarks:open', url),
+  onBookmarkState: (cb) => ipcRenderer.on('bookmarks:state', (_e, state) => cb(state)),
   saveSettings: (settings) => ipcRenderer.invoke('settings:save', settings),
 
   permissionsStatus: () => ipcRenderer.invoke('permissions:status'),

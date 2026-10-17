@@ -20,6 +20,7 @@ const contextMenu = require('./bridge/context_menu');
 const { recordSoulChoice, flushSoulChoices, forgetSoulTaste, recordSoulMargin } = require('./bridge/soul_choice');
 const browsingAlly = require('./bridge/browsing_ally');
 const nativeLocation = require('./bridge/location');
+const bookmarks = require('./bridge/bookmarks');
 const { makeChatBridge } = require('./bridge/chat_bridge');
 const { retirePreviousIter } = require('./bridge/iter_process_owner');
 const OPENAI_CATALOG = require('./iter/iterbrow_runtime/openai_models.json');
@@ -102,6 +103,10 @@ const TABS_SESSION_PATH = path.join(ITER_DIR, '.runtime', 'tabs_session.json');
 // Capped at CLOSED_TABS_LIMIT, newest first.
 const CLOSED_TABS_PATH = path.join(ITER_DIR, '.runtime', 'closed_tabs.json');
 const CLOSED_TABS_LIMIT = 20;
+// The person's bookmarks (M11-B2), newest first, unique by URL. Application state like
+// closed_tabs.json: kept across Factory Reset, carried by export/import (state_manifest.json).
+const BOOKMARKS_PATH = path.join(ITER_DIR, '.runtime', 'bookmarks.json');
+const BOOKMARKS_MENU_LIMIT = 30;
 // Named, saved sets of tabs the user can open/switch-to/close as a unit --
 // e.g. "Research" vs "Work" vs "Recipes" -- added 2026-09-14 per user
 // request. Same local-UI-state reasoning as TABS_SESSION_PATH/CLOSED_TABS_PATH
@@ -1590,6 +1595,77 @@ function saveClosedTabs(list) {
 }
 
 // ---------------------------------------------------------------------
+// Bookmarks (M11-B2) -- the person's, never Iter's: no tool reads or writes them.
+// Held in memory once loaded; every change is written whole, atomically.
+// ---------------------------------------------------------------------
+let bookmarksCache = null;
+
+function loadBookmarks() {
+  if (bookmarksCache) return bookmarksCache;
+  try {
+    const list = JSON.parse(fs.readFileSync(BOOKMARKS_PATH, 'utf8'));
+    bookmarksCache = Array.isArray(list) ? list.filter((item) => item && typeof item.url === 'string') : [];
+  } catch (_) {
+    bookmarksCache = [];
+  }
+  return bookmarksCache;
+}
+
+function saveBookmarks(list) {
+  bookmarksCache = list;
+  try {
+    fs.mkdirSync(path.dirname(BOOKMARKS_PATH), { recursive: true });
+    const tmp = `${BOOKMARKS_PATH}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(list, null, 2));
+    fs.renameSync(tmp, BOOKMARKS_PATH);
+  } catch (err) {
+    pushLog(`[bookmarks] failed to save: ${err.message}`);
+  }
+}
+
+function toggleBookmarkForTab(tabId) {
+  const tab = tabs && tabs.tabs.get(Number(tabId));
+  if (!tab || !bookmarks.bookmarkable(tab.url)) return { bookmarked: false };
+  const result = bookmarks.toggle(loadBookmarks(), { url: tab.url, title: tab.title, at: Date.now() });
+  saveBookmarks(result.list);
+  Menu.setApplicationMenu(buildAppMenu());
+  pushBookmarkState();
+  return { bookmarked: result.bookmarked };
+}
+
+// The toolbar star follows the active tab (pushed with every tabs update and after a toggle).
+function pushBookmarkState() {
+  if (!tabs || !toolbarView) return;
+  const tab = tabs.activeId != null ? tabs.tabs.get(tabs.activeId) : null;
+  const bookmarked = !!(tab && bookmarks.isBookmarked(loadBookmarks(), tab.url));
+  try { toolbarView.webContents.send('bookmarks:state', { bookmarked }); } catch (_) {}
+}
+
+// The menu's "Bookmark This Tab" / "Remove Bookmark" label follows the active tab. Tabs update on
+// every title change, so the menu is rebuilt only when that label or its enabled state would change.
+let bookmarkMenuKey = null;
+function refreshBookmarkMenuIfNeeded() {
+  if (!tabs) return;
+  const tab = tabs.activeId != null ? tabs.tabs.get(tabs.activeId) : null;
+  const key = tab ? `${bookmarks.bookmarkable(tab.url)}|${bookmarks.isBookmarked(loadBookmarks(), tab.url)}` : 'none';
+  if (key === bookmarkMenuKey) return;
+  bookmarkMenuKey = key;
+  Menu.setApplicationMenu(buildAppMenu());
+}
+
+// Open a URL the person picked from their bookmarks or history: focus a tab already showing it,
+// reopen a local app as its app tab, otherwise a new ordinary tab.
+function openOrFocusUrl(url) {
+  if (!tabs || typeof url !== 'string' || !/^(https?|file):/i.test(url)) return null;
+  const key = bookmarks.normalizeUrl(url);
+  const open = tabs.findTab((t) => bookmarks.normalizeUrl(t.url) === key);
+  if (open) return tabs.focusTab(open.id);
+  const appId = url.startsWith('file:') ? registeredAppForUrl(url) : null;
+  if (appId) return openRegisteredApp(appId);
+  return tabs.createTab(url);
+}
+
+// ---------------------------------------------------------------------
 // Tab groups -- named, saved sets of tabs the user can reopen, switch to,
 // or bulk-close as a unit. Added 2026-09-14.
 // ---------------------------------------------------------------------
@@ -2203,6 +2279,30 @@ function buildAppMenu() {
       ],
     },
     {
+      // M11-B2: the person's bookmarks, rebuilt after every change (like Recently Closed).
+      label: 'Bookmarks',
+      submenu: (() => {
+        const tab = activeTab();
+        const list = loadBookmarks();
+        const marked = !!(tab && bookmarks.isBookmarked(list, tab.url));
+        return [
+          {
+            label: marked ? 'Remove Bookmark' : 'Bookmark This Tab',
+            accelerator: 'CmdOrCtrl+D',
+            enabled: !!(tab && bookmarks.bookmarkable(tab.url)),
+            click: () => { const current = activeTab(); if (current) toggleBookmarkForTab(current.id); },
+          },
+          { type: 'separator' },
+          ...(list.length
+            ? list.slice(0, BOOKMARKS_MENU_LIMIT).map((item) => ({
+                label: String(item.title || item.url).slice(0, 60),
+                click: () => openOrFocusUrl(item.url),
+              }))
+            : [{ label: '(No bookmarks)', enabled: false }]),
+        ];
+      })(),
+    },
+    {
       label: 'Tabs',
       submenu: [
         {
@@ -2448,6 +2548,9 @@ async function createWindow() {
     pushMarginState();
     // The browsing ally (only while the person has it on): log and lock suggestions.
     allyObserveActiveTab(list);
+    // M11-B2: the star follows the active tab; the menu's toggle label follows it too.
+    pushBookmarkState();
+    refreshBookmarkMenuIfNeeded();
   };
   // Fires just before a tab is actually removed (see TabManager.closeTab),
   // for every close path -- menu, sidebar UI, or Iter's bridge tools alike.
@@ -2548,6 +2651,10 @@ async function createWindow() {
 // the Unix socket bridge above, so UI actions and agent actions are
 // always looking at the same tabs.
 // ---------------------------------------------------------------------
+// M11-B2: bookmarks (the person's; no Iter tool reaches these).
+ipcMain.handle('bookmarks:list', () => loadBookmarks());
+ipcMain.handle('bookmarks:toggle', (_e, tabId) => toggleBookmarkForTab(tabId));
+ipcMain.handle('bookmarks:open', (_e, url) => { openOrFocusUrl(String(url || '')); return true; });
 ipcMain.handle('tabs:list', () => tabs.list());
 ipcMain.handle('tabs:new', (_e, url) => tabs.createTab(url));
 ipcMain.handle('tabs:close', (_e, id) => tabs.closeTab(id));

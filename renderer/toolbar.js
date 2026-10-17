@@ -6,6 +6,7 @@ const btnForward = document.getElementById('btn-forward');
 const btnReload = document.getElementById('btn-reload');
 const addr = document.getElementById('addr');
 const lockIndicator = document.getElementById('lock-indicator');
+const btnBookmark = document.getElementById('btn-bookmark'); // M11-B3
 
 let activeTabId = null;
 let addrFocused = false;
@@ -13,9 +14,13 @@ let addrFocused = false;
 addr.addEventListener('focus', () => { addrFocused = true; });
 addr.addEventListener('blur', () => { addrFocused = false; });
 
+let activeUrl = '';
+
 function renderFromTabs(list) {
   const active = list.find((t) => t.active);
   activeTabId = active ? active.id : null;
+  activeUrl = active ? String(active.url || '') : '';
+  renderPageButtons();
   // Don't stomp on text the user is actively typing/selecting.
   if (active && !addrFocused) addr.value = active.url;
   btnBack.disabled = !active || !active.canGoBack;
@@ -125,4 +130,27 @@ if (findBar && window.iterApi.onFindOpen) {
   document.getElementById('find-next').addEventListener('click', () => window.iterApi.findNext());
   document.getElementById('find-prev').addEventListener('click', () => window.iterApi.findPrev());
   document.getElementById('find-close').addEventListener('click', () => hideFind(true));
+}
+
+
+// ---- M11-B3: the bookmark star (docs/milestones/M11_browser_track.md B3) ----
+// Bookmarking is the person's click, so it works on a locked tab too; the star is disabled only
+// where a bookmark can't apply (anything but http(s) and file pages).
+function setBookmarked(on) {
+  btnBookmark.classList.toggle('on', on);
+  btnBookmark.textContent = on ? '\u2605' : '\u2606';
+  btnBookmark.title = on ? 'Bookmarked \u2014 click to remove' : 'Bookmark this tab';
+  btnBookmark.setAttribute('aria-pressed', on ? 'true' : 'false');
+}
+
+// Buttons whose use depends on what the active tab is showing.
+function renderPageButtons() {
+  if (btnBookmark) btnBookmark.disabled = !activeTabId || !/^(https?|file):/i.test(activeUrl);
+}
+
+if (btnBookmark) {
+  setBookmarked(false);
+  renderPageButtons();
+  btnBookmark.addEventListener('click', () => { if (activeTabId) window.iterApi.bookmarkToggle(activeTabId); });
+  if (window.iterApi.onBookmarkState) window.iterApi.onBookmarkState((state) => setBookmarked(!!(state && state.bookmarked)));
 }

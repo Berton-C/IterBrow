@@ -17,7 +17,6 @@ from m11_support import (pending, require_m11, bridge_json, main_js, preload_js,
 class PureBookmarkTests(unittest.TestCase):
     """M11-B1"""
 
-    @pending("M11-B1")
     def test_add_remove_toggle_unique_newest_first(self):
         require_m11()
         out = bridge_json("bookmarks.js", """
@@ -44,7 +43,6 @@ process.stdout.write(JSON.stringify({ list, unchanged, fileOk,
         self.assertEqual(out["t2"], {"bookmarked": True, "n": 2, "first": "https://c.test/"})
         self.assertEqual(out["norm"], ["https://x.test/p", "https://x.test/p?q=1"])
 
-    @pending("M11-B1")
     def test_search_matches_every_word_in_title_or_url(self):
         out = bridge_json("bookmarks.js", """
 const list = [ { url: 'https://docs.python.org/3/library/asyncio.html', title: 'asyncio — Asynchronous I/O', addedAt: 3 },
@@ -59,7 +57,6 @@ process.stdout.write(JSON.stringify([ M.search(list, 'python').map((b) => b.url)
 class WiringTests(unittest.TestCase):
     """M11-B2"""
 
-    @pending("M11-B2")
     def test_main_menu_ipc_and_file(self):
         main = main_js()
         self.assertIn("require('./bridge/bookmarks')", main)
@@ -82,7 +79,6 @@ class WiringTests(unittest.TestCase):
 class ToolbarStarTests(unittest.TestCase):
     """M11-B3"""
 
-    @pending("M11-B3")
     def test_star_reflects_state_and_toggles_the_active_tab(self):
         require_m11()
         out = toolbar("0", """(() => {

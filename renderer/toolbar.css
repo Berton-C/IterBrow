@@ -77,3 +77,7 @@ input:focus { border-color: var(--accent); }
 #find-text { width: 180px; flex: 0 0 auto; }
 #find-count { min-width: 70px; font-size: 12px; color: var(--muted); text-align: center; }
 #find-bar button { padding: 3px 7px; }
+
+/* M11-B3: the bookmark star. */
+#btn-bookmark { min-width: 30px; }
+#btn-bookmark.on { color: #c58a00; }

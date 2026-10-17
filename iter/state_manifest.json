@@ -219,6 +219,14 @@
       "owner": "core.tabs"
     },
     {
+      "path": ".runtime/bookmarks.json",
+      "role": "application_state",
+      "format": "json",
+      "portable": true,
+      "reset": false,
+      "owner": "core.tabs"
+    },
+    {
       "path": ".runtime/tab_groups.json",
       "role": "application_state",
       "format": "json",
