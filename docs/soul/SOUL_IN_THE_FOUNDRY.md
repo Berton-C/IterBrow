@@ -139,6 +139,9 @@ app tabs, external links leaving an app, and focus-not-clutter for the toolbar b
 
 ### Browser track (independent, can run alongside any milestone)
 Find-in-page, downloads, bookmarks, reader mode, history search, zoom, picture-in-picture.
+Find-in-page shipped with M9. **M11** (spec: `docs/milestones/M11_browser_track.md`) does bookmarks,
+history search, reader mode, picture-in-picture, and a native Core Location route for Map Station
+(Electron's own geolocation needs a billed Google key). Downloads and per-site zoom remain.
 Each is small in Electron; together they make IterBrow something people leave open, which is
 what the Soul needs to be worth having.
 
