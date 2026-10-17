@@ -7,6 +7,7 @@
 // directly); this script copies it into the preload, and tests/test_m8_margin.py fails if
 // the embedded copy ever differs from margin.js. Run after editing margin.js:
 //   node scripts/sync_margin_preload.js
+// `--check` writes nothing and exits 1 when the embedded copy is stale.
 'use strict';
 const fs = require('fs');
 const path = require('path');
@@ -19,7 +20,7 @@ function embedded(source) {
   return `${BEGIN}\nconst IterMarginModule = (function () {\n  const module = { exports: {} };\n${source.trimEnd()}\n  return module.exports;\n}());\n${END}`;
 }
 
-function sync() {
+function sync({ write = true } = {}) {
   const marginPath = path.join(ROOT, 'bridge', 'margin.js');
   const preloadPath = path.join(ROOT, 'bridge', 'app_preload.js');
   const block = embedded(fs.readFileSync(marginPath, 'utf8'));
@@ -28,11 +29,17 @@ function sync() {
   const end = preload.indexOf(END);
   if (start < 0 || end < start) throw new Error('margin markers not found in bridge/app_preload.js');
   const next = preload.slice(0, start) + block + preload.slice(end + END.length);
-  if (next !== preload) fs.writeFileSync(preloadPath, next);
+  if (write && next !== preload) fs.writeFileSync(preloadPath, next);
   return next !== preload;
 }
 
 if (require.main === module) {
+  if (process.argv.includes('--check')) {
+    // Report only: exit 1 when the embedded copy differs from margin.js; never writes.
+    const stale = sync({ write: false });
+    console.log(stale ? 'app_preload.js is out of sync with margin.js; run node scripts/sync_margin_preload.js' : 'app_preload.js in sync');
+    process.exit(stale ? 1 : 0);
+  }
   console.log(sync() ? 'app_preload.js updated' : 'app_preload.js already in sync');
 }
 module.exports = { sync, embedded, BEGIN, END };

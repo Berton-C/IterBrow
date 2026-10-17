@@ -19,6 +19,7 @@ const { inspectSocketPath, startBridgeServer } = require('./bridge/browser_bridg
 const contextMenu = require('./bridge/context_menu');
 const { recordSoulChoice, flushSoulChoices, forgetSoulTaste, recordSoulMargin } = require('./bridge/soul_choice');
 const browsingAlly = require('./bridge/browsing_ally');
+const nativeLocation = require('./bridge/location');
 const { makeChatBridge } = require('./bridge/chat_bridge');
 const { retirePreviousIter } = require('./bridge/iter_process_owner');
 const OPENAI_CATALOG = require('./iter/iterbrow_runtime/openai_models.json');
@@ -2692,6 +2693,61 @@ ipcMain.handle('soul:forget', async () => {
 // The margin: the Soul in the tab (docs/milestones/M8_soul_presence.md D2). Access is decided
 // here from the sender's tab -- its appScope, whether it is locked -- and the saved person's
 // margin switch. The page names nothing: not the app, not the tab, not the person.
+// ---- M11-A2: native location for Map Station (docs/milestones/M11_browser_track.md A2) ----
+// Electron's navigator.geolocation needs a billed Google key, so Map Station asks for a fix from a
+// small native Core Location helper instead. Only the Map Station page can ask (the sender is
+// checked here, never trusted from the page); Iter has no tool for it. One run at a time; the
+// coordinates go back to the page and are never logged.
+const SWIFT_PATHS = [
+  '/Library/Developer/CommandLineTools/usr/bin/swiftc',
+  '/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc',
+];
+let locationRun = null;
+
+ipcMain.handle('location:current', async (event) => {
+  if (!isMapStationPageOrigin(event.sender)) return { ok: false, reason: 'not-allowed' };
+  if (locationRun) return locationRun;
+  const command = nativeLocation.helperCommand({
+    env: process.env,
+    runtimeDir: path.join(ITER_DIR, '.runtime'),
+    exists: (file) => { try { fs.accessSync(file, fs.constants.X_OK); return true; } catch (_) { return false; } },
+  });
+  if (!command) {
+    pushLog('[location] no helper installed');
+    return { ok: false, reason: 'no-helper', hint: locationHint() };
+  }
+  locationRun = runLocationHelper(command).finally(() => { locationRun = null; });
+  return locationRun;
+});
+
+function locationHint() {
+  const swift = SWIFT_PATHS.some((file) => fs.existsSync(file));
+  return swift
+    ? 'brew install corelocationcli, or run scripts/build_location_helper.sh'
+    : 'brew install corelocationcli';
+}
+
+function runLocationHelper(command) {
+  return new Promise((resolve) => {
+    execFile(command.file, command.args, { timeout: 15000, killSignal: 'SIGKILL', maxBuffer: 64 * 1024 }, (err, stdout, stderr) => {
+      if (!err) {
+        const fix = nativeLocation.parseLocation(String(stdout || ''));
+        if (fix) {
+          pushLog(`[location] fix from ${command.source} helper`);
+          resolve({ ok: true, ...fix, source: command.source });
+          return;
+        }
+        pushLog(`[location] ${command.source} helper printed no usable fix`);
+        resolve({ ok: false, reason: 'unavailable' });
+        return;
+      }
+      const reason = nativeLocation.failure(typeof err.code === 'number' ? err.code : null, err.signal || null, stderr);
+      pushLog(`[location] ${command.source} helper failed: ${reason}`);
+      resolve({ ok: false, reason });
+    });
+  });
+}
+
 ipcMain.handle('margin:enabled', (event) => {
   const access = marginAccess(event);
   return access.error ? { enabled: false } : { enabled: true, app: access.app };

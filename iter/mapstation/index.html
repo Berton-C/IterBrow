@@ -165,59 +165,102 @@
       const c = map.getCenter();
       placeUser(c.lat, c.lng, 'You (approx)');
     }
-    setStatus('GPS unavailable - showing an approximate map-center pin');
+    setStatus(message ? 'Approximate pin &middot; ' + message : 'GPS unavailable - showing an approximate map-center pin');
     if (message) log(message + ' The pin is approximate; drag it or double-click the map to adjust it.');
   }
+  // Where a fix came from: 'native' (the Core Location helper, M11-A3) or 'gps' (navigator.geolocation).
+  const sourceLabel = source => source === 'native' ? 'You (native)' : 'You (GPS)';
+  const sourceSuffix = source => source === 'native' ? ' (native)' : '';
+  const validFix = (lat, lon) => Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180;
   function restorePendingLocation() {
     try {
       const raw = sessionStorage.getItem(pendingLocationKey);
       if (!raw) return false;
       sessionStorage.removeItem(pendingLocationKey);
       const p = JSON.parse(raw);
-      if (!Number.isFinite(p.lat) || !Number.isFinite(p.lon) || Math.abs(p.lat) > 90 || Math.abs(p.lon) > 180) return false;
-      placeUser(p.lat, p.lon, 'You (GPS)');
-      setStatus('<b>Location refreshed</b> &middot; ' + p.lat.toFixed(4) + ', ' + p.lon.toFixed(4));
-      setTimeout(() => announceLocation(p.lat, p.lon, 'You (GPS)'), 0);
+      if (!validFix(p.lat, p.lon)) return false;
+      placeUser(p.lat, p.lon, sourceLabel(p.source));
+      setStatus('<b>Location refreshed</b> &middot; ' + p.lat.toFixed(4) + ', ' + p.lon.toFixed(4) + sourceSuffix(p.source));
+      setTimeout(() => announceLocation(p.lat, p.lon, sourceLabel(p.source)), 0);
       return true;
     } catch (_) { return false; }
   }
-  function locate(options = {}) {
+
+  // The honest reason a route failed, in the person's words (M11-A3).
+  const DENIED = 'Location permission was denied — allow it in System Settings → Privacy &amp; Security → Location Services.';
+  function nativeReason(result) {
+    const reason = result && result.reason;
+    if (reason === 'no-helper') return 'No location helper on this Mac — ' + ((result && result.hint) || 'brew install corelocationcli') + '.';
+    if (reason === 'denied') return DENIED;
+    if (reason === 'timeout') return 'The location helper timed out.';
+    if (reason === 'not-allowed') return 'This page may not ask for native location.';
+    return 'The location helper could not get a fix.';
+  }
+  function geolocationReason(err) {
+    if (err && err.code === 1) return DENIED;
+    if (err && err.code === 3) return 'Location request timed out.';
+    return 'Current location is unavailable.';
+  }
+  function nativeFix() {
+    if (!window.iterApp || typeof window.iterApp.locate !== 'function') return Promise.resolve(null);
+    return Promise.resolve()
+      .then(() => window.iterApp.locate())
+      .then(r => (r && r.ok && validFix(r.lat, r.lon)) ? { lat: r.lat, lon: r.lon } : { reason: nativeReason(r) })
+      .catch(() => ({ reason: nativeReason(null) }));
+  }
+  function geolocationFix() {
+    if (!navigator.geolocation) return Promise.resolve({ reason: 'This app cannot access geolocation in this browser.' });
+    return new Promise(resolve => {
+      navigator.geolocation.getCurrentPosition(
+        p => {
+          const lat = p.coords.latitude, lon = p.coords.longitude;
+          resolve(validFix(lat, lon) ? { lat, lon } : { reason: 'The location service returned invalid coordinates.' });
+        },
+        err => resolve({ reason: geolocationReason(err) }),
+        { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
+      );
+    });
+  }
+
+  // Native helper first, then the browser's geolocation, then the approximate center. The final
+  // status names the first real reason, never a hopeful one.
+  async function locate(options = {}) {
     const button = $('locateBtn');
-    if (!navigator.geolocation) {
-      useApproximateCenter('This app cannot access geolocation in this browser.');
-      return;
-    }
+    const done = () => { if (button) { button.disabled = false; button.textContent = '◎ Locate me'; } };
     if (button) { button.disabled = true; button.textContent = 'Locating…'; }
     setStatus(options.reload ? 'Getting your location before reloading…' : 'Locating you…');
-    navigator.geolocation.getCurrentPosition(
-      p => {
-        const lat = p.coords.latitude, lon = p.coords.longitude;
-        if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) {
-          useApproximateCenter('The location service returned invalid coordinates.');
-        } else if (options.reload) {
-          try {
-            sessionStorage.setItem(pendingLocationKey, JSON.stringify({ lat, lon }));
-            location.reload();
-            return;
-          } catch (_) {
-            placeUser(lat, lon, 'You (GPS)');
-            setStatus('Location found, but page reload is unavailable; map centered without reloading.');
-          }
-        } else {
-          placeUser(lat, lon, 'You (GPS)');
-          setStatus('<b>Location locked</b> &middot; ' + lat.toFixed(4) + ', ' + lon.toFixed(4));
-          log('Position acquired. Map centered on you. Ask away - restaurants, metro, travel plans...');
-          announceLocation(lat, lon, 'You (GPS)');
-        }
-        if (button) { button.disabled = false; button.textContent = '◎ Locate me'; }
-      },
-      err => {
-        const reason = err.code === 1 ? 'Location permission was denied.' : err.code === 3 ? 'Location request timed out.' : 'Current location is unavailable.';
-        useApproximateCenter(reason);
-        if (button) { button.disabled = false; button.textContent = '◎ Locate me'; }
-      },
-      { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
-    );
+    let firstReason = null;
+    let fix = null, source = null;
+    const native = await nativeFix();
+    if (native && !native.reason) { fix = native; source = 'native'; }
+    else {
+      if (native) firstReason = native.reason;
+      const geo = await geolocationFix();
+      if (!geo.reason) { fix = geo; source = 'gps'; }
+      else firstReason = firstReason || geo.reason;
+    }
+    if (!fix) {
+      useApproximateCenter(firstReason);
+      done();
+      return;
+    }
+    const { lat, lon } = fix;
+    if (options.reload) {
+      try {
+        sessionStorage.setItem(pendingLocationKey, JSON.stringify({ lat, lon, source }));
+        location.reload();
+        return;
+      } catch (_) {
+        placeUser(lat, lon, sourceLabel(source));
+        setStatus('Location found, but page reload is unavailable; map centered without reloading.');
+      }
+    } else {
+      placeUser(lat, lon, sourceLabel(source));
+      setStatus('<b>Location locked</b> &middot; ' + lat.toFixed(4) + ', ' + lon.toFixed(4) + sourceSuffix(source));
+      log('Position acquired. Map centered on you. Ask away - restaurants, metro, travel plans...');
+      announceLocation(lat, lon, sourceLabel(source));
+    }
+    done();
   }
 
   function intentOf(q) {

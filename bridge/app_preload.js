@@ -311,4 +311,6 @@ contextBridge.exposeInMainWorld('iterApp', Object.freeze({
   storageStatus,
   appChanges: (afterCommit) => ipcRenderer.invoke('app:changes', afterCommit),
   subscribe: (afterCommit) => ipcRenderer.invoke('app:changes', afterCommit),
+  // M11-A2: native location. main.js runs the helper only when this page is Map Station.
+  locate: () => ipcRenderer.invoke('location:current'),
 }));

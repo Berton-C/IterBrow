@@ -384,6 +384,16 @@ PYTHONDONTWRITEBYTECODE=1 "$ROOT_DIR/iter/.venv/bin/python3" \
   --require installed
 ok "Program files, managed runtimes, and crash-recoverable AtomSpace verified."
 
+# Best-effort: Map Station's native location helper (M11-A4). Never fails the install or repair;
+# without swiftc it prints the Homebrew route instead.
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  if ITER_DIR="$ROOT_DIR/iter" /bin/bash "$ROOT_DIR/scripts/build_location_helper.sh"; then
+    ok "Map Station location helper checked."
+  else
+    warn "Map Station location helper not built; brew install corelocationcli works too."
+  fi
+fi
+
 # ------------------------------------------------------------------------------
 printf "\n\033[1;32m======================================================\033[0m\n"
 printf "\033[1;32m  IterBrow is installed; recovery is verified.\033[0m\n"

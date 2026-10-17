@@ -693,6 +693,14 @@ Export and automatic backup. Transfer credentials separately through a secure ch
 - **Activity log drawer:** shows the agent's raw stdout — every tool call, LLM response, and error
   — if you want to see exactly what it's doing and why.
 
+**Location (Map Station).** Electron's built-in geolocation needs a billed Google API key, so Map
+Station asks a small native Core Location helper instead, and only Map Station can ask. Install one:
+`brew install corelocationcli`, or, with Xcode's Command Line Tools, `scripts/build_location_helper.sh`
+(install and repair run it for you). To use a helper of your own, set `ITERBROW_LOCATION_HELPER` to its
+absolute path; it must print one JSON object with `latitude` and `longitude`. macOS asks once for
+permission the first time you press Locate me. With no helper, Map Station falls back to the browser's
+geolocation and then to an approximate pin, and says why.
+
 ## Extending Iter (recoverable hot-load + the instrument-everything policy)
 
 - **New tools:** a `.py` file in `iter/tools/` with a `DESCRIPTION` string and `def run()` (or

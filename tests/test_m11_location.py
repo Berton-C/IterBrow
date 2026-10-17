@@ -20,12 +20,11 @@ from m11_support import (pending, require_m11, bridge_json, main_js, section, ru
 class PureLocationTests(unittest.TestCase):
     """M11-A1"""
 
-    @pending("M11-A1")
     def test_parse_location_accepts_corelocationcli_shapes_and_rejects_junk(self):
         require_m11()
         out = bridge_json("location.js", """process.stdout.write(JSON.stringify([
   M.parseLocation('{"latitude": -34.6037, "longitude": -58.3816, "altitude": 25, "h_accuracy": 35, "time": "2026-10-17T12:00:00Z"}'),
-  M.parseLocation('Waiting for fix...\\n{"latitude": 47.6, "longitude": -122.3, "horizontalAccuracy": 10.5, "time": 1760702400}'),
+  M.parseLocation('Waiting for fix...\\n{"latitude": 47.6, "longitude": -122.3, "horizontalAccuracy": 10.5, "time": 1792238400}'),
   M.parseLocation('{"latitude": 47.6, "longitude": -122.3}'),
   M.parseLocation('{"latitude": 91, "longitude": 0}'), M.parseLocation('{"latitude": "x", "longitude": 1}'),
   M.parseLocation(''), M.parseLocation('not json'), M.parseLocation(null) ]));""")
@@ -36,7 +35,6 @@ class PureLocationTests(unittest.TestCase):
         self.assertEqual(out[2], {"lat": 47.6, "lon": -122.3, "accuracy": None, "at": None})
         self.assertEqual(out[3:], [None] * 5)
 
-    @pending("M11-A1")
     def test_helper_command_resolution_order(self):
         out = bridge_json("location.js", """
 const rt = '/x/.runtime';
@@ -53,7 +51,6 @@ process.stdout.write(JSON.stringify([
         self.assertEqual(out[3]["file"], "/usr/local/bin/CoreLocationCLI")
         self.assertIsNone(out[4])
 
-    @pending("M11-A1")
     def test_failure_reasons(self):
         out = bridge_json("location.js", """process.stdout.write(JSON.stringify([
   M.failure(2, null, 'location services denied for this app'), M.failure(1, null, 'Error Domain=kCLErrorDomain Code=1'),
@@ -64,7 +61,6 @@ process.stdout.write(JSON.stringify([
 class WiringTests(unittest.TestCase):
     """M11-A2"""
 
-    @pending("M11-A2")
     def test_main_runs_the_helper_only_for_map_station(self):
         main = main_js()
         self.assertIn("require('./bridge/location')", main)
@@ -79,7 +75,6 @@ class WiringTests(unittest.TestCase):
         self.assertRegex(handler, r"pushLog\(`\[location\]")
         self.assertNotIn("GOOGLE_API_KEY", main, "no Google network location")
 
-    @pending("M11-A2")
     def test_app_preload_exposes_locate_and_stays_in_sync(self):
         preload = (REPO / "bridge" / "app_preload.js").read_text(encoding="utf-8")
         self.assertRegex(preload, r"locate:\s*\(\)\s*=>\s*ipcRenderer\.invoke\('location:current'\)")
@@ -122,7 +117,6 @@ with sync_playwright() as p:
     # Status line plus the chat log: the page reports the reason in the log and the state in the status.
     PROBE = "(() => ({ status: document.getElementById('statusText').textContent + ' | ' + document.getElementById('chatlog').textContent, button: document.getElementById('locateBtn').textContent }))()"
 
-    @pending("M11-A3")
     def test_native_route_first(self):
         require_m11()
         out = self._page("() => Promise.resolve({ ok: true, lat: -34.6037, lon: -58.3816, accuracy: 30, at: null, source: 'brew' })",
@@ -131,7 +125,6 @@ with sync_playwright() as p:
         self.assertIn("native", out["status"])
         self.assertFalse(any("google" in u or "geolocation" in u for u in out["requests"]), out["requests"])
 
-    @pending("M11-A3")
     def test_falls_back_and_names_the_real_reason(self):
         out = self._page("() => Promise.resolve({ ok: false, reason: 'no-helper', hint: 'brew install corelocationcli' })",
                          "undefined", self.PROBE)
@@ -145,7 +138,6 @@ with sync_playwright() as p:
 class HelperOnDiskTests(unittest.TestCase):
     """M11-A4"""
 
-    @pending("M11-A4")
     def test_swift_source_and_build_script(self):
         swift = (REPO / "scripts" / "location" / "iter_location.swift").read_text(encoding="utf-8")
         for needle in ("CLLocationManager", "requestWhenInUseAuthorization", "\"latitude\"", "\"longitude\"", "h_accuracy", "denied"):
