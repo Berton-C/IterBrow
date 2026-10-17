@@ -73,6 +73,11 @@ process.stdout.write(JSON.stringify(A.recentBrowsing(lines, now)));""")
         self.assertEqual(out[2]["minutes"], 11)
         self.assertEqual(out[2]["title"], "asyncio streams")
         self.assertNotIn("old.test", json.dumps(out))
+        # A long stay on one page: the current page always counts, with its full dwell.
+        alone = ally("""
+const now = 1700000000000, m = 60000;
+process.stdout.write(JSON.stringify(A.recentBrowsing([ { at: now - 47*m, tab: 1, domain: 'feed.example', title: 'The feed' } ], now)));""")
+        self.assertEqual(alone, [{"domain": "feed.example", "minutes": 47, "title": "The feed"}])
 
 
 class WiringTests(unittest.TestCase):
@@ -163,8 +168,9 @@ class BrowsingBlockTests(unittest.TestCase):
         self.assertEqual(self._block({"browsing_ally": False}), "base")
         self.assertEqual(self._block({f: False for f in FEATURES}), "base")
         self.assertEqual(self._block({"browsing_ally": True}, mode="quiet"), "base")
+        # A long stay on one page is the capture case: the current page counts however old its entry.
         write_browsing_log(self.temp, [{"at": now - 40 * 60000, "tab": 1, "domain": "a.test", "title": "A"}])
-        self.assertEqual(self._block({"browsing_ally": True}), "base", "nothing in the last 30 minutes")
+        self.assertIn("a.test · 40 min · A", self._block({"browsing_ally": True}))
         (Path(self.temp) / ".runtime" / "browsing_log.jsonl").unlink()
         self.assertEqual(self._block({"browsing_ally": True}), "base", "no log")
 

@@ -30,8 +30,12 @@ RULE = ("Offer a pause card (kind offer, topic ally:<pair>) only when a declared
 
 def recent_browsing(lines, now, window_ms=WINDOW_MS, limit=LIMIT):
     """[{domain, minutes, title}] newest first, dwell merged per consecutive domain (as browsing_ally.js)."""
-    recent = sorted((l for l in lines if isinstance(l, dict) and l.get("domain")
-                     and isinstance(l.get("at"), (int, float)) and l["at"] >= now - window_ms), key=lambda l: l["at"])
+    valid = sorted((l for l in lines if isinstance(l, dict) and l.get("domain")
+                    and isinstance(l.get("at"), (int, float)) and l["at"] <= now), key=lambda l: l["at"])
+    # The page they are on now always counts, however long ago they arrived (a long stay on one
+    # page is the very thing the ally is for).
+    latest = valid[-1] if valid else None
+    recent = [l for l in valid if l["at"] >= now - window_ms or l is latest]
     runs = []
     for index, line in enumerate(recent):
         end = recent[index + 1]["at"] if index + 1 < len(recent) else now

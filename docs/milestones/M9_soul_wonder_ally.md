@@ -13,7 +13,12 @@ Implementation notes:
 - Ally lock suggestions are sent once per host per session; "No" is remembered for the session.
 - Two test corrections, same intent: the growth "now" pick is seeded 1 ms (not 5 s) after the flag's
   mtime, since a future-dated pick legitimately postdates the deferral the second half rewrites; the
-  toolbar ally probe captures the notice before clicking "Lock it" / "No" (it read it after). Roadmap: `docs/soul/SOUL_IN_THE_FOUNDRY.md`
+  toolbar ally probe captures the notice before clicking "Lock it" / "No" (it read it after).
+- **Audit 2026-10-17.** Dwell: an entry is written only on activation or navigation, so a long stay on
+  one page fell outside the 30-minute window and the ally saw nothing in exactly the case it is for.
+  The current page now always counts with its full dwell (both implementations; tests pin it). Also
+  noted, not changed: once the person answers `now`, that answer stands for the rest of that deferral
+  (any later cycle with pain goes through too) until the flag is rewritten; a new deferral asks again. Roadmap: `docs/soul/SOUL_IN_THE_FOUNDRY.md`
 (this is the roadmap's M10 pulled forward, plus the first browser-track item). Base: M6–M8. Tests:
 `tests/test_m9_*.py`, `tests/e2e/test_m9_loop.py`; helpers in `tests/m9_support.py`. Every test starts
 `@pending("M9-xx")`; remove the decorator as each passes. `M9_IMPLEMENTED` is keyed on
@@ -123,7 +128,8 @@ no pain → flag cleared) is byte-for-byte the same.
   with a card whose `topic` starts with `ally:` and no later user message with `choice.card` equal to
   that card's id. (`validCard` keeps `topic` when it matches the topic pattern.)
 - `recentBrowsing(lines, now, windowMs = 30 min, limit = 8)` → `[{domain, minutes, title}]`, dwell
-  from consecutive entries, newest first, merged per consecutive domain.
+  from consecutive entries, newest first, merged per consecutive domain. The latest entry (the page they are
+  on now) always counts, however old, with dwell up to `now`: a long stay on one page is the capture case.
 
 **M9-C2 — Wiring in `main.js`.** With `browsing_ally` on for the saved person: on tab activation and
 `did-navigate` of a loggable tab, append to `.runtime/browsing_log.jsonl` (cap 500 lines, oldest

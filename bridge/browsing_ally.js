@@ -72,9 +72,13 @@ function compassState(history) {
 }
 
 function recentBrowsing(lines, now, windowMs = 30 * 60 * 1000, limit = 8) {
-  const recent = (Array.isArray(lines) ? lines : [])
-    .filter((line) => line && Number.isFinite(Number(line.at)) && Number(line.at) >= now - windowMs && line.domain)
+  const valid = (Array.isArray(lines) ? lines : [])
+    .filter((line) => line && Number.isFinite(Number(line.at)) && Number(line.at) <= now && line.domain)
     .sort((a, b) => Number(a.at) - Number(b.at));
+  // The page they are on now always counts, however long ago they arrived: a long stay on one
+  // page is the very thing the ally is for, and it would otherwise fall out of the window.
+  const latest = valid[valid.length - 1];
+  const recent = valid.filter((line) => Number(line.at) >= now - windowMs || line === latest);
   const runs = [];
   recent.forEach((line, index) => {
     const end = index + 1 < recent.length ? Number(recent[index + 1].at) : now;
