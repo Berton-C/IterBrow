@@ -18,6 +18,15 @@ from m10_support import (pending, m10_root, require_m10, write_soul_settings, ma
 from test_m7_brief import make_project  # noqa: E402
 
 
+def make_foundry_project(root, app_id):
+    """A real Foundry project inside a plain temp root, built with the repo's code tree."""
+    code = ("import sys, json; sys.path.insert(0, sys.argv[1]); from iterbrow_runtime.foundry_projects import FoundryProjects;"
+            "FoundryProjects(sys.argv[2]).create(sys.argv[3], json.loads(sys.argv[4]))")
+    blueprint = {"title": app_id, "intention": "x", "invariants": ["y"], "acceptance": ["z"]}
+    subprocess.run([sys.executable, "-c", code, str(ITER_SRC), str(root), app_id, json.dumps(blueprint)],
+                   env=dict(os.environ, ITER_DIR=str(root)), check=True, capture_output=True, text=True, timeout=60)
+
+
 def catalog(root):
     proc = subprocess.run([sys.executable, "-m", "iterbrow_runtime.local_apps"], cwd=str(ITER_SRC),
                           env=dict(os.environ, ITER_DIR=str(root), PYTHONPATH=str(ITER_SRC)), capture_output=True, text=True, timeout=60)
@@ -28,7 +37,6 @@ def catalog(root):
 class CatalogTests(unittest.TestCase):
     """M10-C1"""
 
-    @pending("M10-C1")
     def test_foundry_and_plain_apps_in_one_sorted_list(self):
         require_m10()
         temp = tempfile.mkdtemp(prefix="m10cat-")
@@ -40,7 +48,7 @@ class CatalogTests(unittest.TestCase):
         (Path(temp) / ".hidden").mkdir(); (Path(temp) / ".hidden" / "index.html").write_text("x")
         (Path(temp) / "node_modules").mkdir(); (Path(temp) / "node_modules" / "index.html").write_text("x")
         os.symlink(str(Path(temp) / "mapstation"), str(Path(temp) / "linked"))
-        make_project(temp, "orbit")
+        make_foundry_project(temp, "orbit")
         apps = catalog(temp)
         self.assertEqual([a["id"] for a in apps], ["mapstation", "nodequest", "orbit"])
         by_id = {a["id"]: a for a in apps}
@@ -52,7 +60,6 @@ class CatalogTests(unittest.TestCase):
         self.assertEqual(by_id["orbit"]["path"], str(Path(temp) / "apps" / "orbit"))
         self.assertEqual(by_id["mapstation"]["path"], str(Path(temp) / "mapstation"))
 
-    @pending("M10-C1")
     def test_main_reads_the_catalog_through_one_ipc(self):
         main = (REPO / "main.js").read_text(encoding="utf-8")
         self.assertIn("ipcMain.handle('apps:catalog'", main)
@@ -67,7 +74,6 @@ class CatalogTests(unittest.TestCase):
 class AppsButtonTests(unittest.TestCase):
     """M10-C2"""
 
-    @pending("M10-C2")
     def test_button_sits_next_to_crm_and_asks_for_the_menu(self):
         require_m10()
         out = json.loads(run_playwright(toolbar_page_script("document.querySelector('#btn-apps').click();", """(() => {
@@ -80,7 +86,6 @@ return { exists: !!apps, label: apps && apps.textContent.trim(), after: crm && a
         self.assertTrue(out["after"], "Apps sits right after CRM")
         self.assertEqual(out["calls"], [["appsMenu"]])
 
-    @pending("M10-C2")
     def test_menu_template_lists_every_app_with_its_brief(self):
         main = (REPO / "main.js").read_text(encoding="utf-8")
         self.assertIn("function appsMenuTemplate", main)
@@ -106,7 +111,6 @@ class TabTests(unittest.TestCase):
         self.assertEqual(code, 0, stderr)
         return json.loads(stdout.strip().splitlines()[-1])
 
-    @pending("M10-C5")
     def test_find_tab_and_focus(self):
         require_m10()
         out = self._run("""
@@ -128,7 +132,6 @@ process.stdout.write(JSON.stringify({ found: found && { id: found.id, locked: fo
         self.assertEqual(out["active"], out["found"]["id"], "a locked tab is still focused: it is the person's own switch")
         self.assertEqual(out["count"], 3)
 
-    @pending("M10-C4")
     def test_external_links_open_a_new_ordinary_tab_and_in_app_navigation_is_allowed(self):
         out = self._run("""
 const tabs = new TabManager(win, { getContentBounds: bounds, pwqPath: '/x/pwq.html' });
@@ -156,7 +159,6 @@ process.stdout.write(JSON.stringify(r));
         self.assertEqual(out["opened"], ["https://www.openstreetmap.org/copyright", "https://example.org/"])
         self.assertEqual(out["count"], 3, "two new ordinary tabs were opened for the two http(s) links")
 
-    @pending("M10-C3")
     def test_main_opens_plain_apps_as_app_tabs_and_restores_their_scope(self):
         main = (REPO / "main.js").read_text(encoding="utf-8")
         open_fn = main[main.index("async function openRegisteredApp"):][:3000]
@@ -173,7 +175,6 @@ process.stdout.write(JSON.stringify(r));
 class AppsToolTests(unittest.TestCase):
     """M10-C6"""
 
-    @pending("M10-C6")
     def test_apps_tool_lists_real_urls(self):
         r = m10_root("m10appstool")
         self.addCleanup(r.close)

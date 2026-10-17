@@ -88,6 +88,8 @@ contextBridge.exposeInMainWorld('iterApi', {
   openCRM: () => ipcRenderer.invoke('crm:open'),
   openApp: (appId) => ipcRenderer.invoke('apps:open', appId),
   listApps: () => ipcRenderer.invoke('apps:list'),
+  appsCatalog: () => ipcRenderer.invoke('apps:catalog'),
+  appsMenu: () => ipcRenderer.invoke('apps:menu'),
   onTerminalData: (cb) => ipcRenderer.on('terminal:data', (_e, chunk) => cb(chunk)),
   onTerminalDone: (cb) => ipcRenderer.on('terminal:done', (_e, info) => cb(info)),
 });

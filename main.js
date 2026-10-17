@@ -140,9 +140,31 @@ function appTabOptions(appId = 'crm') {
 
 function registeredAppForUrl(url) {
   if (isCrmApplicationUrl(url)) return 'crm';
-  return Object.keys(activeAppRevisions).find((appId) => (
+  const revisioned = Object.keys(activeAppRevisions).find((appId) => (
     String(url || '').startsWith(pathToFileURL(path.join(ITER_DIR, '.runtime', 'app_revisions', 'apps', appId, 'bundles') + path.sep).toString())
-  )) || null;
+  ));
+  if (revisioned) return revisioned;
+  // M10-C3: a plain app (a top-level folder of ITER_DIR with an index.html, e.g. mapstation) keeps
+  // its app scope across a restart: any URL inside its folder maps back to its id.
+  const value = String(url || '');
+  const base = pathToFileURL(ITER_DIR + path.sep).toString();
+  if (!value.startsWith(base)) return null;
+  const id = decodeURIComponent(value.slice(base.length).split('/')[0] || '');
+  return plainAppDir(id) ? id : null;
+}
+
+// A plain app: <ITER_DIR>/<id>/index.html, a real folder (not a symlink), not a Foundry project,
+// and not the CRM (which has its own revision-managed path). Mirrors iterbrow_runtime/local_apps.py.
+function plainAppDir(id) {
+  if (!/^[a-z][a-z0-9_-]{0,62}$/.test(id || '') || id === 'crm' || id === 'apps' || id === 'node_modules') return null;
+  const dir = path.join(ITER_DIR, id);
+  try {
+    if (fs.lstatSync(dir).isSymbolicLink() || !fs.statSync(path.join(dir, 'index.html')).isFile()) return null;
+  } catch (_) {
+    return null;
+  }
+  if (fs.existsSync(path.join(ITER_DIR, 'apps', id, 'app.json'))) return null;
+  return dir;
 }
 
 let win = null;
@@ -388,6 +410,16 @@ async function loadCurrentAppRevision(appId = 'crm') {
 }
 
 async function openRegisteredApp(appId) {
+  // M10-C5: an app that is already open is focused, not opened again.
+  const open = tabs.findTab((t) => !!t.appScope && t.appScope.appId === appId);
+  if (open) return { appId, tabId: tabs.focusTab(open.id), focused: true };
+  // M10-C3: a plain app (mapstation, nodequest ...) opens as an app tab: app scope, the app
+  // preload and the margin, straight from its folder (no revision manager, no contract).
+  const plain = plainAppDir(appId);
+  if (plain) {
+    const tabId = tabs.createTab(pathToFileURL(path.join(plain, 'index.html')).toString(), appTabOptions(appId));
+    return { appId, tabId, kind: 'plain' };
+  }
   if (!/^[a-z][a-z0-9-]{0,62}$/.test(appId || '')) throw new Error('Invalid application id');
   if (atomspaceLifecycleBusy) throw new Error('State maintenance is in progress');
   const status = await runAppRevisionControl('status', { appId });
@@ -2404,6 +2436,8 @@ async function createWindow() {
   // Fires just before a tab is actually removed (see TabManager.closeTab),
   // for every close path -- menu, sidebar UI, or Iter's bridge tools alike.
   tabs.onTabClosed = (snapshot) => recordClosedTab(snapshot);
+  // M10-C4: an http(s) link from an app tab opens in a new ordinary tab (no bridge, no preload).
+  tabs.onExternalLink = (url) => tabs.createTab(url);
   // Restore whatever tabs were open last time (added 2026-09-14) instead of
   // always opening a single blank google.com tab -- see TABS_SESSION_PATH.
   const savedSession = loadTabSession();
@@ -2412,7 +2446,8 @@ async function createWindow() {
     savedSession.tabs.forEach((t, i) => {
       const savedUrl = t.url || 'https://www.google.com';
       const appId = registeredAppForUrl(savedUrl);
-      const restoredUrl = appId ? activeAppRevisions[appId].url : savedUrl;
+      // Revision-managed apps restore at their active revision; plain apps (M10) at their saved URL.
+      const restoredUrl = appId && activeAppRevisions[appId] ? activeAppRevisions[appId].url : savedUrl;
       const id = tabs.createTab(
         restoredUrl,
         appId ? appTabOptions(appId) : {},
@@ -2938,18 +2973,60 @@ ipcMain.handle('terminal:start', () => startTerminal());
 ipcMain.handle('terminal:run', (_e, cmd) => runTerminalCommand(cmd));
 ipcMain.handle('terminal:interrupt', () => interruptTerminal());
 ipcMain.handle('terminal:stop', () => stopTerminal());
+// M10-C5: the toolbar buttons focus a tab that is already open; only otherwise do they open one.
 ipcMain.handle('dashboards:open', () => {
   const generated = path.join(ITER_DIR, 'dashboard_gallery.html');
-  const target = fs.existsSync(generated)
-    ? generated
-    : path.join(__dirname, 'renderer', 'dashboard_empty.html');
-  return tabs.createTab('file://' + target);
+  const empty = path.join(__dirname, 'renderer', 'dashboard_empty.html');
+  const urls = [pathToFileURL(generated).toString(), pathToFileURL(empty).toString(), 'file://' + generated, 'file://' + empty];
+  const open = tabs.findTab((t) => urls.includes(t.url));
+  if (open) return tabs.focusTab(open.id);
+  return tabs.createTab('file://' + (fs.existsSync(generated) ? generated : empty));
 });
-ipcMain.handle('pwq:open', () => tabs.createTab('file://' + path.join(ITER_DIR, 'pwq.html'), {
-  preload: path.join(__dirname, 'bridge', 'pwq_preload.js'),
-  restrictNavigation: true,
-}));
-ipcMain.handle('crm:open', async () => (await openRegisteredApp('crm')).tabId);
+ipcMain.handle('pwq:open', () => {
+  const page = path.join(ITER_DIR, 'pwq.html');
+  const open = tabs.findTab((t) => t.url === pathToFileURL(page).toString() || t.url === 'file://' + page);
+  if (open) return tabs.focusTab(open.id);
+  return tabs.createTab('file://' + page, {
+    preload: path.join(__dirname, 'bridge', 'pwq_preload.js'),
+    restrictNavigation: true,
+  });
+});
+ipcMain.handle('crm:open', async () => {
+  const open = tabs.findTab((t) => !!t.appScope && t.appScope.appId === 'crm');
+  if (open) return tabs.focusTab(open.id);
+  return (await openRegisteredApp('crm')).tabId;
+});
+
+// ---- Every local app in the fold (M10-C1/C2) -----------------------------------------------
+// One catalog: iterbrow_runtime/local_apps.py (Foundry projects and plain folders).
+function appsCatalog() {
+  return new Promise((resolve) => {
+    execFile(pythonBin(), ['-m', 'iterbrow_runtime.local_apps'], { cwd: ITER_DIR, env: { ...process.env, ITER_DIR }, timeout: 15000 },
+      (error, stdout) => {
+        if (error) { pushLog('[apps] catalog unavailable: ' + error.message); resolve([]); return; }
+        try { resolve(JSON.parse(String(stdout).trim().split('\n').pop())); } catch (_) { resolve([]); }
+      });
+  });
+}
+
+// Pure: menu items for the Apps button, one per app (labelled with its brief when it has one).
+function appsMenuTemplate(apps, onOpen) {
+  return (apps || []).map((app) => ({
+    label: app.brief && app.brief.for ? `${app.id} — for ${app.brief.for}` : app.id,
+    click: () => onOpen(app.id),
+  }));
+}
+
+ipcMain.handle('apps:catalog', () => appsCatalog());
+ipcMain.handle('apps:menu', async () => {
+  const apps = await appsCatalog();
+  const items = appsMenuTemplate(apps, (id) => {
+    openRegisteredApp(id).catch((error) => pushLog('[apps] could not open ' + id + ': ' + error.message));
+  });
+  const menu = Menu.buildFromTemplate(items.length ? items : [{ label: 'No apps yet', enabled: false }]);
+  menu.popup({ window: win });
+  return { count: apps.length };
+});
 ipcMain.handle('apps:open', (_event, appId) => openRegisteredApp(appId));
 ipcMain.handle('apps:list', () => runAppRevisionControl('list-apps'));
 

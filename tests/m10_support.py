@@ -69,8 +69,8 @@ import json
 from playwright.sync_api import sync_playwright
 with sync_playwright() as p:
     b = p.chromium.launch(); pg = b.new_page(viewport={"width": 900, "height": 700})
-    pg.add_init_script("window.__fetches = []; window.fetch = %s;")
     pg.set_content(%s)
+    pg.evaluate("(() => { window.__fetches = []; window.fetch = %s; })()")  # set_content does not re-run init scripts
     pg.add_script_tag(path=%s)
     pg.evaluate("window.__kernel = " + %s)
     pg.evaluate("window.__brief = " + %s)
@@ -78,7 +78,7 @@ with sync_playwright() as p:
     pg.wait_for_timeout(200)
     pg.evaluate(%s); pg.wait_for_timeout(200)
     print(json.dumps(pg.evaluate(%s))); b.close()
-""" % (fetch, json.dumps(html), json.dumps(str(SDK)), json.dumps(kernel_literal), json.dumps(brief_literal),
+""" % (json.dumps(html), fetch, json.dumps(str(SDK)), json.dumps(kernel_literal), json.dumps(brief_literal),
        json.dumps(setup_js), json.dumps(probe_js))
 
 

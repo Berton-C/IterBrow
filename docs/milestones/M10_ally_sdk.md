@@ -1,6 +1,22 @@
 # Milestone 10 — The app inherits the ally; focus, not clutter
 
-Status: **scoped, tests written, implementation pending.** Roadmap: `docs/soul/SOUL_IN_THE_FOUNDRY.md`
+Status: **implemented 2026-10-17** (all `@pending` decorators removed).
+Implementation notes:
+- **Kernel loading from file://.** A1 had the SDK `fetch` `soul_kernel.json` next to itself, but apps
+  run from `file://`, where Chromium refuses `fetch`, so NodeQuest would never have loaded its kernel.
+  `scripts/export_soul_kernel.py` also writes `iter/sdk/soul_kernel.js` (`window.IterAllyKernel = …`,
+  the same data, same generator; `--check` covers both) and the SDK loads it with a `<script>` tag
+  next to itself. `soul_kernel.json` stays the canonical export; `ally_sdk` copies all three files.
+- `iter/sdk/` joins the copy lists of both test harnesses; `ally_sdk` reads `ITER_DIR/sdk` first and
+  the code tree second, so it works from a hot-load generation.
+- Plain apps open as app tabs straight from their folder (`plainAppDir` in main.js mirrors
+  `local_apps.py`; the CRM keeps its revision-managed path). Session restore now restores a plain app
+  at its saved URL (the old code indexed `activeAppRevisions` for any app id and would have thrown).
+  In-folder navigation is allowed for app-scoped tabs only, so the PWQ tab gains nothing.
+- Three harness fixes, same intent: the SDK page harness installs the `fetch` stub after
+  `set_content` (init scripts do not re-run for it, so the stub never existed); the calibration test
+  passes brief and kernel as evaluate arguments (raw JSON inside a Python string literal); the catalog
+  test builds its Foundry project with the repo's code tree (a plain temp root has none). Roadmap: `docs/soul/SOUL_IN_THE_FOUNDRY.md`
 (the roadmap's M11, the last Soul milestone of this series) plus one browser-track fix Berton asked for.
 Base: M6–M9. Tests: `tests/test_m10_*.py`, `tests/e2e/test_m10_loop.py`; helpers in `tests/m10_support.py`.
 Every test starts `@pending("M10-xx")`; remove the decorator as each passes. `M10_IMPLEMENTED` is keyed

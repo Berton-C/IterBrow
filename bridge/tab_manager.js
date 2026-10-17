@@ -36,6 +36,7 @@ class TabManager {
     this.attachedId = null; // bookkeeping only, mirrors the old extension's "attached tab" concept
     this.onTabsChanged = null; // set by main.js to push updates to the sidebar UI
     this.onTabClosed = null; // set by main.js: (snapshot) => void, fired just before a tab is actually removed
+    this.onExternalLink = null; // set by main.js: (url) => void, an app tab's http(s) link opens a new ordinary tab
     this.onTabCreated = null; // set by main.js: (webContents, tab) => void, for per-tab wiring (context menu)
   }
 
@@ -162,10 +163,20 @@ class TabManager {
       this._notify();
     });
     if (opts.restrictNavigation) {
+      // A bridged tab never loads an untrusted page while holding the bridge (M10-C4):
+      // - its own URL, and (app tabs only) files inside the app's own directory, are allowed;
+      // - an http(s) link opens in a NEW ordinary tab (no bridge) via onExternalLink;
+      // - anything else (other file: paths, other schemes) is refused.
       view.webContents.on('will-navigate', (e, navUrl) => {
-        if (navUrl !== tab.allowedUrl) e.preventDefault();
+        if (navUrl === tab.allowedUrl) return;
+        if (tab.appScope && this._insideAppDir(tab, navUrl)) return;
+        e.preventDefault();
+        if (/^https?:\/\//i.test(String(navUrl)) && this.onExternalLink) this.onExternalLink(navUrl);
       });
-      view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+      view.webContents.setWindowOpenHandler(({ url: openUrl } = {}) => {
+        if (/^https?:\/\//i.test(String(openUrl || '')) && this.onExternalLink) this.onExternalLink(openUrl);
+        return { action: 'deny' };
+      });
     }
     view.webContents.loadURL(url);
     this.switchTab(id);
@@ -196,6 +207,33 @@ class TabManager {
       if (tab.view.webContents.id === Number(webContentsId)) return tab;
     }
     return null;
+  }
+
+  // A file: URL inside the directory of an app tab's own page (its sibling files).
+  _insideAppDir(tab, navUrl) {
+    const base = String(tab.allowedUrl || '');
+    const value = String(navUrl || '');
+    if (!base.startsWith('file://') || !value.startsWith('file://')) return false;
+    const dir = base.slice(0, base.lastIndexOf('/') + 1);
+    return value.startsWith(dir) && !/(^|\/)\.\.(\/|$)/.test(value.slice(dir.length));
+  }
+
+  // The first tab, in strip order, for which predicate({id, url, locked, pinned, appScope}) holds
+  // (M10-C5: the toolbar buttons focus an open tab instead of opening another).
+  findTab(predicate) {
+    for (const listed of this.list()) {
+      const tab = this.tabs.get(listed.id);
+      if (!tab) continue;
+      const snapshot = { id: tab.id, url: tab.url, locked: !!tab.locked, pinned: !!tab.pinned,
+        appScope: tab.appScope ? { ...tab.appScope } : null };
+      if (predicate(snapshot)) return snapshot;
+    }
+    return null;
+  }
+
+  focusTab(id) {
+    this.switchTab(Number(id));
+    return Number(id);
   }
 
   // Every open tab that holds an application scope (where the margin can live).

@@ -21,7 +21,6 @@ PW = unittest.skipUnless(NODE and playwright_available(), "needs node and system
 class InstallAndLensTests(unittest.TestCase):
     """M10-A1"""
 
-    @pending("M10-A1")
     def test_lens_reads_the_kernel_data(self):
         require_m10()
         out = run_sdk("<h1>App</h1>", "0", """(async () => { await window.__installed; return {
@@ -38,7 +37,6 @@ class InstallAndLensTests(unittest.TestCase):
         self.assertEqual(out["brief"], BRIEF)
         self.assertEqual(out["fetches"], 0, "the kernel was given inline; nothing was fetched")
 
-    @pending("M10-A1")
     def test_install_validates_the_brief_and_guards_early_calls(self):
         out = run_sdk("<h1>App</h1>", "0", """(async () => {
 const r = {};
@@ -58,7 +56,6 @@ with sync_playwright() as p:
 """ % json.dumps(str(SDK))).strip().splitlines()[-1])
         self.assertEqual(early, "IterAlly: not installed yet")
 
-    @pending("M10-A1")
     def test_sdk_has_no_pattern_text_and_no_dependencies(self):
         source = SDK.read_text(encoding="utf-8")
         for needle in ("Capture is quiet", "AgencyBalance", "WonderPreservation"):
@@ -73,7 +70,6 @@ with sync_playwright() as p:
 class CardTests(unittest.TestCase):
     """M10-A2"""
 
-    @pending("M10-A2")
     def test_card_renders_records_the_pick_and_queues(self):
         require_m10()
         out = run_sdk("<h1>App</h1>", "0", """(async () => {
@@ -108,7 +104,6 @@ return { rootFixed: getComputedStyle(root).position, cards, title, bodyHtml, but
         self.assertEqual(out["styleTags"], 0)
         self.assertEqual(out["calibration"], [["offer", "order", "a", "bright", "number"], ["read", None, "dismiss", "bright", "number"]])
 
-    @pending("M10-A2")
     def test_fork_requires_a_declared_pair_and_adds_the_line(self):
         out = run_sdk("<h1>App</h1>", "0", """(async () => {
 await window.__installed;
@@ -130,7 +125,6 @@ return r; })()""")
         self.assertEqual(out["cal"], [["fork", "header", "b"]])
         self.assertTrue(out["badPattern"].startswith("IterAlly: unknown pattern"), out["badPattern"])
 
-    @pending("M10-A2")
     def test_notice_is_a_passing_line_that_records_nothing(self):
         out = run_sdk("<h1>App</h1>", "IterAlly.__afterInstall = window.__installed.then(() => IterAlly.notice('that was a nice turn'));", """(async () => {
 await IterAlly.__afterInstall; await new Promise((r) => setTimeout(r, 50));
@@ -146,7 +140,6 @@ return { text: n && n.textContent, buttons: document.querySelectorAll('#iter-all
 class CalibrationTests(unittest.TestCase):
     """M10-A3"""
 
-    @pending("M10-A3")
     def test_calibration_persists_forgets_and_exports(self):
         require_m10()
         out = json.loads(__import__("m10_support").run_playwright("""
@@ -164,12 +157,12 @@ with sync_playwright() as p:
     pg.evaluate("(async () => { const p = IterAlly.card({ kind: 'offer', title: 't', choices: ['x', 'y'], topic: 'first' }); await new Promise((r) => setTimeout(r, 30)); document.querySelector('button.iter-ally-choice[data-choice=\\"b\\"]').click(); await p; })()")
     pg.wait_for_timeout(100)
     pg.reload(); pg.add_script_tag(path=%s)
-    pg.evaluate("window.IterAlly.install({ brief: %s, person: 'bright', kernel: %s })")
+    pg.evaluate("([b, k]) => window.IterAlly.install({ brief: b, person: 'bright', kernel: k })", [json.loads(%s), json.loads(%s)])
     pg.wait_for_timeout(100)
     out = pg.evaluate("(() => { const after = IterAlly.calibration().map((c) => [c.topic, c.pick]); const exp = IterAlly.calibrationExport(); IterAlly.forget(); return { after, exp, gone: IterAlly.calibration().length }; })()")
     print(json.dumps(out)); b.close()
 """ % (json.dumps(str(SDK)), json.dumps(json.dumps(kernel_json())), json.dumps(json.dumps(BRIEF)), json.dumps(str(SDK)),
-       json.dumps(BRIEF), json.dumps(kernel_json()))).strip().splitlines()[-1])
+       json.dumps(json.dumps(BRIEF)), json.dumps(json.dumps(kernel_json())))).strip().splitlines()[-1])
         self.assertEqual(out["after"], [["first", "b"]], "picks survive a reload")
         self.assertEqual(out["exp"]["app"], "Little Orbit")
         self.assertEqual(out["exp"]["person"], "bright")
@@ -182,7 +175,6 @@ with sync_playwright() as p:
 class ModelTests(unittest.TestCase):
     """M10-A4"""
 
-    @pending("M10-A4")
     def test_ask_sends_brief_and_lens_with_the_owners_key_or_refuses_without_a_model(self):
         require_m10()
         fetch = ("(url, init) => { window.__fetches.push([url, init]); return Promise.resolve({ ok: true, status: 200, "
@@ -215,7 +207,6 @@ return r; })()""", fetch_js=fetch)
 class KernelExportTests(unittest.TestCase):
     """M10-A5"""
 
-    @pending("M10-A5")
     def test_committed_kernel_json_equals_a_fresh_export(self):
         r = m10_root("m10kernel")
         self.addCleanup(r.close)

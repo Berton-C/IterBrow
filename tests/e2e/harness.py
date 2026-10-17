@@ -21,7 +21,7 @@ ITER_SRC = REPO / "iter"
 PYTHON = sys.executable
 HERE = Path(__file__).resolve().parent
 
-COPY = ["tools", "transformations", "channels", "iterbrow_runtime", "seeds", "vendor",
+COPY = ["tools", "transformations", "channels", "iterbrow_runtime", "seeds", "vendor", "sdk",
         "kb_substrate.metta", "capability_lifecycle.metta", "self_map.metta",
         "state_manifest.json", "metta_server.py", "metta_query_worker.py", "iter.py",
         "prompt.txt", "AGENTS.md", "reprogramming.txt", "rollup_helper.py", "hotload_control.py"]

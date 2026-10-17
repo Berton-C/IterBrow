@@ -36,6 +36,8 @@ document.getElementById('btn-go').addEventListener('click', go);
 document.getElementById('btn-dashboards').addEventListener('click', () => window.iterApi.openDashboards());
 document.getElementById('btn-pwq').addEventListener('click', () => window.iterApi.openPWQ());
 document.getElementById('btn-crm').addEventListener('click', () => window.iterApi.openCRM());
+// M10-C2: every local app in one menu (main.js builds it from the catalog and opens the pick).
+document.getElementById('btn-apps').addEventListener('click', () => window.iterApi.appsMenu());
 addr.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
 
 function go() {

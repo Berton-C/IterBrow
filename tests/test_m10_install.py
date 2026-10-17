@@ -22,7 +22,6 @@ class InstallToolTests(unittest.TestCase):
         self.addCleanup(self.r.close)
         self.r.start()
 
-    @pending("M10-B1")
     def test_plain_app_gets_the_files_and_the_include_once(self):
         write_soul_settings(self.r.root, "berton", {"brief": True})
         app = make_app_dir(self.r.root, "crm", body="<h1 id='title'>crm</h1>\n<script>window.crm = 1;</script>\n")
@@ -43,7 +42,6 @@ class InstallToolTests(unittest.TestCase):
         self.assertEqual(dir_digest(app), digest, "a second run changes nothing")
         self.assertTrue(self.r.text("ally_sdk", app="nope").startswith("ERROR: no app named"))
 
-    @pending("M10-B1")
     def test_foundry_project_install_is_a_checkpointed_source_write(self):
         write_soul_settings(self.r.root, "berton", {"brief": True})
         make_project(self.r.root, "orbit")
@@ -68,7 +66,6 @@ class InstallToolTests(unittest.TestCase):
 class NodeQuestTests(unittest.TestCase):
     """M10-B2"""
 
-    @pending("M10-B2")
     def test_nodequest_inherits_the_ally(self):
         r = m10_root("m10nodequest")
         self.addCleanup(r.close)
@@ -108,7 +105,6 @@ with sync_playwright() as p:
 class DocsTests(unittest.TestCase):
     """M10-B3"""
 
-    @pending("M10-B3")
     def test_agents_md_names_the_sdk_and_its_guarantees(self):
         require_m10()
         text = (ITER_SRC / "AGENTS.md").read_text(encoding="utf-8")

@@ -19,7 +19,6 @@ from m10_support import pending, require_m10, make_app_dir, SDK, KERNEL_JSON  # 
 
 
 class AllySdkLoopTests(unittest.TestCase):
-    @pending("M10-D1")
     def test_brief_then_sdk_through_the_loop(self):
         require_m10()
         script = [
