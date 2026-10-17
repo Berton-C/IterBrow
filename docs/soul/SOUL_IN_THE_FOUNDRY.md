@@ -129,7 +129,9 @@ This entry (the old M10) pulled forward, plus the first browser-track item. Orig
 - Tests: jar never surfaces more than the dial allows; lock suggestion never acts, only asks;
   compass dark when no pair is live.
 
-### M11 — The app inherits the ally
+### M10 — The app inherits the ally; every local app in the fold (spec: `docs/milestones/M10_ally_sdk.md`)
+This entry (the old M11), the last Soul milestone of the series, plus the Apps launcher, plain apps as
+app tabs, external links leaving an app, and focus-not-clutter for the toolbar buttons. Original:
 - A small margin SDK Iter can build into an app, so the app's own users get the noticing and
   the returned choice (NodeQuest first). The app's `flourishing_brief` is its Soul.
 - Tests: a built app with the SDK runs the person-read and fork card without IterBrow present
