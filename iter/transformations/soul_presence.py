@@ -58,6 +58,8 @@ def _budget_line(budget, felt_on):
     things = "cards or felt notes" if felt_on else "cards"
     if budget <= 0:
         return "No %s unless asked." % things
+    if budget == 1:
+        return "Up to one %s per cycle." % ("card or felt note" if felt_on else "card")
     return "Up to %d %s per cycle." % (budget, things)
 
 

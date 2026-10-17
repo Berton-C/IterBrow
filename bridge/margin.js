@@ -18,10 +18,18 @@
     return node;
   }
 
+  // Every node starts from this base so an app's own element rules (button, textarea, * {...})
+  // cannot leak into the margin; the margin's rules are inline and the page's CSS is never touched.
+  const BASE = {
+    margin: '0', boxSizing: 'border-box', font: '12px/1.4 -apple-system, system-ui, sans-serif',
+    letterSpacing: 'normal', textTransform: 'none', textDecoration: 'none', textAlign: 'left',
+    textShadow: 'none', boxShadow: 'none', outline: 'none', color: '#eee', minWidth: '0', minHeight: '0',
+  };
+
   function el(doc, tag, props, rules) {
     const node = doc.createElement(tag);
     Object.assign(node, props || {});
-    return rules ? style(node, rules) : node;
+    return style(node, Object.assign({}, BASE, rules || {}));
   }
 
   function selectorFor(element) {
@@ -74,7 +82,8 @@
       const glyph = el(doc, 'button', { id: 'iter-margin-glyph', type: 'button', textContent: '✦', title: 'Ask Iter about this page' }, {
         position: 'fixed', right: '10px', bottom: '10px', zIndex: '2147483646', width: '22px', height: '22px',
         padding: '0', border: 'none', borderRadius: '11px', background: 'transparent', color: '#8a6cd1',
-        fontSize: '14px', lineHeight: '22px', cursor: 'pointer', opacity: '0.35', transition: 'opacity 120ms ease',
+        font: '14px/22px -apple-system, system-ui, sans-serif', textAlign: 'center', cursor: 'pointer', opacity: '0.35',
+        transition: 'opacity 120ms ease',
       });
       glyph.setAttribute('aria-label', 'Iter');
       glyph.addEventListener('mouseenter', () => { glyph.style.opacity = '0.9'; });
@@ -91,18 +100,17 @@
         panel = el(doc, 'div', { id: 'iter-margin' }, {
           position: 'fixed', right: '10px', bottom: '40px', zIndex: '2147483647', width: '280px', boxSizing: 'border-box',
           padding: '10px', borderRadius: '10px', background: 'rgba(28, 24, 36, 0.96)', color: '#eee',
-          font: '12px/1.4 -apple-system, system-ui, sans-serif', boxShadow: '0 6px 24px rgba(0,0,0,0.3)',
+          boxShadow: '0 6px 24px rgba(0,0,0,0.3)',
         });
         const target = el(doc, 'div', { id: 'iter-margin-target', textContent: 'pointing at: ' + (pointed ? pointed.selector : 'the page') },
           { opacity: '0.7', marginBottom: '6px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' });
         const text = el(doc, 'textarea', { id: 'iter-margin-text', rows: 3, placeholder: 'ask, or leave empty and jam' }, {
-          width: '100%', boxSizing: 'border-box', resize: 'vertical', borderRadius: '6px', border: '1px solid #554',
-          background: '#171420', color: '#eee', padding: '6px', font: 'inherit',
+          width: '100%', resize: 'vertical', borderRadius: '6px', border: '1px solid #554',
+          background: '#171420', padding: '6px', display: 'block',
         });
         const row = el(doc, 'div', {}, { display: 'flex', gap: '6px', marginTop: '6px', alignItems: 'center' });
         const button = (id, label) => el(doc, 'button', { id, type: 'button', textContent: label }, {
-          border: '1px solid #665', borderRadius: '6px', background: '#2b2538', color: '#eee', padding: '4px 8px',
-          font: 'inherit', cursor: 'pointer',
+          border: '1px solid #665', borderRadius: '6px', background: '#2b2538', padding: '4px 8px', cursor: 'pointer',
         });
         const ask = button('iter-margin-ask', 'Ask about this');
         const jam = button('iter-margin-jam', 'Jam on this');

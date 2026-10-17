@@ -54,7 +54,7 @@ class SemanticMemoryAuthorityTests(unittest.TestCase):
         ]
         with IterRun(script, name="semantic") as run:
             run.say("remember facts about the cat")
-            run.wait_for_reply("E2E-SEMANTIC-DONE")
+            run.wait_for_reply("E2E-SEMANTIC-DONE", timeout=420)  # six tool rounds; the default 180s is tight on a slow box
             run.stop()
             log = run.read_log("iter.log")
             calls = {}

@@ -10,6 +10,7 @@ import json
 import re
 import subprocess
 import sys
+import time
 import unittest
 from pathlib import Path
 
@@ -81,8 +82,15 @@ class SoulPresenceLoopTests(unittest.TestCase):
                                 "element": {"selector": "p.note", "tag": "p", "text": "hello"}})
             self.assertTrue(sent["written"], sent)
             run.wait_for_reply("MARGIN-SEEN", timeout=300)
+            # The loop may wake and reply before it reads the inbox line; the line still wakes it
+            # again, so wait for it to land rather than racing the reply (as the M6 test does).
             line = "[margin app=crm tab=3 intent=ask element=p.note] why is this grey?"
-            seen = [m for m in run.experience() if m.get("role") == "user" and line in str(m.get("content", ""))]
+            deadline = time.time() + 120
+            while time.time() < deadline:
+                seen = [m for m in run.experience() if m.get("role") == "user" and line in str(m.get("content", ""))]
+                if seen:
+                    break
+                time.sleep(0.5)
             self.assertTrue(seen, "the margin line never reached the loop:\n" + run.read_log("iter.log")[-3000:])
             self.assertEqual(len(run.atoms("state:soul_margin:")), 1)
 

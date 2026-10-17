@@ -20,7 +20,12 @@ Implementation notes:
 - `tab_manager.js` gained `tabForWebContentsId` and `appTabs`; `main.js` decides margin access in
   `marginAccess` (sender's tab → app scope, lock; saved person → switch) and pushes `margin:state` on
   every tab change (locks) and Soul-panel save. `museum_night` folds the append-only museum log to the
-  latest record per id. Roadmap: `docs/soul/SOUL_IN_THE_FOUNDRY.md`
+  latest record per id.
+- **Audit 2026-10-17.** Every margin node now starts from an explicit base style (font, spacing,
+  shadow, outline, transform) so an app's own `button`/`textarea`/`*` rules cannot leak into it
+  (verified by rendering over the real CRM page). "Up to one card per cycle" when the budget is 1.
+  The M8 end-to-end test waits for the margin line to land instead of racing the loop's reply (the
+  same race the M6 test had); the semantic e2e gets 420 s for its six tool rounds. Roadmap: `docs/soul/SOUL_IN_THE_FOUNDRY.md`
 (this milestone merges the roadmap's M8 modes with M9 "Iter in the tab"; the deep person-read and the
 twin are parked as a separate later build, "the Muse"). Base: M6 cards/settings/kernel, M7 taste/felt/
 briefs/forks. Tests: `tests/test_m8_*.py`, `tests/e2e/test_m8_loop.py`; helpers in `tests/m8_support.py`.
