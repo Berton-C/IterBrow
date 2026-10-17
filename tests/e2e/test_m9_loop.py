@@ -48,7 +48,6 @@ class WonderAllyLoopTests(unittest.TestCase):
         def call(self, method, params):
             return atomspace_call(self.run.sock, method, params)
 
-    @pending("M9-E1")
     def test_wonder_round_trip_and_browsing_block(self):
         require_m9()
         script = [

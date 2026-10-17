@@ -61,3 +61,19 @@ input:focus { border-color: var(--accent); }
   color: #b7791f;
 }
 .lock-indicator.visible { opacity: 1; }
+
+/* M9: the browsing ally. Hidden unless the person turned it on; the compass lights only while
+   Iter has handed them a choice. */
+#ally-notice { display: none; align-items: center; gap: 6px; margin-left: 10px; font-size: 12px; color: var(--muted); }
+#ally-notice.visible { display: inline-flex; }
+#ally-notice button { padding: 2px 8px; font-size: 12px; }
+#compass { display: none; margin-left: auto; padding: 0 6px; color: #b9b2c9; font-size: 14px; cursor: default; user-select: none; }
+#compass.on { display: inline-block; }
+#compass.live { color: #8a6cd1; text-shadow: 0 0 6px rgba(138, 108, 209, .55); }
+
+/* M9: find-in-page. */
+#find-bar { display: none; align-items: center; gap: 4px; flex: 0 0 auto; }
+#find-bar.visible { display: inline-flex; }
+#find-text { width: 180px; flex: 0 0 auto; }
+#find-count { min-width: 70px; font-size: 12px; color: var(--muted); text-align: center; }
+#find-bar button { padding: 3px 7px; }

@@ -45,6 +45,18 @@ contextBridge.exposeInMainWorld('iterApi', {
   loadSoulSettings: () => ipcRenderer.invoke('soul:load'),
   saveSoulSettings: (settings) => ipcRenderer.invoke('soul:save', settings),
   forgetSoulTaste: () => ipcRenderer.invoke('soul:forget'),
+  // M9: the browsing ally (toolbar) and find-in-page.
+  onAllySuggest: (cb) => ipcRenderer.on('ally:suggest', (_e, payload) => cb(payload)),
+  allyLock: (tabId) => ipcRenderer.invoke('ally:lock', tabId),
+  allyDecline: (host) => ipcRenderer.invoke('ally:decline', host),
+  onCompassState: (cb) => ipcRenderer.on('compass:state', (_e, state) => cb(state)),
+  onFindOpen: (cb) => ipcRenderer.on('find:open', () => cb()),
+  onFindResult: (cb) => ipcRenderer.on('find:result', (_e, result) => cb(result)),
+  onFindClosed: (cb) => ipcRenderer.on('find:closed', () => cb()),
+  findQuery: (text) => ipcRenderer.invoke('find:query', text),
+  findNext: () => ipcRenderer.invoke('find:next'),
+  findPrev: () => ipcRenderer.invoke('find:prev'),
+  findClose: () => ipcRenderer.invoke('find:close'),
   saveSettings: (settings) => ipcRenderer.invoke('settings:save', settings),
 
   permissionsStatus: () => ipcRenderer.invoke('permissions:status'),

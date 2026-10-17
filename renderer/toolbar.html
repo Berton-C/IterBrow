@@ -11,10 +11,15 @@
     <button id="btn-dashboards" title="Open the generated runtime / context / atomspace / gallery dashboards">Dashboards</button>
     <button id="btn-pwq" title="Open the Pending Work Queue — where iter proposes, you dispose">PWQ</button>
     <button id="btn-crm" title="Open the COS Command Center (CRM) — contacts, tasks, events">CRM</button>
+    <!-- M9: the browsing ally (off by default): a lock suggestion that only asks, and the compass. -->
+    <span id="ally-notice" role="status"><span id="ally-text"></span><button id="ally-lock">Lock it</button><button id="ally-no">No</button></span>
+    <span id="compass" title="Compass" aria-label="Compass">&#10022;</span>
   </div>
   <div id="navbar-row2">
     <input id="addr" placeholder="Type a URL or search…" autocomplete="off" spellcheck="false">
     <button id="btn-go">Go</button>
+    <!-- M9: find-in-page (Cmd+F). -->
+    <span id="find-bar" role="search"><input id="find-text" placeholder="Find in page" autocomplete="off" spellcheck="false"><span id="find-count"></span><button id="find-prev" title="Previous (Shift+Enter)">&#8593;</button><button id="find-next" title="Next (Enter)">&#8595;</button><button id="find-close" title="Close (Esc)">&times;</button></span>
   </div>
 </div>
 <script src="toolbar.js"></script>

@@ -26,7 +26,6 @@ def ally(script):
 class PureAllyTests(unittest.TestCase):
     """M9-C1"""
 
-    @pending("M9-C1")
     def test_suggest_lock_is_conservative(self):
         require_m9()
         out = ally("""process.stdout.write(JSON.stringify([
@@ -41,7 +40,6 @@ class PureAllyTests(unittest.TestCase):
                           "looks like a health or government account", "looks like a health or government account"])
         self.assertEqual(out[6:], [None] * 6)
 
-    @pending("M9-C1")
     def test_should_log_only_plain_unlocked_http_tabs_when_on(self):
         out = ally("""process.stdout.write(JSON.stringify([
   A.shouldLog({ url: 'https://a.test/', locked: false, appScope: null }, true),
@@ -52,7 +50,6 @@ class PureAllyTests(unittest.TestCase):
   A.shouldLog({ url: 'about:blank', locked: false, appScope: null }, true) ]));""")
         self.assertEqual(out, [True, False, False, False, False, False])
 
-    @pending("M9-C1")
     def test_compass_state_from_the_journal(self):
         out = ally("""
 const card = (id, topic) => ({ role: 'iter', at: 1, card: { id, kind: 'offer', title: 't', choices: [{ id: 'a', label: 'A' }], ...(topic ? { topic } : {}) } });
@@ -63,7 +60,6 @@ process.stdout.write(JSON.stringify([
         self.assertEqual(out, [{"live": False, "pair": None}, {"live": True, "pair": "wonder-time"}, {"live": False, "pair": None},
                                {"live": False, "pair": None}, {"live": True, "pair": "wonder-shared"}])
 
-    @pending("M9-C1")
     def test_recent_browsing_merges_dwell_per_domain_newest_first(self):
         out = ally("""
 const now = 1700000000000, m = 60000;
@@ -82,7 +78,6 @@ process.stdout.write(JSON.stringify(A.recentBrowsing(lines, now)));""")
 class WiringTests(unittest.TestCase):
     """M9-C2"""
 
-    @pending("M9-C2")
     def test_main_logs_suggests_and_pushes_compass_only_when_on(self):
         main = (REPO / "main.js").read_text(encoding="utf-8")
         self.assertIn("require('./bridge/browsing_ally')", main)
@@ -108,13 +103,13 @@ class ToolbarAllyTests(unittest.TestCase):
     def _page(self, setup, probe):
         return json.loads(run_playwright(toolbar_page_script(setup, probe, TOOLBAR_API)).strip().splitlines()[-1])
 
-    @pending("M9-C3")
     def test_notice_and_compass(self):
         require_m9()
         out = self._page("""
 window.__handlers.allySuggest({ tab: 1, reason: 'looks like your bank', host: 'online.chase.com' });
 """, """(() => {
 const n = document.querySelector('#ally-notice');
+const shownAtFirst = n && getComputedStyle(n).display !== 'none' ? n.textContent : null;
 const compassHidden = getComputedStyle(document.querySelector('#compass')).display === 'none';
 document.querySelector('#ally-lock').click();
 const afterLock = getComputedStyle(n).display;
@@ -124,7 +119,7 @@ window.__handlers.compass({ live: true, pair: 'wonder-time', on: true });
 const liveTitle = document.querySelector('#compass').title;
 const liveClass = document.querySelector('#compass').classList.contains('live');
 window.__handlers.compass({ live: false, pair: null, on: true });
-return { shown: n && getComputedStyle(n).display !== 'none' ? n.textContent : null, compassHiddenAtStart: compassHidden,
+return { shown: shownAtFirst, compassHiddenAtStart: compassHidden,
          afterLock, calls: window.__calls.filter((c) => c[0].startsWith('ally')), liveTitle, liveClass,
          darkClass: document.querySelector('#compass').classList.contains('live'),
          shownNow: getComputedStyle(document.querySelector('#compass')).display !== 'none' };
@@ -151,7 +146,6 @@ class BrowsingBlockTests(unittest.TestCase):
         msgs, _ = run_transformation(self.temp, "soul_browsing.py", env_extra={"ITER_METTA_SOCKET": "/nonexistent/sock"})
         return msgs[-1]["content"]
 
-    @pending("M9-C4")
     def test_block_lists_recent_domains_and_the_rule(self):
         now = now_ms()
         write_browsing_log(self.temp, [{"at": now - 20 * 60000, "tab": 1, "domain": "docs.python.org", "title": "asyncio"},
@@ -163,7 +157,6 @@ class BrowsingBlockTests(unittest.TestCase):
         for word in ("ally:", "wonder-time", "wonder-shared", "hand the choice back", "otherwise say nothing", "30 min"):
             self.assertIn(word, content, word)
 
-    @pending("M9-C4")
     def test_nothing_when_off_quiet_or_empty(self):
         now = now_ms()
         write_browsing_log(self.temp, [{"at": now - 60000, "tab": 1, "domain": "a.test", "title": "A"}])

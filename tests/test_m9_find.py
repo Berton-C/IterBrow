@@ -19,7 +19,6 @@ class FindBarTests(unittest.TestCase):
     def _page(self, setup, probe):
         return json.loads(run_playwright(toolbar_page_script(setup, probe, TOOLBAR_API)).strip().splitlines()[-1])
 
-    @pending("M9-D1")
     def test_bar_opens_queries_steps_and_closes(self):
         require_m9()
         out = self._page("window.__handlers.findOpen();", """(async () => {
@@ -46,7 +45,6 @@ return { shown, focused, count, none, hidden, calls: window.__calls.filter((c) =
         self.assertTrue(out["hidden"])
         self.assertEqual(out["calls"], [["findQuery", "asyncio"], ["findNext"], ["findPrev"], ["findNext"], ["findPrev"], ["findClose"], ["findClose"]])
 
-    @pending("M9-D1")
     def test_bar_is_hidden_by_default_and_reopen_selects_the_text(self):
         out = self._page("0", """(() => {
 const hidden = getComputedStyle(document.querySelector('#find-bar')).display === 'none';
@@ -61,7 +59,6 @@ return { hidden, selected: t.selectionStart === 0 && t.selectionEnd === 3 };
 class FindMainTests(unittest.TestCase):
     """M9-D2"""
 
-    @pending("M9-D2")
     def test_menu_handlers_and_tab_switch_close(self):
         main = (REPO / "main.js").read_text(encoding="utf-8")
         preload = (REPO / "preload.js").read_text(encoding="utf-8")

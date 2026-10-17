@@ -12,7 +12,8 @@ state:soul_* atoms. For each recorded choice not yet folded (no soul-taste-seen 
 - then the seen marker, so each answer is folded exactly once.
 
 The atoms are the record: this never reads the chat journal. It never touches keys outside
-state:soul_taste*, state:soul_dismiss:* and state:soul_taste_seen:*, and it never gates,
+state:soul_taste*, state:soul_dismiss:*, state:soul_taste_seen:*, and (M9) state:soul_topic_pick:*
+and the status of a kept idea (state:soul_wonder:*) picked on its offer card; it never gates,
 filters or changes the prompt. With nothing new it costs one read and commits nothing.
 """
 import importlib.util
@@ -36,6 +37,11 @@ CARD = re.compile(r'^\(soul-card %s %s %s (\d+)\)$' % (_S, _S, _S))
 CARD_CHOICE = re.compile(r'^\(soul-card-choice %s %s (\S+) %s\)$' % (_S, _S, _S))
 TASTE = re.compile(r'^\(soul-taste %s (\S+) (\S+) \(stv ([0-9.]+) ([0-9.]+)\) (\d+)\)$' % _S)
 DISMISS = re.compile(r'^\(soul-dismissed %s %s (\d+)\)$' % (_S, _S))
+# M9: card topics and the picks made on them (docs/milestones/M9_soul_wonder_ally.md A3).
+CARD_TOPIC = re.compile(r'^\(soul-card-topic %s %s\)$' % (_S, _S))
+TOPIC_PICK = re.compile(r'^\(soul-topic-pick %s %s (\d+)\)$' % (_S, _S))
+WONDER = re.compile(r'^\(soul-wonder %s %s %s %s %s (\d+)\)$' % (_S, _S, _S, _S, _S))
+WONDER_STATUS = {"take": "taken", "let_go": "let-go"}
 
 
 def _unquote(text):
@@ -106,8 +112,28 @@ def plan(atoms):
             if match:
                 dismissed[(_unquote(match.group(1)), _unquote(match.group(2)))] = int(match.group(3))
 
+    topic_ops = {}  # key -> operation, so the latest pick per topic / idea wins within a cycle
+    topic_at = {}
+    for key, atom in atoms.items():
+        if key.startswith("state:soul_topic_pick:"):
+            match = TOPIC_PICK.match(atom.strip())
+            if match:
+                topic_at[_unquote(match.group(1))] = int(match.group(3))
+
     touched_tastes, touched_dismissed, operations, votes = set(), set(), [], []
     for _at, card_id, choice in sorted(pending):
+        topic = _topic(atoms, card_id)
+        if topic and choice is not None:
+            _, _, pick = choice
+            if _at >= topic_at.get(topic, -1):
+                topic_at[topic] = _at
+                topic_ops["state:soul_topic_pick:%s" % topic] = {
+                    "op": "upsert", "key": "state:soul_topic_pick:%s" % topic,
+                    "atom": "(soul-topic-pick %s %s %d)" % (_quote(topic), _quote(pick), _at)}
+                if topic.startswith("wonder:") and pick in WONDER_STATUS:
+                    wonder_op = _wonder_status(atoms, topic[len("wonder:"):], WONDER_STATUS[pick])
+                    if wonder_op:
+                        topic_ops[wonder_op["key"]] = wonder_op
         offered = _offer(atoms, card_id)
         if choice is not None and offered is not None:
             person, kind, pick = choice
@@ -131,6 +157,7 @@ def plan(atoms):
                         votes.append((museum_id, "reject"))
         operations.append({"op": "upsert", "key": "state:soul_taste_seen:%s" % card_id,
                            "atom": "(soul-taste-seen %s)" % _quote(card_id)})
+    operations.extend(topic_ops.values())
     for person, picked, over in sorted(touched_tastes):
         picks, n = tastes[(person, picked, over)]
         operations.append({"op": "upsert", "key": "state:soul_taste:%s:%s:%s" % (person, picked, over),
@@ -139,6 +166,23 @@ def plan(atoms):
         operations.append({"op": "upsert", "key": "state:soul_dismiss:%s:%s" % (person, kind),
                            "atom": "(soul-dismissed %s %s %d)" % (_quote(person), _quote(kind), dismissed[(person, kind)])})
     return operations, votes
+
+
+def _topic(atoms, card_id):
+    atom = atoms.get("state:soul_card_topic:%s" % card_id)
+    match = CARD_TOPIC.match(atom.strip()) if atom else None
+    return _unquote(match.group(2)) if match else None
+
+
+def _wonder_status(atoms, wonder_id, status):
+    """The upsert that sets a kept idea's status, or None when there is no such idea."""
+    key = "state:soul_wonder:%s" % wonder_id
+    match = WONDER.match(atoms.get(key, "").strip())
+    if not match:
+        return None
+    person, app, wid, idea = (_unquote(match.group(i)) for i in (1, 2, 3, 4))
+    return {"op": "upsert", "key": key, "atom": "(soul-wonder %s %s %s %s %s %s)" % (
+        _quote(person), _quote(app), _quote(wid), _quote(idea), _quote(status), match.group(6))}
 
 
 def _offer(atoms, card_id):

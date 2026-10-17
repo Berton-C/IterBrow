@@ -7,7 +7,7 @@ import time
 import uuid
 from pathlib import Path
 
-DESCRIPTION = """Show the person a sidebar card with 1-3 choices; their click returns as "[choice card=<id> pick=<choice> by=<person>] <label>". kind: fork, brief, read, offer, note. choices: labels or {id,label,hint,pattern,museum_id}: pattern = the Soul pattern that pole protects (lets Iter learn the person's leans), museum_id = the variant it picks (the pick casts keep/reject). links: optional [{label,url}] (variant tabs). Use rarely."""
+DESCRIPTION = """Show the person a sidebar card with 1-3 choices; their click returns as "[choice card=<id> pick=<choice> by=<person>] <label>". kind: fork, brief, read, offer, note. choices: labels or {id,label,hint,pattern,museum_id}: pattern = the Soul pattern that pole protects (lets Iter learn the person's leans), museum_id = the variant it picks (the pick casts keep/reject). links: optional [{label,url}]. topic: wonder:<id>, growth or ally:<pair> when the card answers one. Use rarely."""
 
 KINDS = ("fork", "brief", "read", "offer", "note")
 TOOLS_DIR = Path(__file__).resolve().parent
@@ -116,10 +116,16 @@ def offer_operations(card, person, at_ms):
                     "atom": "(soul-card-choice %s %s %s %s)" % (_quote(card["id"]), _quote(choice["id"]),
                                                              choice.get("pattern") or "none",
                                                              _quote(choice.get("museum_id") or "-"))})
+    if card.get("topic"):
+        ops.append({"op": "upsert", "key": "state:soul_card_topic:%s" % card["id"],
+                    "atom": "(soul-card-topic %s %s)" % (_quote(card["id"]), _quote(card["topic"]))})
     return ops
 
 
-def run(kind, title, body, choices, links=None, expires_in_s=None):
+TOPIC = re.compile(r"^[a-z][a-z0-9_:-]{0,63}$")
+
+
+def run(kind, title, body, choices, links=None, expires_in_s=None, topic=None):
     kind = str(kind or "").strip()
     title = str(title or "").strip()
     body = str(body or "").strip()
@@ -136,7 +142,12 @@ def run(kind, title, body, choices, links=None, expires_in_s=None):
         unknown = [name for name in named if name not in known]
         if unknown:
             return "ERROR: unknown pattern %s (the nine are in the Soul kernel; soul_reflect lists them)" % ", ".join(unknown)
+    topic = str(topic or "").strip() or None
+    if topic and not TOPIC.match(topic):
+        return "ERROR: topic must look like wonder:<id>, growth or ally:<pair>"
     card = {"id": "card-%s" % uuid.uuid4().hex[:12], "kind": kind, "title": title, "body": body, "choices": parsed}
+    if topic:
+        card["topic"] = topic
     if links:
         link_list = _as_list(links) or []
         clean = [{"label": str(l.get("label", "")).strip(), "url": str(l.get("url", "")).strip()}

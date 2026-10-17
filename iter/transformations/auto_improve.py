@@ -191,6 +191,92 @@ def _service_before_growth_active():
         return False
 
 
+# ---- M9-B: service before growth, with a voice ----------------------------
+PENDING_PATH = os.path.join(ITER_ROOT, "memory", ".improve_pending")
+GROWTH_ASKED_PATH = os.path.join(ITER_ROOT, "memory", ".growth_asked")
+GROWTH_ASK_EVERY_S = 24 * 3600
+SERVICE_FLAG_PATH = os.path.join("memory", ".service_before_growth_flag.json")
+
+
+def _append_note(messages, note):
+    first_msg = messages[0]
+    if isinstance(first_msg, dict) and isinstance(first_msg.get("content"), str):
+        first_msg["content"] = first_msg["content"].rstrip() + note
+
+
+def _soul_atoms():
+    """state:soul_* atoms from the AtomSpace, or {} when it cannot be reached."""
+    try:
+        root = os.path.realpath(os.environ.get("ITER_DIR") or os.getcwd())
+        code_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        for path in (code_root, root):
+            if path not in sys.path:
+                sys.path.insert(0, path)
+        from iterbrow_runtime.cognitive_events import _call_atomspace
+        return _call_atomspace("read_atoms", prefix="state:soul_")["atoms"]
+    except Exception:
+        return {}
+
+
+def _growth_pick(atoms):
+    """(pick, at_ms) of the latest pick on a growth card, or (None, 0)."""
+    match = re.match(r'^\(soul-topic-pick "growth" "((?:[^"\\]|\\.)*)" (\d+)\)$',
+                     str(atoms.get("state:soul_topic_pick:growth", "")).strip())
+    return (match.group(1), int(match.group(2))) if match else (None, 0)
+
+
+def _growth_answer():
+    """"now" only when the person picked it after the current deferral began (the flag file's mtime)."""
+    pick, at = _growth_pick(_soul_atoms())
+    if pick != "now":
+        return pick
+    try:
+        began = os.path.getmtime(SERVICE_FLAG_PATH) * 1000
+    except OSError:
+        return None
+    return "now" if at > began else None
+
+
+def _growth_outstanding(atoms):
+    for key, atom in atoms.items():
+        if key.startswith("state:soul_card_topic:") and atom.strip().endswith('"growth")'):
+            if "state:soul_choice:%s" % key[len("state:soul_card_topic:"):] not in atoms:
+                return True
+    return False
+
+
+def _should_ask_growth():
+    import time
+    try:
+        if time.time() - float(_read_file(GROWTH_ASKED_PATH).strip() or 0) < GROWTH_ASK_EVERY_S:
+            return False
+    except Exception:
+        pass
+    atoms = _soul_atoms()
+    if _growth_outstanding(atoms):
+        return False
+    pick, at = _growth_pick(atoms)
+    if pick == "later" and time.time() * 1000 - at < GROWTH_ASK_EVERY_S * 1000:
+        return False
+    return True
+
+
+def _mark_growth_asked():
+    import time
+    try:
+        with open(GROWTH_ASKED_PATH, "w") as f:
+            f.write(str(time.time()))
+    except Exception:
+        pass
+
+
+def _growth_subject(signals, reliability):
+    pain_tools = _detect_tool_pain(reliability) if reliability else []
+    if pain_tools:
+        return "the %s tool" % sorted(pain_tools, key=lambda t: t["f"])[0]["tool"]
+    return signals[0].split(" (")[0] if signals else "my own reliability"
+
+
 def _log_issue(detail):
     """Best-effort diagnostic trail (same shape as dynamic_tool_budget's) for
     failures the catch-alls would otherwise absorb. Never raises."""
@@ -280,15 +366,37 @@ def transform(messages, tools):
             # Item 4 (self_map.metta): a severe, recurring send-discipline
             # gap is currently flagged by cognitive_resilience_guard.py --
             # defer self-build proposals until service to the current user
-            # thread is demonstrably stable again. Does not clear cooldown
-            # or touch FLAG_PATH; simply skips proposing this cycle.
-            first_msg = messages[0]
-            if isinstance(first_msg, dict) and isinstance(first_msg.get("content"), str):
-                first_msg["content"] = first_msg["content"].rstrip() + (
-                    "\n\n--- AUTO-IMPROVE: deferred this cycle -- service-before-growth flag "
+            # thread is demonstrably stable again. Never touches the flag
+            # file (it belongs to cognitive_resilience_guard.py).
+            # M9-B (docs/milestones/M9_soul_wonder_ally.md): the deferral now
+            # has a voice. With real pain, the proposal waits in
+            # memory/.improve_pending and Iter asks the person once a day
+            # (a growth card: now / later). "now" is the person choosing; the
+            # proposal then goes through this cycle as if not deferred.
+            pain, signals, mem_size, reliability = _compute_pain(messages)
+            if pain >= PAIN_THRESHOLD and _growth_answer() == "now":
+                proposal = _build_proposal(pain, signals, mem_size, reliability)
+                with open(FLAG_PATH, "w") as f:
+                    f.write(proposal)
+                _set_cooldown()
+                if _exists(PENDING_PATH):
+                    os.remove(PENDING_PATH)
+                _append_note(messages, "\n\n--- AUTO-IMPROVE: Pain score %.1f >= threshold %.1f. The person chose "
+                                       "\"now\" on the growth card, so this proposal is not deferred. Proposal in "
+                                       "memory/.improve_needed. Review and surface to user. ---\n" % (pain, PAIN_THRESHOLD))
+                return messages, tools
+            note = ("\n\n--- AUTO-IMPROVE: deferred this cycle -- service-before-growth flag "
                     "active (memory/.service_before_growth_flag.json). Self-build proposals "
-                    "resume once send-discipline stabilizes. ---\n"
-                )
+                    "resume once send-discipline stabilizes. ---\n")
+            if pain >= PAIN_THRESHOLD:
+                with open(PENDING_PATH, "w") as f:
+                    f.write(_build_proposal(pain, signals, mem_size, reliability))
+                if _should_ask_growth():
+                    note += ("I'd like to work on %s for myself. Now, or later? Ask the person once, as an offer "
+                             "card with topic growth and choices now / later; their answer is theirs to give, "
+                             "and later is a fine answer. ---\n" % _growth_subject(signals, reliability))
+                    _mark_growth_asked()
+            _append_note(messages, note)
             return messages, tools
         pain, signals, mem_size, reliability = _compute_pain(messages)
         if pain >= PAIN_THRESHOLD:

@@ -1,6 +1,19 @@
 # Milestone 9 — Wonder, the voice of growth, the browsing ally, find-in-page
 
-Status: **scoped, tests written, implementation pending.** Roadmap: `docs/soul/SOUL_IN_THE_FOUNDRY.md`
+Status: **implemented 2026-10-17** (all `@pending` decorators removed).
+Implementation notes:
+- `iterbrow_runtime/soul_wonder_store.py` holds the wonder atom format shared by the tool and
+  `transformations/soul_wonder.py`. An unanswered wonder offer card silences the jar until the person
+  answers or dismisses it (it stays in the sidebar).
+- `auto_improve.py`: only the deferred branch changed; the path without the flag is identical to
+  before (diffed). Deferred + pain writes `memory/.improve_pending` and asks once a day; a `now` pick
+  newer than the flag file's mtime lets that cycle's proposal through. The flag file is never written.
+- Find-in-page follows Electron 33's semantics: `findNext: true` starts a session, follow-ups pass
+  `false`. Switching tabs (`tabs:switch`) closes the find and clears highlights.
+- Ally lock suggestions are sent once per host per session; "No" is remembered for the session.
+- Two test corrections, same intent: the growth "now" pick is seeded 1 ms (not 5 s) after the flag's
+  mtime, since a future-dated pick legitimately postdates the deferral the second half rewrites; the
+  toolbar ally probe captures the notice before clicking "Lock it" / "No" (it read it after). Roadmap: `docs/soul/SOUL_IN_THE_FOUNDRY.md`
 (this is the roadmap's M10 pulled forward, plus the first browser-track item). Base: M6–M8. Tests:
 `tests/test_m9_*.py`, `tests/e2e/test_m9_loop.py`; helpers in `tests/m9_support.py`. Every test starts
 `@pending("M9-xx")`; remove the decorator as each passes. `M9_IMPLEMENTED` is keyed on

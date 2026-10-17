@@ -18,6 +18,7 @@ const { TabManager } = require('./bridge/tab_manager');
 const { inspectSocketPath, startBridgeServer } = require('./bridge/browser_bridge_server');
 const contextMenu = require('./bridge/context_menu');
 const { recordSoulChoice, flushSoulChoices, forgetSoulTaste, recordSoulMargin } = require('./bridge/soul_choice');
+const browsingAlly = require('./bridge/browsing_ally');
 const { makeChatBridge } = require('./bridge/chat_bridge');
 const { retirePreviousIter } = require('./bridge/iter_process_owner');
 const OPENAI_CATALOG = require('./iter/iterbrow_runtime/openai_models.json');
@@ -2229,6 +2230,17 @@ function buildAppMenu() {
       label: 'View',
       submenu: [
         {
+          // M9-D: find-in-page. Works on locked tabs: it is the person's action, not Iter's.
+          label: 'Find…',
+          accelerator: 'CmdOrCtrl+F',
+          click: () => {
+            if (!toolbarView) return;
+            toolbarView.webContents.focus();
+            toolbarView.webContents.send('find:open');
+          },
+        },
+        { type: 'separator' },
+        {
           label: 'Actual Size',
           accelerator: 'CmdOrCtrl+0',
           click: () => {
@@ -2330,6 +2342,7 @@ async function createWindow() {
   // listener yet; the renderer then replays them through chat:history.
   chatBridge = makeChatBridge(ITER_DIR, (message) => {
     if (sidebarView) sidebarView.webContents.send('chat:incoming', message);
+    pushCompassState(); // an ally card may have arrived
   }, { log: pushLog });
   pinUiViewToItsPage(sidebarView, 'sidebar');
   sidebarView.webContents.loadFile(path.join(__dirname, 'renderer', 'index.html'));
@@ -2385,6 +2398,8 @@ async function createWindow() {
     saveTabSessionDebounced();
     // A lock toggle shows or hides the margin live (margin:state to every app tab).
     pushMarginState();
+    // The browsing ally (only while the person has it on): log and lock suggestions.
+    allyObserveActiveTab(list);
   };
   // Fires just before a tab is actually removed (see TabManager.closeTab),
   // for every close path -- menu, sidebar UI, or Iter's bridge tools alike.
@@ -2485,7 +2500,51 @@ async function createWindow() {
 ipcMain.handle('tabs:list', () => tabs.list());
 ipcMain.handle('tabs:new', (_e, url) => tabs.createTab(url));
 ipcMain.handle('tabs:close', (_e, id) => tabs.closeTab(id));
-ipcMain.handle('tabs:switch', (_e, id) => tabs.switchTab(id));
+ipcMain.handle('tabs:switch', (_e, id) => {
+  closeFind(); // switching tabs closes the find bar and clears its highlights
+  return tabs.switchTab(id);
+});
+
+// ---- Find-in-page (docs/milestones/M9_soul_wonder_ally.md D2) ----------------------------
+// Electron: findInPage's findNext=true starts a new search session; follow-ups pass false.
+let findState = null; // { tab, text }
+const findListening = new WeakSet();
+
+function findTab() {
+  return tabs && tabs.activeId != null ? tabs.tabs.get(tabs.activeId) : null;
+}
+
+function closeFind() {
+  if (findState && findState.tab && !findState.tab.view.webContents.isDestroyed()) {
+    try { findState.tab.view.webContents.stopFindInPage('clearSelection'); } catch (_) {}
+  }
+  if (findState && toolbarView) toolbarView.webContents.send('find:closed');
+  findState = null;
+}
+
+function runFind(text, forward, fresh) {
+  const tab = findTab();
+  if (!tab || !text) return null;
+  const contents = tab.view.webContents;
+  if (!findListening.has(contents)) {
+    findListening.add(contents);
+    contents.on('found-in-page', (_event, result) => {
+      if (toolbarView) toolbarView.webContents.send('find:result', { active: result.activeMatchOrdinal, total: result.matches });
+    });
+  }
+  if (findState && findState.tab !== tab) closeFind();
+  findState = { tab, text };
+  return contents.findInPage(text, { findNext: fresh, forward });
+}
+
+ipcMain.handle('find:query', (_e, text) => {
+  const value = String(text || '');
+  if (!value) { closeFind(); return null; }
+  return runFind(value, true, true);
+});
+ipcMain.handle('find:next', () => (findState ? runFind(findState.text, true, false) : null));
+ipcMain.handle('find:prev', () => (findState ? runFind(findState.text, false, false) : null));
+ipcMain.handle('find:close', () => { closeFind(); return null; });
 // User-only: toggles the padlock shown in the tab strip. Enforced against
 // Iter's own tools in bridge/browser_bridge_server.js, not here — the human
 // can always lock/unlock/close their own tabs from this IPC path.
@@ -2549,6 +2608,7 @@ ipcMain.handle('chat:choice', async (_e, cardId, choiceId) => {
     socket: ITER_METTA_SOCKET, iterDir: ITER_DIR, person, kind: card.card.kind,
     cardId, pick: choiceId, at: message.at,
   }).catch((error) => pushLog('[soul] choice not recorded: ' + error.message));
+  pushCompassState(); // answering an ally card darkens the compass
   return message;
 });
 ipcMain.handle('iter:start', () => startIterWithAtomspace());
@@ -2624,6 +2684,69 @@ function marginAccess(event) {
   return { tab, person, app: tab.appScope.appId };
 }
 
+// ---- The browsing ally (docs/milestones/M9_soul_wonder_ally.md C2) ------------------------
+// Off by default. While it is off nothing is logged and the log file does not exist; switching
+// it off deletes the log. Never logs locked or app tabs. Lock suggestions only ever ask.
+const BROWSING_LOG_PATH = path.join(ITER_DIR, '.runtime', 'browsing_log.jsonl');
+const BROWSING_LOG_MAX = 500;
+const allyDeclinedHosts = new Set();
+const allySuggestedHosts = new Set();
+let allyLastLogged = null;
+
+function allyOn() {
+  const settings = loadSoulSettings();
+  const profile = settings.people[settings.person] || {};
+  return !!(profile.features && profile.features.browsing_ally === true);
+}
+
+function appendBrowsingLog(entry) {
+  let lines = [];
+  try { lines = fs.readFileSync(BROWSING_LOG_PATH, 'utf8').split('\n').filter(Boolean); } catch (_) {}
+  lines.push(JSON.stringify(entry));
+  if (lines.length > BROWSING_LOG_MAX) lines = lines.slice(lines.length - BROWSING_LOG_MAX); // capped at 500
+  fs.mkdirSync(path.dirname(BROWSING_LOG_PATH), { recursive: true });
+  fs.writeFileSync(BROWSING_LOG_PATH, lines.join('\n') + '\n', { mode: 0o600 });
+}
+
+function allyObserveActiveTab(list) {
+  try {
+    const on = allyOn();
+    const active = (list || []).find((t) => t.active);
+    const tab = active ? tabs.tabs.get(active.id) : null;
+    if (!tab || !browsingAlly.shouldLog({ url: tab.url, locked: tab.locked, appScope: tab.appScope }, on)) return;
+    const host = new URL(tab.url).hostname.toLowerCase();
+    if (!allyLastLogged || allyLastLogged.tab !== tab.id || allyLastLogged.url !== tab.url) {
+      allyLastLogged = { tab: tab.id, url: tab.url };
+      appendBrowsingLog({ at: Date.now(), tab: tab.id, domain: host, title: String(active.title || '').slice(0, 120) });
+    }
+    const suggestion = browsingAlly.suggestLock(tab.url, active.title);
+    if (suggestion && !allyDeclinedHosts.has(host) && !allySuggestedHosts.has(host) && toolbarView) {
+      allySuggestedHosts.add(host);
+      toolbarView.webContents.send('ally:suggest', { tab: tab.id, reason: suggestion.reason, host });
+    }
+  } catch (error) {
+    pushLog('[ally] ' + error.message);
+  }
+}
+
+// The compass lights only while an ally card waits for the person's answer.
+function pushCompassState() {
+  if (!toolbarView) return;
+  const on = allyOn();
+  const state = on && chatBridge ? browsingAlly.compassState(chatBridge.history()) : { live: false, pair: null };
+  try { toolbarView.webContents.send('compass:state', { ...state, on }); } catch (_) {}
+}
+
+ipcMain.handle('ally:lock', (_e, tabId) => {
+  // The person clicked "Lock it": their own action.
+  tabs.setLocked(Number(tabId), true);
+  return { locked: true };
+});
+ipcMain.handle('ally:decline', (_e, host) => {
+  allyDeclinedHosts.add(String(host || '').toLowerCase());
+  return { declined: true };
+});
+
 // Push the margin's current state to every app tab (after a lock toggle or a Soul-panel save).
 function pushMarginState() {
   if (!tabs) return;
@@ -2641,6 +2764,12 @@ ipcMain.handle('soul:save', (_e, settings) => {
   fs.writeFileSync(SOUL_SETTINGS_PATH, JSON.stringify(clean, null, 2), { mode: 0o600 });
   fs.chmodSync(SOUL_SETTINGS_PATH, 0o600);
   pushMarginState(); // margin:state -- the margin switch may have changed
+  // The browsing ally off means no browsing log on disk (browsing_log.jsonl is deleted).
+  if (!allyOn()) {
+    try { fs.rmSync(BROWSING_LOG_PATH, { force: true }); } catch (_) {}
+    allyLastLogged = null;
+  }
+  pushCompassState();
   return clean;
 });
 

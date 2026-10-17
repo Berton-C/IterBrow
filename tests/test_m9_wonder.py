@@ -24,7 +24,6 @@ class WonderToolTests(unittest.TestCase):
         self.addCleanup(self.r.close)
         self.r.start()
 
-    @pending("M9-A1")
     def test_add_list_take_let_go(self):
         write_soul_settings(self.r.root, "berton", {"wonder": True})
         make_app_dir(self.r.root, "crm")
@@ -44,7 +43,6 @@ class WonderToolTests(unittest.TestCase):
         self.assertEqual(self.r.text("wonder", action="take", id="wonder-nope"), "ERROR: no idea wonder-nope")
         self.assertEqual(self.r.text("wonder", action="shake"), "ERROR: action must be add, list, take or let_go")
 
-    @pending("M9-A1")
     def test_ideas_are_per_person_and_per_app_and_need_a_real_app(self):
         write_soul_settings(self.r.root, "berton", {"wonder": True})
         make_app_dir(self.r.root, "crm")
@@ -57,7 +55,6 @@ class WonderToolTests(unittest.TestCase):
         write_soul_settings(self.r.root, "bright", {"wonder": True})
         self.assertEqual(self.r.text("wonder", action="list"), "Wonder jar (0 open)", "bright sees none of berton's")
 
-    @pending("M9-A1")
     def test_wonder_atoms_live_only_in_the_soul_view(self):
         seed_wonder(self.r, "berton", "crm", "wonder-aaaaaaaa", "an idea")
         for view in ("current", "full", "kb"):
@@ -77,7 +74,6 @@ class OfferTests(unittest.TestCase):
         msgs, _ = run_transformation(self.r.root, "soul_wonder.py", env_extra={"ITER_METTA_SOCKET": str(self.r.sock)})
         return msgs[-1]["content"]
 
-    @pending("M9-A2")
     def test_first_offer_then_the_dial_cooldown(self):
         write_soul_settings(self.r.root, "berton", {"wonder": True}, frequency="occasional")
         seed_wonder(self.r, "berton", "crm", "wonder-11111111", "a timeline view", at=1)
@@ -94,7 +90,6 @@ class OfferTests(unittest.TestCase):
         seed_offered(self.r, "berton", "wonder-11111111", now_ms() - 5 * HOUR)
         self.assertIn("topic wonder:wonder-22222222", self._block())
 
-    @pending("M9-A2")
     def test_dial_sets_the_wait(self):
         for frequency, hours, expected in (("whisper", 23, False), ("whisper", 25, True), ("chatty", 0.5, False), ("chatty", 1.5, True)):
             write_soul_settings(self.r.root, "berton", {"wonder": True}, frequency=frequency)
@@ -102,7 +97,6 @@ class OfferTests(unittest.TestCase):
             seed_offered(self.r, "berton", "wonder-33333333", now_ms() - int(hours * HOUR))
             self.assertEqual("## Wonder" in self._block(), expected, "%s after %sh" % (frequency, hours))
 
-    @pending("M9-A2")
     def test_nothing_when_off_quiet_outstanding_or_nothing_open(self):
         seed_wonder(self.r, "berton", "crm", "wonder-44444444", "an idea", at=1)
         write_soul_settings(self.r.root, "berton", {"wonder": False})
@@ -118,7 +112,6 @@ class OfferTests(unittest.TestCase):
         self.assertEqual(self._block(), "base", "nothing open")
         self.assertEqual(self.r.call("read_atoms", {"prefix": "state:soul_wonder_offer:"})["atoms"], {}, "no offer was recorded")
 
-    @pending("M9-A2")
     def test_let_go_and_taken_are_never_offered(self):
         write_soul_settings(self.r.root, "berton", {"wonder": True})
         seed_wonder(self.r, "berton", "crm", "wonder-55555555", "gone", status="let-go", at=1)
@@ -141,7 +134,6 @@ class FoldTests(unittest.TestCase):
     def _reduce(self):
         run_transformation(self.r.root, "soul_taste.py", env_extra={"ITER_METTA_SOCKET": str(self.r.sock)})
 
-    @pending("M9-A3")
     def test_topic_picks_are_recorded_latest_wins_and_wonder_status_follows(self):
         seed_wonder(self.r, "berton", "crm", "wonder-88888888", "idea", at=1)
         seed_topic_card(self.r, "card-t1", "wonder:wonder-88888888")
@@ -165,7 +157,6 @@ class FoldTests(unittest.TestCase):
         # The rest of the reducer is untouched: a topic card without patterns makes no taste.
         self.assertEqual(self.r.call("read_atoms", {"prefix": "state:soul_taste:"})["atoms"], {})
 
-    @pending("M9-A3")
     def test_card_tool_records_the_topic(self):
         write_soul_settings(self.r.root, "berton", {"wonder": True})
         out = self.r.text("card", kind="offer", title="One from the jar", body="A timeline view?", topic="wonder:wonder-99999999",
@@ -180,7 +171,6 @@ class FoldTests(unittest.TestCase):
         self.assertEqual(message["card"]["topic"], "wonder:wonder-99999999")
 
     @unittest.skipUnless(NODE, "needs node")
-    @pending("M9-A3")
     def test_bridge_keeps_a_valid_topic_and_drops_a_bad_one(self):
         code, stdout, stderr = __import__("m9_support").node("""
 const { validCard } = require(%s);
@@ -195,7 +185,6 @@ process.stdout.write(JSON.stringify({ ok: ok.topic, bad: bad && bad.topic === un
 class WonderCountTests(unittest.TestCase):
     """M9-A4 and M9-C5"""
 
-    @pending("M9-A4")
     def test_counts_open_ideas_and_ally_cards(self):
         import importlib.util
         spec = importlib.util.spec_from_file_location("dash", ITER_SRC / "transformations" / "dashboard_atomspace.py")

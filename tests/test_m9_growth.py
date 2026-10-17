@@ -48,7 +48,6 @@ class GrowthVoiceTests(unittest.TestCase):
                                      env_extra={"ITER_METTA_SOCKET": str(self.r.sock)})
         return msgs[0]["content"]
 
-    @pending("M9-B1")
     def test_deferred_pain_becomes_a_question_asked_once_a_day(self):
         root = self._prepare()
         content = self._run()
@@ -66,13 +65,14 @@ class GrowthVoiceTests(unittest.TestCase):
         seed_topic_card(self.r, "card-g1", "growth", choices=("now", "later"))
         self.assertNotIn("I'd like to work on", self._run())
 
-    @pending("M9-B2")
     def test_now_lets_the_proposal_through_and_later_keeps_the_deferral(self):
         root = self._prepare()
         self._run()
         flag_mtime = (root / "memory" / ".service_before_growth_flag.json").stat().st_mtime
         seed_topic_card(self.r, "card-g2", "growth", choices=("now", "later"))
-        seed_pick(self.r, "card-g2", "now", at=int((flag_mtime + 5) * 1000))
+        # Just after the deferral began (a real click is never in the future; +5 s here would still
+        # postdate the flag the "later" half below rewrites a moment later).
+        seed_pick(self.r, "card-g2", "now", at=int(flag_mtime * 1000) + 1)
         run_transformation(self.r.root, "soul_taste.py", env_extra={"ITER_METTA_SOCKET": str(self.r.sock)})
         content = self._run()
         self.assertTrue((root / "memory" / ".improve_needed").exists(), "now: the proposal goes through")
@@ -91,7 +91,6 @@ class GrowthVoiceTests(unittest.TestCase):
         self.assertNotIn("I'd like to work on", content)
         self.assertIn("deferred", content.lower())
 
-    @pending("M9-B2")
     def test_a_stale_now_from_before_this_deferral_does_not_count(self):
         root = self._prepare()
         seed_topic_card(self.r, "card-g4", "growth", choices=("now", "later"), at=1)
@@ -101,7 +100,6 @@ class GrowthVoiceTests(unittest.TestCase):
         self.assertFalse((root / "memory" / ".improve_needed").exists())
         self.assertTrue((root / "memory" / ".improve_pending").exists())
 
-    @pending("M9-B3")
     def test_without_the_flag_the_old_path_is_unchanged(self):
         root = self._prepare(deferred=False)
         content = self._run()

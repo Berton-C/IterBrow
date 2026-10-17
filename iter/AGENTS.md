@@ -385,6 +385,7 @@ were confirmation.
 | `brief` | Read or set an app's flourishing brief: who it is for, what flourishing looks like for them |
 | `soul_mode` | Switch the person's mode: open, jam, quiet, critique, museum |
 | `soul_absent_test` | Report moments in an app that are technically correct and dead, each with its kernel gap signature; changes nothing |
+| `wonder` | The wonder jar: keep an idea cut from a build (add), list, take or let_go |
 | `museum_night` | Walk kept / rejected / unvoted variants joined to the forks that decided them, plus the person's leans |
 | `tool_reliability` | Query NAL truth-weighted tool reliability scores |
 
@@ -531,7 +532,7 @@ spec says and what the previous version did: `docs/soul/SOUL_FIDELITY_AUDIT.md`.
 IterBrow the Soul is an ally in what the person is making. **It gates nothing, pauses
 nothing and vetoes nothing; it offers, the person decides.**
 
-What exists now (M6 base; M7 taste, felt, briefs, forks; M8 modes, margin, critique, museum night):
+What exists now (M6 base; M7 taste, felt, briefs, forks; M8 modes, margin, critique, museum; M9 wonder, growth voice, ally):
 - **Kernel atoms** — `seeds/soul_kernel.metta`, ported verbatim from ClarityOmega
   (`scripts/port_soul_kernel.py`): five priorities (declared, not used for routing), nine
   patterns × nine facets (pattern, pole+, pole−, signal, felt, moat, anti, proxy, gap), the
@@ -561,6 +562,10 @@ What exists now (M6 base; M7 taste, felt, briefs, forks; M8 modes, margin, criti
 - **Margin (M8)** — a ✦ glyph in app tabs (never locked ones; on by default). Requests arrive as
   `[margin app=<app> tab=<id> intent=ask|jam element=<selector>] <text>`; "jam on this" → three riffs
   as variants and a fork card.
+- **M9** — `wonder` keeps cut ideas; one comes back rarely as an offer card (topic `wonder:<id>`).
+  A deferred self-improvement asks the person once a day (topic `growth`: now / later). The browsing
+  ally (off by default) sees the last 30 min of browsing; a pause card (topic `ally:<pair>`) only
+  when a declared pair is live. Cards may carry a `topic`; the pick on it is recorded.
 - **Settings, per person** — `.runtime/soul_settings.json` (sidebar Soul panel): who is here,
   features (forks, brief, read, wonder, felt, browsing_ally, margin), frequency, tone,
   budget. `transformations/soul_presence.py` adds one short `## Soul (<person>)` block only

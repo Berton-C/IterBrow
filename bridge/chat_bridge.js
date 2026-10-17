@@ -64,6 +64,8 @@ function validCard(card) {
     }
     if (links.length) clean.links = links;
   }
+  // M9: a card may answer a topic (wonder:<id>, growth, ally:<pair>); a bad topic is dropped.
+  if (typeof card.topic === 'string' && /^[a-z][a-z0-9_:-]{0,63}$/.test(card.topic)) clean.topic = card.topic;
   if (card.expires_at !== undefined) {
     if (!Number.isFinite(Number(card.expires_at))) return null;
     clean.expires_at = Number(card.expires_at);

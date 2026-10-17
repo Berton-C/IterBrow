@@ -32,7 +32,8 @@ def upload_html(html_doc):
 
 
 KB_KEYS = ("statements", "terms_known", "terms_provisional", "evidence", "derived", "nace_beliefs",
-           "soul_choices", "soul_last", "soul_tastes", "soul_felt", "soul_learned", "soul_critiques", "soul_margin")
+           "soul_choices", "soul_last", "soul_tastes", "soul_felt", "soul_learned", "soul_critiques", "soul_margin",
+           "soul_wonder_open", "soul_ally_cards")
 _SOUL_CHOICE = None
 
 
@@ -97,6 +98,10 @@ def authority_counts(read_atoms, derive):
         "soul_felt": sum(1 for key in soul if key.startswith("state:soul_felt:")),
         "soul_critiques": sum(1 for key in soul if key.startswith("state:soul_critique:")),
         "soul_margin": sum(1 for key in soul if key.startswith("state:soul_margin:")),
+        "soul_wonder_open": sum(1 for key, atom in soul.items()
+                                if key.startswith("state:soul_wonder:") and ' "open" ' in atom),
+        "soul_ally_cards": sum(1 for key, atom in soul.items()
+                               if key.startswith("state:soul_card_topic:") and '"ally:' in atom),
         "soul_learned": _learned_line(soul),
     }
 
@@ -233,7 +238,7 @@ def _soul_section(counts):
         person, features = "unknown", []
     if not counts.get("loaded"):
         body = '<span class="label">authority unreachable</span>'
-    elif not any(counts.get(key) for key in ("soul_choices", "soul_felt", "soul_critiques", "soul_margin")):
+    elif not any(counts.get(key) for key in ("soul_choices", "soul_felt", "soul_critiques", "soul_margin", "soul_wonder_open")):
         body = '<span class="label">no Soul activity yet</span>'
     else:
         last = counts.get("soul_last") or {}
@@ -248,6 +253,8 @@ def _soul_section(counts):
             body += '<span class="graph-chip">critiques <strong>%s</strong></span>' % counts["soul_critiques"]
         if counts.get("soul_margin"):
             body += '<span class="graph-chip">margin asks <strong>%s</strong></span>' % counts["soul_margin"]
+        if counts.get("soul_wonder_open"):
+            body += '<span class="graph-chip">wonder <strong>%s</strong> open</span>' % counts["soul_wonder_open"]
         if counts.get("soul_learned"):
             body += ('<div style="flex-basis:100%%;font-size:12px">Learned: %s</div>'
                      % _escape_html(counts["soul_learned"]))
