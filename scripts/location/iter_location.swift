@@ -24,26 +24,24 @@ final class Locator: NSObject, CLLocationManagerDelegate {
     }
 
     func start() {
-        switch manager.authorizationStatus {
-        case .denied, .restricted:
-            fail(2, "location access denied")
-        case .notDetermined:
-            manager.requestWhenInUseAuthorization() // macOS asks once; the answer arrives below
-        default:
-            manager.requestLocation()
-        }
+        if case .denied = manager.authorizationStatus { fail(2, "location access denied") }
+        if case .restricted = manager.authorizationStatus { fail(2, "location access denied") }
+        // Starting updates is what makes macOS show its one-time prompt for a command-line tool
+        // (requestWhenInUseAuthorization needs a bundle's usage string); the first fix ends the run.
+        manager.requestWhenInUseAuthorization()
+        manager.startUpdatingLocation()
     }
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         switch manager.authorizationStatus {
         case .denied, .restricted: fail(2, "location access denied")
-        case .notDetermined: break
-        default: manager.requestLocation()
+        default: break
         }
     }
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let fix = locations.last else { return }
+        manager.stopUpdatingLocation()
         let out: [String: Any] = [
             "latitude": fix.coordinate.latitude,
             "longitude": fix.coordinate.longitude,

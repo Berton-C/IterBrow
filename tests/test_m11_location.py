@@ -47,15 +47,34 @@ process.stdout.write(JSON.stringify([
   pick({}, []) ]));""")
         self.assertEqual(out[0], {"file": "/me/loc", "args": [], "source": "env"})
         self.assertEqual(out[1], {"file": "/x/.runtime/bin/iter_location", "args": [], "source": "built"})
-        self.assertEqual(out[2], {"file": "/opt/homebrew/bin/CoreLocationCLI", "args": ["-once", "-json"], "source": "brew"})
+        # CoreLocationCLI knows -j/--json and -f/--format only (an unknown flag is silently ignored); --json
+        # also reverse-geocodes over the network, so the brew route asks for a plain formatted line.
+        self.assertEqual(out[2], {"file": "/opt/homebrew/bin/CoreLocationCLI", "args": ["--format", "%latitude %longitude %h_accuracy"], "source": "brew"})
         self.assertEqual(out[3]["file"], "/usr/local/bin/CoreLocationCLI")
         self.assertIsNone(out[4])
+
+    def test_parse_corelocationcli_output_as_it_really_is(self):
+        """Regression: the CLI prints 'lat lon [acc]' text for --format, strings for --json, and its
+        denial / timeout messages on stdout."""
+        out = bridge_json("location.js", """process.stdout.write(JSON.stringify([
+  M.parseLocation('40.141196 -74.123456 35\\n'), M.parseLocation('-34.603700 -58.381600\\n'),
+  M.parseLocation('{"latitude":"40.141196","longitude":"-74.123456","h_accuracy":"65","time":"2019-10-03 04:10:05 +0000","speed":"-1"}'),
+  M.parseLocation('CoreLocationCLI: ❌ Location services are disabled or location access denied. Please visit System Settings > Privacy & Security > Location Services\\n'),
+  M.parseLocation('Fetching location timed out. Exiting.\\n'),
+  M.failure(1, null, '', 'CoreLocationCLI: ❌ Location services are disabled or location access denied.'),
+  M.failure(1, null, '', 'Fetching location timed out. Exiting.'), M.failure(0, null, '', '') ]));""")
+        self.assertEqual(out[0], {"lat": 40.141196, "lon": -74.123456, "accuracy": 35, "at": None})
+        self.assertEqual(out[1], {"lat": -34.6037, "lon": -58.3816, "accuracy": None, "at": None})
+        self.assertEqual(out[2], {"lat": 40.141196, "lon": -74.123456, "accuracy": 65, "at": "2019-10-03T04:10:05.000Z"})
+        self.assertEqual(out[3:5], [None, None])
+        self.assertEqual(out[5:], ["denied", "timeout", "unavailable"])
 
     def test_failure_reasons(self):
         out = bridge_json("location.js", """process.stdout.write(JSON.stringify([
   M.failure(2, null, 'location services denied for this app'), M.failure(1, null, 'Error Domain=kCLErrorDomain Code=1'),
+  M.failure(1, null, '', 'CoreLocationCLI: Location services are disabled or location access denied.'),
   M.failure(null, 'SIGKILL', ''), M.failure(null, 'SIGTERM', ''), M.failure(3, null, 'no fix'), M.failure(1, null, '') ]));""")
-        self.assertEqual(out, ["denied", "denied", "timeout", "timeout", "unavailable", "unavailable"])
+        self.assertEqual(out, ["denied", "denied", "denied", "timeout", "timeout", "unavailable", "unavailable"])
 
 
 class WiringTests(unittest.TestCase):
@@ -68,7 +87,8 @@ class WiringTests(unittest.TestCase):
         self.assertIn("isMapStationPageOrigin(", handler, "the sender must be the Map Station page")
         self.assertIn("'not-allowed'", handler)
         self.assertIn("'no-helper'", handler)
-        self.assertIn("corelocationcli", handler.lower(), "the hint names the brew route")
+        self.assertIn("brew install --cask corelocationcli", handler, "the hint names the brew route (it is a cask)")
+        self.assertIn("stderr, stdout", handler, "classification must inspect both helper output streams")
         self.assertIn("execFile(", handler)
         self.assertIn("15000", handler, "15 s timeout")
         self.assertIn("SIGKILL", handler)
@@ -132,6 +152,9 @@ with sync_playwright() as p:
         denied = self._page("() => Promise.resolve({ ok: false, reason: 'denied' })",
                             "{ getCurrentPosition: (ok, err) => err({ code: 1 }) }", self.PROBE)
         self.assertIn("Location Services", denied["status"])
+        self.assertIn("CoreLocationCLI", denied["status"], "names the entry to allow")
+        plain = self._page("undefined", "undefined", self.PROBE)
+        self.assertIn("Apps button", plain["status"], "an ordinary tab says why native location is out of reach")
         self.assertIn("Locate me", denied["button"], "the button is usable again")
 
 

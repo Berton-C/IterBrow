@@ -702,7 +702,7 @@ Picture (⇧⌘P) floats the page's video. Find in page is ⌘F. Force Reload is
 
 **Location (Map Station).** Electron's built-in geolocation needs a billed Google API key, so Map
 Station asks a small native Core Location helper instead, and only Map Station can ask. Install one:
-`brew install corelocationcli`, or, with Xcode's Command Line Tools, `scripts/build_location_helper.sh`
+`brew install --cask corelocationcli`, or, with Xcode's Command Line Tools, `scripts/build_location_helper.sh`
 (install and repair run it for you). To use a helper of your own, set `ITERBROW_LOCATION_HELPER` to its
 absolute path; it must print one JSON object with `latitude` and `longitude`. macOS asks once for
 permission the first time you press Locate me. With no helper, Map Station falls back to the browser's

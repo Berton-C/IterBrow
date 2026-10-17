@@ -25,7 +25,7 @@ Implementation notes:
 - **Test fixture (A1).** The epoch input `1760702400` is 2025-10-17, but the assertion expects
   2026-10-17; the input was corrected to `1792238400`. The assertion is unchanged.
 - **Not verified from the cloud:** the macOS permission prompt and a real fix (Berton, on the Mac:
-  `brew install corelocationcli` or `scripts/build_location_helper.sh`, restart, Map Station →
+  `brew install --cask corelocationcli` or `scripts/build_location_helper.sh`, restart, Map Station →
   Locate me, allow once). Unverified: macOS attributes a helper's location request to the app that
   launched it, so in a source checkout (`npm start`) the prompt may name Electron, and whether
   Electron's own Info.plist carries a location usage string decides whether a prompt appears at all.
@@ -60,7 +60,7 @@ reason ("no location helper", "permission denied"), never a hopeful one.
 - *Helper*: the native location program main.js runs. Resolution order (first that exists wins):
   `$ITERBROW_LOCATION_HELPER` (absolute path) → `ITER_DIR/.runtime/bin/iter_location` (built from
   `scripts/location/iter_location.swift` by `scripts/build_location_helper.sh` when `swiftc` is
-  present) → `CoreLocationCLI` at `/opt/homebrew/bin` or `/usr/local/bin` (`brew install
+  present) → `CoreLocationCLI` at `/opt/homebrew/bin` or `/usr/local/bin` (`brew install --cask
   corelocationcli`). Either prints one JSON object with `latitude` and `longitude` (CoreLocationCLI's
   `-once -json` shape; the Swift helper prints the same keys plus `h_accuracy` and `time`).
 - *Bookmark*: `{url, title, addedAt}` in `.runtime/bookmarks.json` (array, newest first, unique by
@@ -93,7 +93,7 @@ reason ("no location helper", "permission denied"), never a hopeful one.
 - The sender must be the Map Station page (`isMapStationPageOrigin(event.sender)`), else
   `{ok: false, reason: 'not-allowed'}` and nothing runs. No other page, tab or tool can reach the
   helper; Iter has no tool for it.
-- No helper → `{ok: false, reason: 'no-helper', hint: 'brew install corelocationcli'}` (the hint
+- No helper → `{ok: false, reason: 'no-helper', hint: 'brew install --cask corelocationcli'}` (the hint
   names the Swift build too when `swiftc` is on the Mac — keep it to one line).
 - Otherwise `execFile(file, args, {timeout: 15000, killSignal: 'SIGKILL'})`; success →
   `{ok: true, lat, lon, accuracy, at, source}`; failure → `{ok: false, reason}` from `failure()`.
@@ -106,7 +106,7 @@ reason ("no location helper", "permission denied"), never a hopeful one.
 iterApp.locate` (native) → `navigator.geolocation` (unchanged) → approximate center. Status lines:
 native success `Location locked · <lat>, <lon> (native)`; native refused with `reason`, then the
 existing fallbacks, and the final status names the first real reason (`No location helper on this
-Mac — brew install corelocationcli`; `Location permission was denied — allow it in System Settings →
+Mac — brew install --cask corelocationcli`; `Location permission was denied — allow it in System Settings →
 Privacy & Security → Location Services`). The page itself makes no network request for location
 (Leaflet tiles are not location). `reload: true` behaviour (sessionStorage hand-off) is unchanged except
 that the hand-off carries `source`, so the restored status also ends in `(native)` when it was.
@@ -115,7 +115,7 @@ that the hand-off carries `source`, so the restored status also ends in `(native
 `requestWhenInUseAuthorization`, one fix, prints the JSON object, exits 0; exit 2 on denial with
 `denied` on stderr; exit 3 after 20 s without a fix). `scripts/build_location_helper.sh`: with `swiftc`
 present, compiles to `ITER_DIR/.runtime/bin/iter_location` (0o755) and prints the path; without, prints
-`no swiftc; brew install corelocationcli works too` and exits 0 (`--check` only reports which route
+`no swiftc; brew install --cask corelocationcli works too` and exits 0 (`--check` only reports which route
 exists). `install.sh repair` calls it best-effort (its exit never fails the repair).
 `package.json`'s `NSLocationWhenInUseUsageDescription` stays. README: a short "Location" note.
 

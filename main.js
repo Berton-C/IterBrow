@@ -2998,8 +2998,8 @@ ipcMain.handle('location:current', async (event) => {
 function locationHint() {
   const swift = SWIFT_PATHS.some((file) => fs.existsSync(file));
   return swift
-    ? 'brew install corelocationcli, or run scripts/build_location_helper.sh'
-    : 'brew install corelocationcli';
+    ? 'brew install --cask corelocationcli, or run scripts/build_location_helper.sh'
+    : 'brew install --cask corelocationcli';
 }
 
 function runLocationHelper(command) {
@@ -3012,11 +3012,13 @@ function runLocationHelper(command) {
           resolve({ ok: true, ...fix, source: command.source });
           return;
         }
-        pushLog(`[location] ${command.source} helper printed no usable fix`);
-        resolve({ ok: false, reason: 'unavailable' });
+        // Exit 0 without a fix: still read the text (a helper of the person's own may report there).
+        const reason = nativeLocation.failure(0, null, stderr, stdout);
+        pushLog(`[location] ${command.source} helper printed no usable fix (${reason})`);
+        resolve({ ok: false, reason });
         return;
       }
-      const reason = nativeLocation.failure(typeof err.code === 'number' ? err.code : null, err.signal || null, stderr);
+      const reason = nativeLocation.failure(typeof err.code === 'number' ? err.code : null, err.signal || null, stderr, stdout);
       pushLog(`[location] ${command.source} helper failed: ${reason}`);
       resolve({ ok: false, reason });
     });

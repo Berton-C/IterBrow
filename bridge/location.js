@@ -53,16 +53,36 @@ function firstObject(text) {
   return null;
 }
 
+function number(value) {
+  if (typeof value === 'number') return value;
+  if (typeof value === 'string' && /^-?\d+(\.\d+)?$/.test(value.trim())) return Number(value);
+  return NaN;
+}
+
+// A JSON object (the Swift helper, a helper of the person's own, or CoreLocationCLI --json, whose
+// numbers are strings) or CoreLocationCLI's plain "lat lon [h_accuracy]" line. The denial and
+// timeout messages the CLI prints are text without numbers, so they parse to null.
 function parseLocation(text) {
   if (typeof text !== 'string' || !text) return null;
   const obj = firstObject(text);
-  if (!obj || typeof obj !== 'object') return null;
-  const lat = obj.latitude;
-  const lon = obj.longitude;
+  let lat; let lon; let rawAccuracy; let rawTime;
+  if (obj && typeof obj === 'object') {
+    lat = number(obj.latitude);
+    lon = number(obj.longitude);
+    rawAccuracy = [obj.h_accuracy, obj.horizontalAccuracy, obj.accuracy].find((v) => v !== undefined);
+    rawTime = obj.time;
+  } else {
+    const line = text.split('\n').map((l) => l.trim()).find((l) => /^-?\d+(\.\d+)?\s+-?\d+(\.\d+)?(\s|$)/.test(l));
+    if (!line) return null;
+    const parts = line.split(/\s+/);
+    lat = Number(parts[0]);
+    lon = Number(parts[1]);
+    rawAccuracy = parts[2];
+  }
   if (!inRange(lat, 90) || !inRange(lon, 180)) return null;
-  const rawAccuracy = [obj.h_accuracy, obj.horizontalAccuracy, obj.accuracy].find((v) => v !== undefined);
-  const accuracy = typeof rawAccuracy === 'number' && Number.isFinite(rawAccuracy) ? rawAccuracy : null;
-  return { lat, lon, accuracy, at: parseTime(obj.time) };
+  const accuracyNumber = number(rawAccuracy);
+  const accuracy = Number.isFinite(accuracyNumber) && accuracyNumber >= 0 ? accuracyNumber : null;
+  return { lat, lon, accuracy, at: parseTime(rawTime) };
 }
 
 const BREW_PATHS = ['/opt/homebrew/bin/CoreLocationCLI', '/usr/local/bin/CoreLocationCLI'];
@@ -76,15 +96,17 @@ function helperCommand({ env = {}, runtimeDir, exists }) {
     if (has(built)) return { file: built, args: [], source: 'built' };
   }
   for (const file of BREW_PATHS) {
-    if (has(file)) return { file, args: ['-once', '-json'], source: 'brew' };
+    // One fix, no reverse geocode (--json would look the address up over the network).
+    if (has(file)) return { file, args: ['--format', '%latitude %longitude %h_accuracy'], source: 'brew' };
   }
   return null;
 }
 
-function failure(code, signal, stderr) {
-  const text = String(stderr || '').toLowerCase();
-  if (/denied|not authorized|kclerrordomain/.test(text)) return 'denied';
-  if (signal === 'SIGKILL' || signal === 'SIGTERM') return 'timeout';
+// CoreLocationCLI prints its denial and timeout messages on stdout (exit 1), so both streams count.
+function failure(code, signal, stderr, stdout) {
+  const text = `${stderr || ''}\n${stdout || ''}`.toLowerCase();
+  if (/denied|not authorized|kclerrordomain|location services are disabled/.test(text)) return 'denied';
+  if (signal === 'SIGKILL' || signal === 'SIGTERM' || /timed out/.test(text)) return 'timeout';
   return 'unavailable';
 }
 

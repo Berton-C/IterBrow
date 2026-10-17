@@ -15,7 +15,7 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 ITER_DIR="${ITER_DIR:-$ROOT_DIR/iter}"
 SOURCE="$ROOT_DIR/scripts/location/iter_location.swift"
 OUTPUT="$ITER_DIR/.runtime/bin/iter_location"
-BREW_HINT="brew install corelocationcli"
+BREW_HINT="brew install --cask corelocationcli"
 
 find_swiftc() {
   # On macOS /usr/bin/swiftc is a shim that offers to install the Command Line Tools, so look for a

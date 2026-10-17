@@ -187,7 +187,7 @@
   }
 
   // The honest reason a route failed, in the person's words (M11-A3).
-  const DENIED = 'Location permission was denied — allow it in System Settings → Privacy &amp; Security → Location Services.';
+  const DENIED = 'Location permission was denied — in System Settings → Privacy &amp; Security → Location Services, turn Location Services on and allow <b>CoreLocationCLI</b> (or iter_location). If it is not listed yet, run <code>CoreLocationCLI</code> once in Terminal to get the prompt.';
   function nativeReason(result) {
     const reason = result && result.reason;
     if (reason === 'no-helper') return 'No location helper on this Mac — ' + ((result && result.hint) || 'brew install corelocationcli') + '.';
@@ -202,7 +202,11 @@
     return 'Current location is unavailable.';
   }
   function nativeFix() {
-    if (!window.iterApp || typeof window.iterApp.locate !== 'function') return Promise.resolve(null);
+    // No iterApp means this page was opened as an ordinary tab (a typed file URL), not from the Apps
+    // button: the native helper is reachable only from the app tab.
+    if (!window.iterApp || typeof window.iterApp.locate !== 'function') {
+      return Promise.resolve({ reason: 'Native location works when Map Station is opened from the Apps button (this tab was opened by URL).' });
+    }
     return Promise.resolve()
       .then(() => window.iterApp.locate())
       .then(r => (r && r.ok && validFix(r.lat, r.lon)) ? { lat: r.lat, lon: r.lon } : { reason: nativeReason(r) })
