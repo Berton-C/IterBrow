@@ -64,6 +64,7 @@ try:
     result = module.run(**kwargs)
     loaded = _petta()
     print(json.dumps({"ok": True, "result": str(result),
+                      "execution": getattr(result, "execution_outcome", None),  # ToolOutput's state (M12-A3)
                       "petta_file": getattr(loaded, "__file__", None)}))
 except BaseException as error:  # noqa: BLE001 - report everything like dynamic_worker
     loaded = _petta()

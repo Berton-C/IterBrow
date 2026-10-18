@@ -145,6 +145,12 @@ history search, reader mode, picture-in-picture, and a native Core Location rout
 Each is small in Electron; together they make IterBrow something people leave open, which is
 what the Soul needs to be worth having.
 
+### M12 — The builder's hands (spec: `docs/milestones/M12_builder_hands.md`)
+The 2026-10-18 audit of what blocks Iter as a coder: its own gate (enforce by default, with a 2026-09-14
+quarantine of click/type/cdp that vetoed every call and could never be unlearned), no file tools, no
+test runner, guidance that never reached the prompt. M12 unties the hands; M13 (the builder's eyes:
+wait-for, honest click/type, open-app and probe tools, target-stealing fixed) follows.
+
 ### Out of scope until Berton says otherwise
 Gates/vetoes of any kind; NACE consuming Soul or kb conclusions (the parked "stage 1"
 remains available); continuity-of-mind; judging Iter's own promoted code.
