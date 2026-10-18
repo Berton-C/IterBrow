@@ -1,6 +1,6 @@
 """Run one tool the way iter.py's dynamic worker does and print a JSON outcome.
 
-usage: semantic_tool_runner.py TOOL_PATH KWARGS_JSON
+usage: semantic_tool_runner.py TOOL_PATH KWARGS_JSON|@KWARGS_FILE
 
 Test hooks (environment):
   CRASH_AFTER_SAVE=1   die (exit 137) right after the index save, before the
@@ -19,10 +19,14 @@ import sys
 from pathlib import Path
 
 tool_path = Path(sys.argv[1]).resolve()
-kwargs = json.loads(sys.argv[2])
+# KWARGS_JSON, or @<file> holding it (arguments too large for a command line, e.g. a 2 MB write).
+kwargs = json.loads(Path(sys.argv[2][1:]).read_text(encoding="utf-8") if sys.argv[2].startswith("@") else sys.argv[2])
 component_dir = str(tool_path.parent)
-if component_dir not in sys.path:
-    sys.path.insert(0, component_dir)
+# Like iter.py's dynamic worker, which runs from ITER_ROOT: the component's parent (iter/) is importable too,
+# so a tool may import iterbrow_runtime directly.
+for entry in (str(tool_path.parent.parent), component_dir):
+    if entry not in sys.path:
+        sys.path.insert(0, entry)
 
 petta = None
 

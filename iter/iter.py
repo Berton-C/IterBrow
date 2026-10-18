@@ -240,7 +240,7 @@ def invoke_dynamic(path, function, *args, **kwargs):
         timeout = 75 if memory_write else {
             "chroma_query": 40, "eval": 180, "shell": 180, "python": 180,
             "self_improve": 180, "preview": 180, "device_capture": 180,
-            "lm_studio_chat": 180,
+            "lm_studio_chat": 180, "run_tests": 900,
         }.get(Path(path).stem, 60)
     result_fd, result_file = tempfile.mkstemp(prefix="iter-result-", suffix=".json")
     payload_fd, payload_file = tempfile.mkstemp(prefix="iter-payload-", suffix=".json")

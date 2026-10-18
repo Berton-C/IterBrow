@@ -52,9 +52,33 @@ def m12_root(name, with_main_js=False):
     return root
 
 
+def run_tool(root, name, env=None, **kwargs):
+    """Run tools/<name>.py run(**kwargs) in a fresh process from ITER_DIR, as the loop's worker does.
+
+    Unlike SemanticRoot.tool, every keyword reaches the tool (shell's own `cwd` and `timeout` included), and
+    the arguments travel in a file, so a 2 MB argument fits."""
+    import json
+    import subprocess
+    import tempfile
+    from semantic_memory_support import PYTHON, RUNNER
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as handle:
+        json.dump(kwargs, handle)
+        args_file = handle.name
+    try:
+        proc = subprocess.run([PYTHON, str(RUNNER), str(root.root / "tools" / (name + ".py")), "@" + args_file],
+                              cwd=str(root.root), env=root.env(env), capture_output=True, text=True, timeout=600)
+    finally:
+        os.unlink(args_file)
+    lines = proc.stdout.strip().splitlines()
+    try:
+        return json.loads(lines[-1])
+    except Exception:
+        return {"ok": False, "error": "runner crash", "stdout": proc.stdout[-2000:], "stderr": proc.stderr[-3000:]}
+
+
 def tool_text(root, name, **kwargs):
-    """The tool's result text, `RAISED <error>` when it raised, with the runner's execution record."""
-    result = root.tool(name, **kwargs)
+    """The tool's result text, or `RAISED <error>` when it raised."""
+    result = run_tool(root, name, **kwargs)
     if result.get("ok"):
         return result.get("result")
     return "RAISED " + str(result.get("error"))

@@ -14,6 +14,10 @@ cd "$TARGET"
 python3 -m venv .venv
 ./.venv/bin/pip install --upgrade pip
 ./.venv/bin/pip install -r "$ROOT_DIR/scripts/requirements.txt"
+# Development tools (pytest) so Iter's run_tests tool and scripts/test_all.sh work (M12-B7).
+if [[ -f "$ROOT_DIR/scripts/requirements-dev.txt" ]]; then
+  ./.venv/bin/pip install -r "$ROOT_DIR/scripts/requirements-dev.txt"
+fi
 ./.venv/bin/python3 -c "import hyperon"
 bash "$ROOT_DIR/scripts/install_native_hyperon.sh" "$PWD/.venv/bin/python3"
 echo "Done. main.js will automatically use $TARGET/.venv/bin/python3 once it exists."

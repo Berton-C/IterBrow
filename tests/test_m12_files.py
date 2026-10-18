@@ -21,7 +21,6 @@ class FileToolsTests(unittest.TestCase):
         self.r = m12_root("m12files", with_main_js=True)
         self.addCleanup(self.r.close)
 
-    @pending("M12-B1")
     def test_read_file_pages_numbered_lines(self):
         require_m12()
         (self.r.root / "demo.txt").write_text("".join("line %d\n" % i for i in range(1, 501)), encoding="utf-8")
@@ -42,7 +41,6 @@ class FileToolsTests(unittest.TestCase):
         (self.r.root / "bin.dat").write_bytes(b"\xff\xfe\x00binary")
         self.assertTrue(tool_text(self.r, "read_file", path="bin.dat").startswith("ERROR"), "non-UTF-8 says so")
 
-    @pending("M12-B1")
     def test_paths_stay_inside_the_repo_and_never_cross_a_symlink_out(self):
         # The parent holds main.js (m12_root with_main_js), so it is the repo root: ../main.js is readable.
         self.assertIn("repo root marker", tool_text(self.r, "read_file", path="../main.js"))
@@ -54,7 +52,6 @@ class FileToolsTests(unittest.TestCase):
             self.assertTrue(tool_text(self.r, "write_file", path=forbidden, content="x").startswith("REFUSED:"), forbidden)
         self.assertFalse((self.r.root.parent / ".git").exists())
 
-    @pending("M12-B2")
     def test_write_file_is_atomic_and_reports(self):
         out = tool_text(self.r, "write_file", path="apps-test/deep/index.html", content="<h1>hi</h1>\n")
         self.assertEqual(out, "WROTE apps-test/deep/index.html (12 bytes, 1 lines)")
@@ -68,7 +65,6 @@ class FileToolsTests(unittest.TestCase):
         self.assertEqual(script.stat().st_mode & 0o777, 0o755, "mode kept")
         self.assertTrue(tool_text(self.r, "write_file", path="huge.txt", content="y" * (2 * 1024 * 1024 + 1)).startswith("REFUSED:"))
 
-    @pending("M12-B3")
     def test_edit_file_replaces_exactly_one_occurrence(self):
         (self.r.root / "app.js").write_text("const a = 1;\nconst b = 2;\nconst c = a + b;\nconsole.log(c);\n", encoding="utf-8")
         out = tool_text(self.r, "edit_file", path="app.js", old="const b = 2;", new="const b = 20;\nconst b2 = 21;")
@@ -84,7 +80,6 @@ class FileToolsTests(unittest.TestCase):
         self.assertEqual(tool_text(self.r, "edit_file", path="app.js", old="console.log(c);\n", new="").splitlines()[0], "EDITED app.js (+0 −1 lines)")
         self.assertNotIn("console.log", (self.r.root / "app.js").read_text(encoding="utf-8"))
 
-    @pending("M12-B4")
     def test_list_files_relative_sorted_and_skipping_noise(self):
         for rel in ("proj/a.py", "proj/sub/b.js", "proj/node_modules/x.js", "proj/__pycache__/a.pyc", "proj/.git/HEAD"):
             path = self.r.root / rel
@@ -100,7 +95,6 @@ class FileToolsTests(unittest.TestCase):
         self.assertEqual(len(capped.splitlines()), 4)
         self.assertEqual(capped.splitlines()[-1], "… and 2 more")
 
-    @pending("M12-B5")
     def test_grep_files_reports_path_line_text(self):
         (self.r.root / "g1.py").write_text("def alpha():\n    return 'Alpha'\n", encoding="utf-8")
         (self.r.root / "g2.js").write_text("const alpha = 1;\n", encoding="utf-8")
@@ -120,7 +114,6 @@ class ShellTests(unittest.TestCase):
         self.r = m12_root("m12shell", with_main_js=True)
         self.addCleanup(self.r.close)
 
-    @pending("M12-B6")
     def test_cwd_timeout_and_stderr_section(self):
         require_m12()
         (self.r.root / "sub").mkdir()
@@ -142,7 +135,6 @@ class ShellTests(unittest.TestCase):
 class RunTestsTests(unittest.TestCase):
     """M12-B7"""
 
-    @pending("M12-B7")
     def test_runs_a_target_from_the_repo_root_and_summarises(self):
         require_m12()
         r = m12_root("m12runtests", with_main_js=True)
@@ -167,7 +159,6 @@ class RunTestsTests(unittest.TestCase):
 class SelfImproveTests(unittest.TestCase):
     """M12-B8"""
 
-    @pending("M12-B8")
     def test_self_improve_refuses_non_python_targets_without_touching_them(self):
         require_m12()
         r = m12_root("m12selfimprove")

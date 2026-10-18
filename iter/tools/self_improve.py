@@ -761,6 +761,10 @@ def run(action="snapshot", target="", content="", description="", backup="",
     if action in ("apply", "full_loop", "stage"):
         if not target:
             return json.dumps({"error": "missing 'target' argument"})
+        if not str(target).endswith(".py"):
+            # M12-B8: validation compiles every target as Python, so an .html/.js/.css write was reverted silently.
+            return json.dumps({"error": "self_improve edits Python components only (tools/, transformations/, channels/); "
+                                        "use write_file or edit_file for %s" % target})
         relative = os.path.relpath(os.path.realpath(target), os.path.realpath(ITER_ROOT)).replace("\\", "/")
         managed = len(Path(relative).parts) == 2 and Path(relative).parts[0] in ("tools", "transformations", "channels") and relative.endswith(".py")
         if action != "stage":
