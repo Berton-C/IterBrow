@@ -219,8 +219,8 @@ currently call, grouped by what it's for. (A further ~22 tools exist but are dea
 
 | Name | What it does |
 |---|---|
-| `self_improve` | DGM-style evidence and fitness tracking whose apply/full-loop actions now stage an inert immutable candidate and a PWQ approval request; it no longer writes live component files directly. |
-| `revision_control` | Inspect, validate, activate, or safely roll back immutable runtime generations. Activation requires the current authorization from the matching human-approved PWQ item and enters externally supervised probation. |
+| `self_improve` | DGM-style evidence and fitness tracking; apply/full-loop revise a tools/, transformations/ or channels/ `.py` component as an immutable candidate that is validated, regression-checked and activated in the ordinary loop under supervised probation (no PWQ card needed; a supplied `proposal_id` stays binding). Non-Python targets are refused: use `write_file` / `edit_file`. |
+| `revision_control` | Inspect, validate, activate, or safely roll back immutable runtime generations. Activation runs in the ordinary loop without a PWQ card (a supplied card's approval and scope stay binding) and enters externally supervised probation. |
 | `eval` | Run regression tests on Iter's tools and transformations. Args: test_name (str, default 'all'). Returns JSON with pass/fail results. |
 | `token_awareness` | Track token usage estimates. Args: action (str: 'track'\|'report'\|'reset'), text (str, optional). Returns JSON with token estimates. |
 | `test_soul_absent` | Test: verify system degrades gracefully without soul components. |
@@ -245,7 +245,13 @@ currently call, grouped by what it's for. (A further ~22 tools exist but are dea
 
 | Name | What it does |
 |---|---|
-| `shell` | Execute a shell command. |
+| `shell` | Execute a shell command with `cwd` (a folder inside the repo) and `timeout` (default 120 s, at most 170); stdout, then a `--- stderr ---` section. `python3` there is Iter's own Python. |
+| `read_file` | Read a text file as numbered lines (`   12| text`), paged by offset/limit (at most 400 lines, 24k characters). Paths are relative to `iter/`; `../` reaches the repo root. |
+| `write_file` | Write a whole text file atomically, creating folders and keeping an existing file's mode. Inside the repository only; never `.git/`, `node_modules/` or `iter/.venv/`; 2 MB at most. |
+| `edit_file` | Replace text that occurs exactly once in a file and show the edited lines with two lines of context; nothing changes when it occurs 0 or 2+ times. |
+| `list_files` | List a folder: `path  size` for files, `path/` for folders, sorted; `*` is the folder itself, `**/*.js` searches below it. |
+| `grep_files` | Regex search across text files, `path:line: text` per match; the glob filters file names at any depth. |
+| `run_tests` | Run the repo's pytest suite (or one path / `-k` expression) from the repo root with Iter's Python; the first line is `RESULT: <pytest summary>`. |
 | `python` | Execute arbitrary Python code with all other tools available as callable functions. Pass Python code as a string. |
 
 **Model access**

@@ -11,7 +11,7 @@ import re
 import sys
 from pathlib import Path
 
-APP_ID = re.compile(r"^[a-z][a-z0-9_-]{0,62}$")
+APP_ID = re.compile(r"^[a-z][a-z0-9-]{0,62}$")  # the same rule as foundry_projects.py (M12-C2)
 SKIP = {"apps", "node_modules"}
 
 

@@ -16,7 +16,6 @@ from m12_support import pending, require_m12, agents_md, injected_agents_md, BUI
 class AgentsMdTests(unittest.TestCase):
     """M12-C1"""
 
-    @pending("M12-C1")
     def test_building_section_lands_in_the_injected_slice(self):
         require_m12()
         seen = injected_agents_md()
@@ -29,7 +28,7 @@ class AgentsMdTests(unittest.TestCase):
         for phrase in ("iter/<id>/index.html", "iter/apps/<id>/app.json", "Apps menu", "cwd", "timeout", "edit_file"):
             self.assertIn(phrase, section, phrase)
 
-    @pending("M12-C1")
+    @pending("M12-C1")  # left on: the row regexes need re.MULTILINE (see the milestone's implementation notes)
     def test_tool_table_names_every_tool_this_milestone_adds(self):
         text = agents_md()
         table = text[text.index("## Tool Inventory"):]
@@ -45,7 +44,6 @@ class AgentsMdTests(unittest.TestCase):
 class AppIdTests(unittest.TestCase):
     """M12-C2"""
 
-    @pending("M12-C2")
     def test_one_id_rule_and_honest_opening(self):
         require_m12()
         local = (ITER_SRC / "iterbrow_runtime" / "local_apps.py").read_text(encoding="utf-8")
@@ -63,7 +61,7 @@ class AppIdTests(unittest.TestCase):
 class ReadmeTests(unittest.TestCase):
     """M12-C3"""
 
-    @pending("M12-C3")
+    @pending("M12-C3")  # left on: the row regexes need re.MULTILINE (see the milestone's implementation notes)
     def test_readme_rows_match_the_code(self):
         require_m12()
         readme = (REPO / "README.md").read_text(encoding="utf-8")

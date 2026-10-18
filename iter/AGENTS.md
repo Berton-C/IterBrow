@@ -3,6 +3,19 @@
 > Living reference for any agent operating in this environment.
 > Last updated: 2026-09-22. Keep this file current as systems change.
 
+## Building and changing code
+- Read with `read_file` (numbered lines, page with offset), find with `list_files` and `grep_files`.
+- Change a few lines with `edit_file` (old text must occur once; copy it from read_file without the
+  numbers). Create or replace a whole file with `write_file`. Paths are relative to iter/; `../` is the
+  repo root (main.js, bridge/, tests/). `self_improve` is for tools/, transformations/, channels/ .py only.
+- `shell` takes cwd (a folder in the repo) and timeout (seconds, max 170); its python3 is Iter's own.
+- Test with `run_tests` (a tests/ path, or a -k expression). Its first line is RESULT: — read it before
+  claiming anything works.
+- Apps: a plain app is iter/<id>/index.html; a Foundry project is iter/apps/<id>/app.json with src/.
+  An app opened from the Apps menu runs with the app preload (window.iterApp); a tab opened by URL does not.
+- Verify UI in the page with `browser_eval` against real DOM, never from a screenshot alone. A tab the
+  person locked refuses actions; that is their choice, not a failure to work around.
+
 ## Prompt memory (memory/ files)
 Each cycle iter.py shows memory/ text files (rule: `tools/_memory_projection.py`), in full or as
 head+tail excerpts within MAX_MEMORY_CHARS: memory/tasks/ (current_tasks.txt first); files whose
@@ -375,7 +388,16 @@ were confirmation.
 ### System
 | Tool | Purpose |
 |------|---------|
-| `shell` | Run bash commands in the shared browser filesystem |
+| `shell` | Run a command with cwd (a folder in the repo) and timeout (≤170 s); stdout, then a `--- stderr ---` section |
+| `read_file` | Read a text file as numbered lines (`   12| text`); page with offset/limit (≤400 lines) |
+| `write_file` | Write a whole file atomically, creating folders; inside the repo, never .git/node_modules/.venv |
+| `edit_file` | Replace text that occurs exactly once; shows the edited lines with context |
+| `list_files` | List a folder (`*` here, `**/*.js` below); `path  size` and `path/` |
+| `grep_files` | Regex search, `path:line: text`; glob filters names at any depth |
+| `run_tests` | pytest from the repo root with Iter's Python; first line `RESULT: …` |
+| `python` | Run Python with every tool callable as a function |
+| `self_improve` | Revise a tools/, transformations/ or channels/ .py component under validation and probation (no PWQ card needed) |
+| `read_tool_result` | Page through a long tool output by tool_call_id, offset, limit |
 | `browser_screenshot` | Capture the current browser viewport |
 | `websearch` | Search the web — 5-backend cascade: DDG IA, Wikipedia search, Wikipedia OpenSearch, HN Algolia, DDG HTML via CORS proxy. Returns JSON results. |
 | `soul_lock` | Mutation lock (begin → verify → commit/rollback) around the Soul kernel seed and the NACE belief files |

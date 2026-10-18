@@ -168,7 +168,7 @@ function registeredAppForUrl(url) {
 // A plain app: <ITER_DIR>/<id>/index.html, a real folder (not a symlink), not a Foundry project,
 // and not the CRM (which has its own revision-managed path). Mirrors iterbrow_runtime/local_apps.py.
 function plainAppDir(id) {
-  if (!/^[a-z][a-z0-9_-]{0,62}$/.test(id || '') || id === 'crm' || id === 'apps' || id === 'node_modules') return null;
+  if (!/^[a-z][a-z0-9-]{0,62}$/.test(id || '') || id === 'crm' || id === 'apps' || id === 'node_modules') return null;
   const dir = path.join(ITER_DIR, id);
   try {
     if (fs.lstatSync(dir).isSymbolicLink() || !fs.statSync(path.join(dir, 'index.html')).isFile()) return null;
