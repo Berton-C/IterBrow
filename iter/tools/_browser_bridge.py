@@ -11,6 +11,18 @@ import os
 import socket
 
 SOCKET_PATH = os.environ.get("ITER_BRIDGE_SOCKET", "/tmp/iter-browser-bridge.sock")
+# The bridge's lock refusal (bridge/browser_bridge_server.js lockedError) starts "Tab N is locked by the user".
+LOCK_MARKER = "locked by the user"
+
+
+def _refusal(message):
+    try:
+        from iterbrow_runtime.tool_results import ToolOutput
+    except ImportError:  # run outside the loop (tests, a shell): the runtime sits beside tools/
+        import sys
+        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        from iterbrow_runtime.tool_results import ToolOutput
+    return ToolOutput(message, None, state="refused")
 
 
 def call(method, timeout=30, _raw_params=None, **params):
@@ -37,5 +49,15 @@ def call(method, timeout=30, _raw_params=None, **params):
     finally:
         connection.close()
     if not response.get("ok"):
-        raise RuntimeError(response.get("error") or "Unknown Iter Browser Bridge error")
+        error = response.get("error") or "Unknown Iter Browser Bridge error"
+        if LOCK_MARKER in error:
+            # The person's lock is a refusal, not a tool defect (M12-A3): success=None moves no belief.
+            return _refusal(error)
+        raise RuntimeError(error)
     return response.get("result")
+
+
+def refused(value):
+    """True when `call` returned the person's refusal; a tool returns it as its own result."""
+    outcome = getattr(value, "execution_outcome", None)
+    return isinstance(outcome, dict) and outcome.get("state") == "refused"

@@ -20,7 +20,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _browser_bridge import call
+from _browser_bridge import call, refused
 import _component_museum as museum
 
 DESCRIPTION = (
@@ -64,9 +64,13 @@ def run(css="", js="", tab_id="", patch_id="", label=""):
     if css:
         inject_expr = _INJECT_JS_TEMPLATE % {"patch_id": patch_id, "css": css}
         results["css_inject"] = call("eval", expression=inject_expr, **params)
+        if refused(results["css_inject"]):
+            return results["css_inject"]
 
     if js:
         results["js_result"] = call("eval", expression=js, **params)
+        if refused(results["js_result"]):
+            return results["js_result"]
 
     url = ""
     html_snapshot = ""

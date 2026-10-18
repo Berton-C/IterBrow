@@ -22,7 +22,6 @@ PYTHON = str(REPO / "iter" / ".venv" / "bin" / "python3")
 class GateDefaultTests(unittest.TestCase):
     """M12-A1"""
 
-    @pending("M12-A1")
     def test_advisory_is_the_default_in_both_places(self):
         require_m12()
         self.assertIn("process.env.METTA_GATE_MODE || 'advisory'", main_js())
@@ -31,7 +30,6 @@ class GateDefaultTests(unittest.TestCase):
         self.assertNotRegex(src, r'mode = "enforce"\s*\n', "an unknown mode value falls back to advisory, not enforce")
         self.assertIn('default "advisory"', src)
 
-    @pending("M12-A1")
     def test_gate_advises_a_quarantined_capability_instead_of_vetoing(self):
         """With no env set and a seed that still quarantines a capability, the verdict is ADVISE."""
         r = m12_root("m12gate")
@@ -54,7 +52,6 @@ class GateDefaultTests(unittest.TestCase):
 class QuarantineTests(unittest.TestCase):
     """M12-A2"""
 
-    @pending("M12-A2")
     def test_no_capability_is_quarantined_by_seed(self):
         require_m12()
         seed = lifecycle_seed()
@@ -67,7 +64,6 @@ class QuarantineTests(unittest.TestCase):
 class RefusalTests(unittest.TestCase):
     """M12-A3"""
 
-    @pending("M12-A3")
     def test_a_lock_refusal_is_a_refused_result_not_a_failure(self):
         """A fake bridge answers every call with the lock message; the tool returns success=None."""
         require_m12()
@@ -94,7 +90,6 @@ while True:
         self.assertEqual((execution or {}).get("state"), "refused", result)
         self.assertIsNone((execution or {}).get("success"), "a refusal moves no belief")
 
-    @pending("M12-A3")
     def test_navigate_reports_a_load_error_as_a_failure(self):
         src = (ITER_SRC / "tools" / "browser_navigate.py").read_text(encoding="utf-8")
         self.assertRegex(src, r"ToolOutput\([^)]*False", "a bridge warning is a failed navigation, not success text")
@@ -109,7 +104,6 @@ while True:
 class HiddenToolsTests(unittest.TestCase):
     """M12-A4"""
 
-    @pending("M12-A4")
     def test_build_and_verify_tools_are_protected_from_hiding(self):
         require_m12()
         src = (ITER_SRC / "transformations" / "dynamic_tool_budget.py").read_text(encoding="utf-8")

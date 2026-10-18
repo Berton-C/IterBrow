@@ -76,11 +76,12 @@ now runs an ordered pipeline per call:
      just under 0.3, despite ~1000 real calls and c=0.98).
   5. flat threshold       -- everything else, unchanged default 0.3.
 
-MODES (env var METTA_GATE_MODE, default "enforce"):
-  advisory -- never blocks adaptive efficacy decisions. Returns a verdict string that
-              iter.py can log / prepend to the tool's own output as an FYI
-              note when efficacy is low. Safe to leave on indefinitely.
-  enforce  -- (default) actually blocks dispatch when efficacy-expectation is below
+MODES (env var METTA_GATE_MODE, default "advisory"; an unknown value is advisory too):
+  advisory -- (default, M12-A1) never blocks adaptive efficacy decisions. Returns a verdict
+              string that iter.py prepends to the tool's own output as an FYI
+              note when efficacy is low. Nothing gates Iter but the person's own
+              locks and switches; this is the mode that honors that.
+  enforce  -- opt-in by env: actually blocks dispatch when efficacy-expectation is below
               the should-dispatch threshold (or when lifecycle=quarantined).
               Critical load-bearing capabilities retain their lower earned
               floor; explicit human-decision API violations veto in every mode.
@@ -165,9 +166,9 @@ _FEATURE_INVARIANTS = {
 
 
 def run(cap_name, arguments=None, governance_context=None):
-    mode = os.environ.get("METTA_GATE_MODE", "enforce").strip().lower()
+    mode = os.environ.get("METTA_GATE_MODE", "advisory").strip().lower()
     if mode not in ("advisory", "enforce"):
-        mode = "enforce"
+        mode = "advisory"
     cap = _safe_atom(cap_name)
     arguments = arguments if isinstance(arguments, dict) else {}
     governance_context = governance_context if isinstance(governance_context, dict) else {}

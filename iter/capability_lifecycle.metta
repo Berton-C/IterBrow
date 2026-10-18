@@ -83,11 +83,9 @@
 ;; just "never tried") -- see gate_simulation.py in the project notes for
 ;; the full old-vs-new verdict comparison across all 47 live capabilities.
 
-(cap-lifecycle browser_cdp quarantined)      ;; f=0.0 c=0.3077
-(cap-lifecycle lm_studio_chat quarantined)   ;; f=0.0 c=0.3571
-(cap-lifecycle browser_click quarantined)    ;; f=0.0 c=0.25
-(cap-lifecycle browser_type quarantined)     ;; f=0.0 c=0.3077
-(cap-lifecycle museum_vote quarantined)      ;; f=0.0 c=0.3077
+;; Lifted 2026-10-18 (M12-A2): the five quarantine lines that stood here (browser_cdp, lm_studio_chat,
+;; browser_click, browser_type, museum_vote) came from the week browser_cdp's own wrapper raised on every
+;; call, and vetoed calls were never scored, so none could recover; the gate no longer vetoes by default.
 
 ;; Manually-declared candidates -- see "TRUST LIFECYCLE" note above. Remove a
 ;; capability's line here once you're satisfied it should graduate to having

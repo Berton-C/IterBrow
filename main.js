@@ -600,7 +600,8 @@ function startIterProcess() {
     ITER_BRIDGE_SOCKET,
     ITER_METTA_SOCKET,
     ITER_REQUIRE_ATOMSPACE: '1',
-    METTA_GATE_MODE: process.env.METTA_GATE_MODE || 'enforce',
+    // M12-A1: the gate advises; it vetoes only when someone sets enforce on purpose.
+    METTA_GATE_MODE: process.env.METTA_GATE_MODE || 'advisory',
     PYTHONUNBUFFERED: '1',
   };
   iterProcess = spawn(pythonBin(), ['iter.py'], { cwd: ITER_DIR, env });

@@ -25,7 +25,11 @@ PROBE_FILE = RUNTIME_DIR + "/probe_state.json"
 # Keep observation and target recovery discoverable after failures. This only
 # affects the offered catalog: native NACE dispatch and user tab locks still act.
 PROTECTED_TOOLS = {"send", "nop", "shell", "python", "start_new_task", "read_tool_result", "pin",
-                   "browser_tabs", "browser_attach", "browser_switch_tab", "browser_screenshot"}
+                   "browser_tabs", "browser_attach", "browser_switch_tab", "browser_screenshot",
+                   # M12-A4: the hands a builder needs are never hidden, whatever their record says.
+                   "browser_click", "browser_type", "browser_scroll", "browser_eval", "browser_read_text",
+                   "browser_navigate", "browser_new_tab", "browser_close_tab",
+                   "read_file", "write_file", "edit_file", "list_files", "grep_files", "run_tests"}
 ISSUE_LOG = RUNTIME_DIR + "/budget_issues.log"
 
 def _log_issue(detail):

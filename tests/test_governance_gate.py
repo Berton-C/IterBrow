@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import json
+import os
 import sys
 import tempfile
 import types
@@ -92,6 +93,7 @@ class GovernanceGateTests(unittest.TestCase):
         self.assertTrue(verdict.startswith("enforce|VETO|"))
         self.assertIn("human", verdict.lower())
 
+    @mock.patch.dict(os.environ, {"METTA_GATE_MODE": "enforce"})  # enforce is opt-in since M12-A1
     def test_authoritative_nace_allow_records_evaluated_commit(self):
         authoritative = {
             "ok": True,
@@ -113,6 +115,7 @@ class GovernanceGateTests(unittest.TestCase):
         self.assertEqual(payload["context"]["generation_id"], "gen-1")
         self.assertNotIn("pwd", json.dumps(payload))
 
+    @mock.patch.dict(os.environ, {"METTA_GATE_MODE": "enforce"})  # enforce is opt-in since M12-A1
     def test_decision_recording_failure_is_advisory_not_a_new_veto(self):
         authoritative = {
             "ok": True,

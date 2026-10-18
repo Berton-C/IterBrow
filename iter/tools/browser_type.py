@@ -1,7 +1,7 @@
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _browser_bridge import call
+from _browser_bridge import call, refused
 
 DESCRIPTION = (
     "Type text into the attached tab. Optionally pass a CSS selector to click-to-focus first, otherwise types "
@@ -14,4 +14,6 @@ def run(text, selector=None):
     if selector:
         params["selector"] = selector
     result = call("type", **params)
+    if refused(result):
+        return result
     return "typed %s" % result["typed"]
