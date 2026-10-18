@@ -1,6 +1,45 @@
 # Milestone 12 — The builder's hands: Iter can act, edit, and run tests
 
-Status: **scoped 2026-10-18**. Base: M6–M11. Tests: `tests/test_m12_*.py`, `tests/e2e/test_m12_loop.py`;
+Status: **implemented 2026-10-18**; three tests left `@pending` because their assertions cannot match as
+written (below), each with its intent verified by hand.
+Implementation notes:
+- **A real loop bug found by D1.** `iter.py`'s `invoke_dynamic(path, function, *args, **kwargs)` collided with
+  any tool argument named `path` (`TypeError: got multiple values for argument 'path'`), so no tool with a
+  `path` parameter had ever been callable through the loop. Its first two parameters are now
+  positional-only. Unit tests (which run tools directly) could not see it.
+- **Tests left `@pending`, assertions untouched:**
+  - `test_m12_guidance.test_tool_table_names_every_tool_this_milestone_adds` (C1) and
+    `test_readme_rows_match_the_code` (C3): `assertRegex(text, r"^\| `name`")` without `re.MULTILINE`
+    matches only at the start of the file. Checked with the flag: every row is present in both, the
+    README `self_improve` row says "ordinary loop" and no longer "PWQ approval request", and
+    `reprogramming.txt` names `edit_file`.
+  - `tests/e2e/test_m12_loop.py` (D1): the loop stores each result as `Step <time>: [NACE advisory: …]
+    <text>`, so `c == "WROTE …"` / `c.startswith(…)` never match. The run itself does everything D1
+    asks: `WROTE buildertest/index.html (103 bytes, 3 lines)`, the numbered read, `EDITED … (+1 −1 lines)`,
+    `buildertest/index.html:3: <button id='go'>Start</button>`, `RESULT: 1 passed`, and `browser_click`
+    failing with "Iter Browser is not running", not "blocked by reasoning substrate". A substring form
+    of the same assertions would pass.
+  - `test_m12_untie.test_no_capability_is_quarantined_by_seed` has the same missing flag but passes
+    vacuously (`assertNotRegex`); `grep '^(cap-lifecycle .* quarantined)'` confirms there are none.
+- **Harness fixes (support code only):** the tool runner imports like the loop's worker (iter/ on
+  `sys.path`, so `self_improve` can import `iterbrow_runtime`) and accepts `@file` arguments (a 2 MB
+  `write_file` argument exceeded the command line); `m12_support.tool_text` runs the tool itself, because
+  `SemanticRoot.tool` has its own `cwd` and `timeout` parameters that swallowed `shell`'s.
+- **Gate tests.** Two `test_governance_gate.py` tests asserted `enforce|…` verdicts only because enforce was
+  the default; they now set `METTA_GATE_MODE=enforce` explicitly (their subject is the enforce path).
+- **Refusals and request errors move no belief.** Besides the lock (`refused`), the file tools return
+  `REFUSED:` scope answers as `refused` and `ERROR:` / `EDIT-FAILED:` answers as `invalid_input`, both with
+  `success=None`: the tool worked, the request did not fit. Only a crash or a real failure (a shell exit,
+  a navigation the bridge flagged) counts against a tool.
+- **`run_tests` success** means pytest ran (exit 0, 1 or 5); failing tests are the code's news, not the tool's.
+- **`grep_files` glob** without a `/` matches file names at any depth (ripgrep's `--glob` sense), so `*.py`
+  searches the tree; `list_files` keeps pathlib's sense (`*` is the folder itself) as specified.
+- **Seen, not changed (for M13):** a capability with no belief yet gets a ~250-character
+  `[NACE advisory: … trust_stage=candidate …]` prefix on every result until it has evidence; stale
+  `tools/_browser_*.py` copies (one with the old cdp `TypeError`) sit beside the live tools; README's
+  "Full tool catalog (53 tools)" heading is stale (78 tools).
+
+Base: M6–M11. Base: M6–M11. Tests: `tests/test_m12_*.py`, `tests/e2e/test_m12_loop.py`;
 helpers in `tests/m12_support.py`. `tests/semantic_tool_runner.py` now reports a `ToolOutput`'s execution state on success too
 (the A3 tests read it). Every test starts `@pending("M12-xx")`; remove the decorator as each
 passes. `M12_IMPLEMENTED` is keyed on `iter/tools/read_file.py` (B1, the first file this milestone creates).

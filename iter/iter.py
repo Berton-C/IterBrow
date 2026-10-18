@@ -224,7 +224,8 @@ def _stop_loop(signum, _frame):
     raise SystemExit(128 + signum)
 
 
-def invoke_dynamic(path, function, *args, **kwargs):
+def invoke_dynamic(path, function, /, *args, **kwargs):
+    # Positional-only (M12-D1): a tool argument named path or function must reach the tool, not collide here.
     process = None
     # These existing memory tools may use a 30s embedding request and a 30s
     # durable commit. Killing them at 15s loses the reply, not the transaction.

@@ -20,7 +20,7 @@ TINY_TEST = "def test_builder_ok():\n    assert 'go' in 'go'\n"
 
 
 class BuilderHandsLoopTests(unittest.TestCase):
-    @pending("M12-D1")
+    @pending("M12-D1")  # left on: results are stored as "Step <time>: [NACE advisory…] <text>", so ==/startswith never match (see notes)
     def test_write_read_edit_grep_test_and_click_through_the_loop(self):
         require_m12()
         script = [
