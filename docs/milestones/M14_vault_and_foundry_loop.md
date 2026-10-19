@@ -1,10 +1,11 @@
 # Milestone 14 — The vault and the foundry loop: apps that live somewhere, and a way of building them
 
 Status: **scoped 2026-10-19, not implemented.** Base: M6–M13. Tests: `tests/test_m14_*.py` and
-`tests/e2e/test_m14_loop.py`; helpers in `tests/m14_support.py`. Every test starts `@pending("M14-xx")`;
-remove the decorator as each passes. `M14_IMPLEMENTED` is keyed on `iter/iterbrow_runtime/vault.py` (A1,
-the first file this milestone creates). Sections are independent except where noted; implement A→G, one
-commit per section.
+`tests/e2e/test_m14_loop.py`; helpers in `tests/m14_support.py`. How to build it: `CLAUDE.md` at the repo
+root (the workflow and the standing rules); check a section with `scripts/check_section.sh M14-A`. Every
+test starts `@pending("M14-xx")`; remove the decorator as each passes. `M14_IMPLEMENTED` is keyed on
+`iter/iterbrow_runtime/vault.py` (A1, the first file this milestone creates). Sections are independent
+except where noted (D's e2e needs C; `check_section.sh M14-D` runs it); implement A→G, one commit each.
 
 ## Why
 
@@ -136,6 +137,13 @@ vault), `main.js`, `bridge/vault_menu.js` (new), `preload.js`, `renderer/index.h
   beside it calling the same handler) under a "Apps" heading; `settings:load` includes `vault` and
   `recentVaults`; `settings:save` never changes `vault` (only the chooser does).
 
+Build notes: `_files.roots()` is the seam — `resolve()` tries each root and `shown()` prints `vault/<rel>`
+for vault files; `shell(cwd="vault/todo")` resolves through the same function. `bridge/vault_menu.js` is
+pure (template objects whose `click` calls a handler); main.js only wires the handlers. `vaultAppDir(id)`
+in main.js must mirror `vault.app_dir` exactly (real folder, no symlink, `index.html`, the id regex, never
+`.iter`). Read main.js `openRegisteredApp`, `plainAppDir`, `registeredAppForUrl`, `apps:menu`,
+`loadSettings`/`saveSettings` and `settings:load`/`save` before changing them.
+
 Tests: `tests/test_m14_vault.py`.
 
 ## B. Snapshots and one-action rollback
@@ -163,6 +171,10 @@ Files: `iter/iterbrow_runtime/vault.py` (`snapshot`, `rollback`, `history`, `pru
   is a vault app with history (`vault history` via CLI, cached per menu open); it runs `vault rollback
   <id> 1`, reloads the tab, logs `[vault] rolled back <id>: index.html`. Nothing is shown when there is
   no history.
+
+Build notes: `_files.before_write(real)` is called inside `write_file`/`edit_file` immediately before the
+atomic replace and after the `(unchanged)` check; outside the vault it does nothing at all (no directory,
+no log). Keep `prune_plan` pure; `prune` applies it.
 
 Tests: `tests/test_m14_snapshots.py`.
 
@@ -196,6 +208,9 @@ Files: `iter/tools/new_app.py` (new), `iter/tools/app_probe.py`, `iter/iterbrow_
   `None`. `transform` appends the note to the system prompt. It never removes a tool and never alters the
   `send`. At most one note per app per request.
 
+Build notes: `note(messages)` reads only the message list (tool calls and their results) — never a state
+file. A failed probe counts as having probed: the model sees the ✗ lines and decides.
+
 Tests: `tests/test_m14_scaffold.py`.
 
 ## D. The foundry loop: research, propose, confirm, build, prove, report
@@ -226,6 +241,10 @@ Files: `iter/transformations/build_mode.py` (new), `iter/AGENTS.md`, `README.md`
 - **D4 — never hidden, never capped.** `new_app`, `app_rollback`, `github` join `dynamic_tool_budget.
   PROTECTED_TOOLS` and `iter.py PROTECTED_TOOL_NAMES`; `tests/test_tool_cap.py` still passes (84 of 96).
 
+Build notes: `active(messages)` is pure over the message list, like `note`. D3's section must stay ≤ 1,800
+characters and inside the injected 6,000 (the test measures both); regenerate README rows from the tools'
+`DESCRIPTION`s rather than hand-writing them.
+
 Tests: `tests/test_m14_loop.py` (unit) and `tests/e2e/test_m14_loop.py` (the loop with a fake model:
 `new_app` → `edit_file` → the build_watch note appears on the next request → `app_probe` fails honestly
 with no bridge → `app_rollback` restores the file → `send`).
@@ -253,6 +272,10 @@ Files: `iter/tools/github.py` (new), `iter/tools/websearch.py`.
   remain after it. When every backend answered and none had results, the tool returns `NO RESULTS: <query>`
   as a success (the tool worked); it fails only when no backend could be reached. `source="github"` is
   unchanged. `DESCRIPTION` is rewritten to describe the real backends (the README row regenerates).
+
+Build notes: keep the existing websearch backends after the new DuckDuckGo HTML one; `NO RESULTS: <query>`
+is success text, so only "no backend reachable" raises. The live tests skip without network, so the
+fixture tests are the ones that must pass here.
 
 Tests: `tests/test_m14_research.py` (parsers over fixtures in `tests/fixtures/m14/`; one live test per tool
 that skips without network).
@@ -283,8 +306,14 @@ Files: `iter/iter.py` (`dynamic_worker`, `apply_transformation`, new `invoke_dyn
   transformation records `os.getpid()`), and `transformations_seconds` sums to under half of the
   per-process figure for the same harness (recorded in the implementation notes, both numbers).
 
-Tests: `tests/test_m14_cycle.py` (unit: a batch of three fake transformations, one that raises, one that
-sleeps past its timeout) and the e2e assertion in `tests/e2e/test_m14_loop.py`.
+Build notes: `--invoke-batch` is a new argv mode beside `--invoke` (tools keep `--invoke`); per-item
+`signal.setitimer` timeouts; the result-file shape is in F1 and the test. On a dead worker, fall back to
+per-process for the rest of the cycle and log it. Record both F3 numbers (per-process vs batch, same
+harness) in the implementation notes.
+
+Tests: `tests/test_m14_cycle.py` (unit: a batch of four fake transformations, one that raises, one that
+sleeps past its timeout) and `test_one_process_per_cycle_for_the_transformations` in
+`tests/e2e/test_m14_loop.py`.
 
 ## G. The five-app benchmark and the docs
 
@@ -311,6 +340,9 @@ Files: `scripts/foundry_bench/bench.py` (new), `scripts/foundry_bench/briefs.jso
 - **G3 — docs.** `docs/bench/README.md` says how to run it and what the numbers mean;
   `SOUL_IN_THE_FOUNDRY.md`'s M14 entry is updated; this file gets the implementation notes at the top,
   including the two F3 numbers and the first benchmark table if Berton ran one.
+
+Build notes: `bench.py` drives a live IterBrow, which this environment does not have — make `score` and
+`table` pure, validate the briefs with `validateProbeSpec`, and leave the live run to Berton.
 
 Tests: `tests/test_m14_bench.py` (the briefs validate; `score`; the report table).
 

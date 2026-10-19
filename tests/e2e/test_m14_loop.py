@@ -44,7 +44,6 @@ class FoundryLoopTests(unittest.TestCase):
         vault = run.work / "vault"
         vault.mkdir()
         (run.root / ".runtime" / "settings.json").write_text(json.dumps({"vault": str(vault)}), encoding="utf-8")
-        (run.root / "transformations" / "zz_m14_pid.py").write_text(PID_TRANSFORMATION, encoding="utf-8")
         with run:
             run.say("build me a todo app in the vault")
             run.wait_for_reply("M14-DONE", timeout=600)
@@ -63,6 +62,16 @@ class FoundryLoopTests(unittest.TestCase):
             noted = [i for i, r in enumerate(requests) if "[build: vault/todo changed since its last probe" in r["system"]]
             self.assertTrue(noted, "the note appeared after the send that followed the change")
             self.assertFalse(any("[build: vault/todo changed" in r["system"] for r in requests[:3]), "not before the send")
+
+    @pending("M14-F3")
+    def test_one_process_per_cycle_for_the_transformations(self):
+        require_m14()
+        run = IterRun([[send("first")], [send("second")], [send("M14-F3-DONE")]], name="m14f3")
+        (run.root / "transformations" / "zz_m14_pid.py").write_text(PID_TRANSFORMATION, encoding="utf-8")
+        with run:
+            run.say("hello")
+            run.wait_for_reply("M14-F3-DONE", timeout=600)
+            run.stop()
             # F3: one process per cycle for the transformations.
             pids = (run.root / "m14_pids.txt").read_text(encoding="utf-8").split()
             self.assertGreaterEqual(len(pids), 3)
