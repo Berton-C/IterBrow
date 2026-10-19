@@ -20,7 +20,6 @@ TINY_TEST = "def test_builder_ok():\n    assert 'go' in 'go'\n"
 
 
 class BuilderHandsLoopTests(unittest.TestCase):
-    @pending("M12-D1")  # left on: results are stored as "Step <time>: [NACE advisory…] <text>", so ==/startswith never match (see notes)
     def test_write_read_edit_grep_test_and_click_through_the_loop(self):
         require_m12()
         script = [
@@ -39,12 +38,13 @@ class BuilderHandsLoopTests(unittest.TestCase):
             run.say("build me a small page and test it")
             run.wait_for_reply("BUILDER-DONE", timeout=600)
             run.stop()
+            # The loop stores each result as "Step <time>: [NACE advisory: …] <the tool's text>", so match the text.
             results = [m["content"] for m in run.experience() if m.get("role") == "tool"]
-            self.assertTrue(any(c == "WROTE buildertest/index.html (%d bytes, 3 lines)" % len(PAGE.encode("utf-8")) for c in results), results)
-            self.assertTrue(any(c.startswith("buildertest/index.html (lines 1–3 of 3)\n    1| <!doctype html>") for c in results), results)
-            self.assertTrue(any(c.startswith("EDITED buildertest/index.html (+1 −1 lines)") for c in results), results)
-            self.assertTrue(any(c.strip() == "buildertest/index.html:3: <button id='go'>Start</button>" for c in results), results)
-            self.assertTrue(any(c.startswith("RESULT: 1 passed") for c in results), results)
+            self.assertTrue(any("WROTE buildertest/index.html (%d bytes, 3 lines)" % len(PAGE.encode("utf-8")) in c for c in results), results)
+            self.assertTrue(any("buildertest/index.html (lines 1–3 of 3)\n    1| <!doctype html>" in c for c in results), results)
+            self.assertTrue(any("EDITED buildertest/index.html (+1 −1 lines)" in c for c in results), results)
+            self.assertTrue(any(c.rstrip().endswith("buildertest/index.html:3: <button id='go'>Start</button>") for c in results), results)
+            self.assertTrue(any("RESULT: 1 passed" in c for c in results), results)
             click = next(c for c in results if "bridge" in c.lower() or "blocked" in c.lower())
             self.assertNotIn("Tool execution blocked by reasoning substrate", click, "the gate no longer vetoes click")
             self.assertIn("not running", click, "it failed for the real reason: no bridge in this harness")

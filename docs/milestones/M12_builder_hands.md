@@ -1,7 +1,10 @@
 # Milestone 12 — The builder's hands: Iter can act, edit, and run tests
 
-Status: **implemented 2026-10-18**; three tests left `@pending` because their assertions cannot match as
-written (below), each with its intent verified by hand.
+Status: **implemented 2026-10-18, audited 2026-10-19** (every `@pending` removed; the three tests Opus left
+pending were harness bugs of the scope commit — `^` without `(?m)`, and exact matches against results the loop
+stores with a `Step <time>: [NACE advisory…]` prefix — fixed in the audit, assertions' intent unchanged).
+Audit also removed the six dead `tools/_browser_*.py` copies from the initial import (one carried the old
+cdp `TypeError`) and corrected the README tool count (78).
 Implementation notes:
 - **A real loop bug found by D1.** `iter.py`'s `invoke_dynamic(path, function, *args, **kwargs)` collided with
   any tool argument named `path` (`TypeError: got multiple values for argument 'path'`), so no tool with a

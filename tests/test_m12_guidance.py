@@ -28,12 +28,11 @@ class AgentsMdTests(unittest.TestCase):
         for phrase in ("iter/<id>/index.html", "iter/apps/<id>/app.json", "Apps menu", "cwd", "timeout", "edit_file"):
             self.assertIn(phrase, section, phrase)
 
-    @pending("M12-C1")  # left on: the row regexes need re.MULTILINE (see the milestone's implementation notes)
     def test_tool_table_names_every_tool_this_milestone_adds(self):
         text = agents_md()
         table = text[text.index("## Tool Inventory"):]
         for name in BUILD_TOOLS + ["python", "self_improve", "read_tool_result"]:
-            self.assertRegex(table, r"^\| `%s`" % re.escape(name), name)
+            self.assertRegex(table, r"(?m)^\| `%s`" % re.escape(name), name)
         tools = {p.stem for p in (ITER_SRC / "tools").glob("*.py") if not p.name.startswith("_")}
         for name in BUILD_TOOLS:
             self.assertIn(name, tools, name)
@@ -61,7 +60,6 @@ class AppIdTests(unittest.TestCase):
 class ReadmeTests(unittest.TestCase):
     """M12-C3"""
 
-    @pending("M12-C3")  # left on: the row regexes need re.MULTILINE (see the milestone's implementation notes)
     def test_readme_rows_match_the_code(self):
         require_m12()
         readme = (REPO / "README.md").read_text(encoding="utf-8")
@@ -69,7 +67,7 @@ class ReadmeTests(unittest.TestCase):
         self.assertNotIn("PWQ approval request", row)
         self.assertIn("ordinary loop", row)
         for name in BUILD_TOOLS:
-            self.assertRegex(readme, r"^\| `%s`" % re.escape(name), name)
+            self.assertRegex(readme, r"(?m)^\| `%s`" % re.escape(name), name)
 
 
 if __name__ == "__main__":

@@ -55,10 +55,10 @@ class QuarantineTests(unittest.TestCase):
     def test_no_capability_is_quarantined_by_seed(self):
         require_m12()
         seed = lifecycle_seed()
-        self.assertNotRegex(seed, r"^\(cap-lifecycle \S+ quarantined\)", "no live quarantine lines (comments may remain)")
+        self.assertNotRegex(seed, r"(?m)^\(cap-lifecycle \S+ quarantined\)", "no live quarantine lines (comments may remain)")
         self.assertRegex(seed, r"(?i)lifted", "the comment says the lines were lifted and why")
         for cap in ("browser_click", "browser_type", "browser_cdp"):
-            self.assertNotRegex(seed, r"^\(cap-lifecycle %s " % cap, cap)
+            self.assertNotRegex(seed, r"(?m)^\(cap-lifecycle %s " % cap, cap)
 
 
 class RefusalTests(unittest.TestCase):

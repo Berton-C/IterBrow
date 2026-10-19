@@ -25,7 +25,7 @@ hand-written summaries, so it stays truthful as the code changes.
 1. [What IterBrow can actually do](#what-iterbrow-can-actually-do)
 2. [How it's built (architecture)](#how-its-built-architecture)
 3. [The cognitive loop, at a glance](#the-cognitive-loop-at-a-glance)
-4. [Full tool catalog (53 tools)](#full-tool-catalog-53-tools)
+4. [Full tool catalog (78 tools)](#full-tool-catalog-78-tools)
 5. [Full transformation pipeline (31 stages)](#full-transformation-pipeline-31-stages)
 6. [Memory architecture](#memory-architecture)
 7. [The Soul system — value-grounded self-evaluation](#the-soul-system--value-grounded-self-evaluation)
@@ -132,7 +132,7 @@ run transformations → wait for the next input. Two of the folders under `iter/
 all of this project's actual capability lives, and both can be updated through recoverable runtime generations:
 
 - **`iter/tools/`** (53 active) — things the model can explicitly call: browse, remember,
-  reason, self-modify, communicate. See the [full catalog](#full-tool-catalog-53-tools) below.
+  reason, self-modify, communicate. See the [full catalog](#full-tool-catalog-78-tools) below.
 - **`iter/transformations/`** (31 active) — pipeline stages that run automatically every cycle
   around the model call: injecting memory/context, tracking reliability, running the self-improve
   and governance checks, updating dashboards. See the [full pipeline](#full-transformation-pipeline-31-stages)
@@ -142,7 +142,7 @@ all of this project's actual capability lives, and both can be updated through r
 A file starting with `_` in either folder is deactivated without being deleted — the fastest way
 to see exactly what's currently live vs. retired is `ls iter/tools/` / `ls iter/transformations/`.
 
-## Full tool catalog (53 tools)
+## Full tool catalog (78 tools)
 
 Generated directly from each file's `DESCRIPTION` constant — this is everything the model can
 currently call, grouped by what it's for. (A further ~22 tools exist but are deactivated —
