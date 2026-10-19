@@ -15,6 +15,8 @@
   An app opened from the Apps menu runs with the app preload (window.iterApp); a tab opened by URL does not.
   Open one yourself with `browser_open_app`, then `browser_wait_for` what should appear, then prove it
   with `app_probe` (steps + assertions) before saying it works.
+  New apps go in the person's apps folder: `new_app` → vault/<id>/ (docs/APP_CONTRACT.md); `app_probe(<id>)`
+  with no assertions runs the app's probe.json.
 - Actions say what they hit (target) and where the page is now; they act only on the displayed tab.
   `browser_tabs` shows which tab is your target. Check UI with `browser_eval` against real DOM, never from
   a screenshot alone. A tab the person locked refuses actions; that is their choice, not a failure.

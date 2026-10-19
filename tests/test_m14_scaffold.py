@@ -20,7 +20,6 @@ PROBE = {"steps": [], "assertions": [{"kind": "text", "selector": "#title", "exp
 class NewAppTests(unittest.TestCase):
     """M14-C1"""
 
-    @pending("M14-C1")
     def test_scaffold(self):
         r = vault_root("m14new", with_main_js=True)
         self.addCleanup(r.close)
@@ -48,7 +47,6 @@ class NewAppTests(unittest.TestCase):
         res = r.tool("new_app", id="other", title="x")
         self.assertEqual((res.get("execution") or {}).get("state"), "refused")
 
-    @pending("M14-C1")
     def test_from_example_copies_the_example_and_adds_a_probe_only_when_missing(self):
         r = vault_root("m14fromex", with_main_js=True)
         self.addCleanup(r.close)
@@ -68,7 +66,6 @@ class NewAppTests(unittest.TestCase):
         self.assertEqual(json.loads((r.vault / "quest2" / "probe.json").read_text(encoding="utf-8")), PROBE, "the example's own probe is kept")
         self.assertEqual((r.tool("new_app", id="x", title="x", from_example="nope").get("execution") or {}).get("state"), "invalid_input")
 
-    @pending("M14-C1")
     @unittest.skipUnless(playwright_available(), "needs playwright")
     def test_the_scaffold_runs_and_sets_ready(self):
         r = vault_root("m14ready", with_main_js=True)
@@ -90,7 +87,6 @@ with sync_playwright() as p:
 class ContractTests(unittest.TestCase):
     """M14-C2"""
 
-    @pending("M14-C2")
     def test_contract_doc_exists_and_is_linked(self):
         require_m14()
         doc = (REPO / "docs" / "APP_CONTRACT.md").read_text(encoding="utf-8")
@@ -103,7 +99,6 @@ class ContractTests(unittest.TestCase):
 class ProbeSpecTests(unittest.TestCase):
     """M14-C3"""
 
-    @pending("M14-C3")
     def test_app_probe_reads_the_apps_probe_json(self):
         r = vault_root("m14probe", with_main_js=True)
         self.addCleanup(r.close)
@@ -138,7 +133,6 @@ class BuildWatchTests(unittest.TestCase):
     def _messages(self, *tail):
         return [system(), user("make a todo app")] + list(tail)
 
-    @pending("M14-C4")
     def test_note_when_an_app_changed_since_its_last_probe_and_the_turn_is_a_send(self):
         watch = transformation("build_watch")
         edited = [assistant(calls=[("c1", "edit_file", {"path": "vault/todo/index.html", "old": "a", "new": "b"})]),
@@ -157,7 +151,6 @@ class BuildWatchTests(unittest.TestCase):
         failed = [assistant(calls=[("c6", "app_probe", {"app": "todo"})]), tool_result("c6", "PROBE todo (probe.json): 1 passed, 1 failed\n✗ text #title: expected 'Todo' got ''")]
         self.assertIsNone(watch.note(self._messages(*edited, *failed, *sending)), "a failed probe still counts as having probed; the model sees the result")
 
-    @pending("M14-C4")
     def test_transform_appends_to_the_system_prompt_and_removes_nothing(self):
         watch = transformation("build_watch")
         edited = [assistant(calls=[("c1", "write_file", {"path": "vault/todo/app.js", "content": "1"})]),
