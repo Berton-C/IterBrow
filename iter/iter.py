@@ -69,7 +69,8 @@ DEFAULT_DELAY = 0 #default delay added irregard of whether in slow mode
 MAX_INPUT_TOKENS = 45000
 MAX_TOKENS = 45000
 INIT_WAIT = float(os.getenv("ITER_INIT_WAIT", "10"))  # tests set 0
-MAX_TOOLS = 80  # raised from 30: the tools/ directory has grown to 55+ public tools across past
+MAX_TOOLS = 96  # 80 -> 96 on 2026-10-19 (M13): M12/M13's tools took the count to 81 and write_file fell off the end.
+# Earlier: raised from 30: the tools/ directory has grown to 55+ public tools across past
                 # feature work, and this cap silently truncated the ALPHABETICALLY SORTED tool list -
                 # `send.py` (and 20+ other tools including remember, self_improve, support, websearch,
                 # tab_autonomy, start_new_task) sorted past position 30 and were completely invisible
@@ -431,7 +432,11 @@ def persist_partial_turn(reason):
 # way to talk to the user - if it's ever excluded again, the model can go silent
 # indefinitely even though the silent_streak safety net keeps demanding it call
 # send (that exact incident is why this list exists; see MAX_TOOLS comment above).
-PROTECTED_TOOL_NAMES = {"send", "nop", "shell", "python", "start_new_task", "read_tool_result", "pin"}
+PROTECTED_TOOL_NAMES = {"send", "nop", "shell", "python", "start_new_task", "read_tool_result", "pin",
+                        # The builder's hands and eyes (M12/M13): never dropped by the cap either.
+                        "read_file", "write_file", "edit_file", "list_files", "grep_files", "run_tests",
+                        "browser_click", "browser_type", "browser_eval", "browser_wait_for", "browser_open_app",
+                        "app_probe", "browser_tabs", "browser_navigate", "browser_new_tab"}
 
 def load_tools():
     # PORT: The kernel creates retained references, so their read-only consumer

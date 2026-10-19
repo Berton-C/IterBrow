@@ -13,8 +13,11 @@
   claiming anything works.
 - Apps: a plain app is iter/<id>/index.html; a Foundry project is iter/apps/<id>/app.json with src/.
   An app opened from the Apps menu runs with the app preload (window.iterApp); a tab opened by URL does not.
-- Verify UI in the page with `browser_eval` against real DOM, never from a screenshot alone. A tab the
-  person locked refuses actions; that is their choice, not a failure to work around.
+  Open one yourself with `browser_open_app`, then `browser_wait_for` what should appear, then prove it
+  with `app_probe` (steps + assertions) before saying it works.
+- Actions say what they hit (target) and where the page is now; they act only on the displayed tab.
+  `browser_tabs` shows which tab is your target. Check UI with `browser_eval` against real DOM, never from
+  a screenshot alone. A tab the person locked refuses actions; that is their choice, not a failure.
 
 ## Prompt memory (memory/ files)
 Each cycle iter.py shows memory/ text files (rule: `tools/_memory_projection.py`), in full or as
@@ -399,6 +402,10 @@ were confirmation.
 | `self_improve` | Revise a tools/, transformations/ or channels/ .py component under validation and probation (no PWQ card needed) |
 | `read_tool_result` | Page through a long tool output by tool_call_id, offset, limit |
 | `browser_screenshot` | Capture the current browser viewport |
+| `browser_tabs` | List tabs: displayed, your target, locked by the person, and which app (app=- for a page) |
+| `browser_wait_for` | Wait until a selector is visible, the page shows text, and/or the URL contains a string |
+| `browser_open_app` | Open one of the person's apps as they see it (app tab, with its preload) and target it |
+| `app_probe` | Run click/fill steps and text/value/count/visible assertions in an open app; PROBE <app>: n passed, m failed |
 | `websearch` | Search the web — 5-backend cascade: DDG IA, Wikipedia search, Wikipedia OpenSearch, HN Algolia, DDG HTML via CORS proxy. Returns JSON results. |
 | `soul_lock` | Mutation lock (begin → verify → commit/rollback) around the Soul kernel seed and the NACE belief files |
 | `soul_reflect` | Read a situation through the Soul lens: facets of the named patterns, tension vectors, declared pairs. No ruling |

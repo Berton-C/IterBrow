@@ -1,6 +1,35 @@
 # Milestone 13 — The builder's eyes: Iter can see what it did
 
-Status: **scoped 2026-10-19**. Base: M6–M12. Tests: `tests/test_m13_*.py`; helpers in `tests/m13_support.py`.
+Status: **implemented 2026-10-19** (all `@pending` decorators removed).
+Implementation notes:
+- **A regression the full run caught: the loader's tool cap.** `iter.py` loads at most `MAX_TOOLS - 1`
+  tools (protected first, then alphabetically) and drops the rest silently; M13's three tools took the count
+  to 81 and `write_file` fell off the end (the M12 e2e answered "Unknown tool: 'write_file'"). The builder's
+  hands and eyes are now in `PROTECTED_TOOL_NAMES`, `MAX_TOOLS` is 96, and `tests/test_tool_cap.py` fails as
+  soon as the next tool would cross the cap — the same failure once hid `send`.
+- **One fixture fix (B1).** The page fixture's zero-size `#zero` was a `<span>`; `width`/`height` do not
+  apply to inline elements, so it rendered 27×17 and visible. It is `display: inline-block` now; the
+  assertion (`visible` is false) is unchanged.
+- **Source-shape tests and helpers.** B2/B5 check strings in `click` and in each tool, so the displayed
+  check, the post-action `stateScript()` read and `tabId` are written inline there (`type`, `scroll` and
+  `waitFor` share a small `_displayed(tab)`).
+- **`stateScript` also returns `activeEditable`** (the summary keeps exactly `{tag, id, text}`), which is how
+  `type` knows a field has focus.
+- **`openApp` makes the app tab Iter's target** (it is Iter's own action, like `newTab`), so the next
+  click/probe lands in the app; the person opening an app from the menu still never moves the target.
+- **`waitFor` requires the tab on screen**, as the spec's vocabulary says for actions (timers in a page that
+  is not displayed are throttled), and is allowed on a locked tab (it only reads). An invalid selector
+  ends the wait at once and the bridge's error says `(invalid selector)`.
+- **`probe` returns `tabId`** besides the specified fields; `scroll` with a selector reports invalid/missing
+  like `click`.
+- **Commit split.** `bridge/browser_bridge_server.js` carries B3/B4 (waitFor, newTab) and all of C, so it is in
+  the C commit; the A tests key on `bridge/page_scripts.js`, which lands in the B commit.
+- **README.** Its tool tables are generated from `DESCRIPTION`s; the nine browser rows this milestone changed
+  were regenerated from the new descriptions, the three new tools added, the tool count updated.
+- **Not verifiable here:** real input events, focus and `capturePage` need Electron. Berton's first check on
+  the Mac: open Map Station with `browser_open_app`, have Iter click "Locate me" and report what it hit.
+
+Base: M6–M12. Base: M6–M12. Tests: `tests/test_m13_*.py`; helpers in `tests/m13_support.py`.
 Every test starts `@pending("M13-xx")`; remove the decorator as each passes. `M13_IMPLEMENTED` is keyed on
 `bridge/page_scripts.js` (B1, the first file this milestone creates). No end-to-end run through the loop:
 the eyes need Electron, which the e2e harness does not have; the page scripts are tested in a real

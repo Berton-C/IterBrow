@@ -25,7 +25,7 @@ hand-written summaries, so it stays truthful as the code changes.
 1. [What IterBrow can actually do](#what-iterbrow-can-actually-do)
 2. [How it's built (architecture)](#how-its-built-architecture)
 3. [The cognitive loop, at a glance](#the-cognitive-loop-at-a-glance)
-4. [Full tool catalog (78 tools)](#full-tool-catalog-78-tools)
+4. [Full tool catalog (81 tools)](#full-tool-catalog-81-tools)
 5. [Full transformation pipeline (31 stages)](#full-transformation-pipeline-31-stages)
 6. [Memory architecture](#memory-architecture)
 7. [The Soul system — value-grounded self-evaluation](#the-soul-system--value-grounded-self-evaluation)
@@ -132,7 +132,7 @@ run transformations → wait for the next input. Two of the folders under `iter/
 all of this project's actual capability lives, and both can be updated through recoverable runtime generations:
 
 - **`iter/tools/`** (53 active) — things the model can explicitly call: browse, remember,
-  reason, self-modify, communicate. See the [full catalog](#full-tool-catalog-78-tools) below.
+  reason, self-modify, communicate. See the [full catalog](#full-tool-catalog-81-tools) below.
 - **`iter/transformations/`** (31 active) — pipeline stages that run automatically every cycle
   around the model call: injecting memory/context, tracking reliability, running the self-improve
   and governance checks, updating dashboards. See the [full pipeline](#full-transformation-pipeline-31-stages)
@@ -142,7 +142,7 @@ all of this project's actual capability lives, and both can be updated through r
 A file starting with `_` in either folder is deactivated without being deleted — the fastest way
 to see exactly what's currently live vs. retired is `ls iter/tools/` / `ls iter/transformations/`.
 
-## Full tool catalog (78 tools)
+## Full tool catalog (81 tools)
 
 Generated directly from each file's `DESCRIPTION` constant — this is everything the model can
 currently call, grouped by what it's for. (A further ~22 tools exist but are deactivated —
@@ -152,19 +152,22 @@ currently call, grouped by what it's for. (A further ~22 tools exist but are dea
 
 | Name | What it does |
 |---|---|
-| `browser_tabs` | List every open browser tab (id, title, url, active, windowId) so you can pick one to attach to or switch to. |
-| `browser_new_tab` | Open a new tab in the Iter Browser window at the given URL (defaults to a blank/search page) and make it the active/attached tab. |
+| `browser_tabs` | List open tabs: tabId, whether it is displayed, whether it is your target (where click/type/eval act without a tab_id), whether the person locked it, and which app it is (app=- for an ordinary page). |
+| `browser_new_tab` | Open a new tab at the given URL (defaults to a search page), wait for it to load, and make it the displayed tab and your target. To open one of the person's apps as they see it, use browser_open_app instead. |
 | `browser_close_tab` | Close a browser tab. Omit tab_id to close the currently attached/active tab. |
 | `browser_switch_tab` | Bring a specific browser tab to the front / give it focus. Pass tab_id from browser_tabs. |
-| `browser_attach` | Mark a tab as the current target for navigate/click/type/screenshot/eval/scroll, so you don't have to pass tab_id on every call. Pass tab_id from browser_tabs, or omit to target the current active tab. |
+| `browser_attach` | Mark a tab as the current target for navigate/click/type/screenshot/eval/scroll (each also takes an optional tab_id for one call). Pass tab_id from browser_tabs, or omit to target the displayed tab. This does not display a background tab; browser_switch_tab both displays and targets a tab. |
 | `browser_detach` | Clear the currently attached/targeted tab, so subsequent browser_* calls fall back to whichever tab is active. |
 | `browser_navigate` | Navigate the attached browser tab to a URL. |
-| `browser_click` | Click an element in the attached tab. Pass a CSS selector (preferred, e.g. '#submit' or 'button.primary'), or raw x,y viewport coordinates if there is no good selector. |
-| `browser_type` | Type text into the attached tab. Optionally pass a CSS selector to click-to-focus first, otherwise types into whatever element already has focus. |
-| `browser_scroll` | Scroll the attached tab's page by (x, y) pixels. Positive y scrolls down. |
-| `browser_eval` | Run arbitrary JavaScript in the attached tab's page context and return its (JSON-serializable) return value. Use for reading page state, form values, computed styles, etc. that don't need a screenshot. |
-| `browser_read_text` | Get the attached tab's visible page text (document.body.innerText, truncated to 20000 chars). Cheaper than a screenshot when you just need to read content. |
-| `browser_screenshot` | Take a screenshot of the attached browser tab's current viewport and attach it as visual context for the next model turn. Use this to see what the page actually looks like before deciding on clicks. |
+| `browser_click` | Click an element. Pass a CSS selector (preferred, e.g. '#submit' or 'button.primary'), or raw x,y viewport coordinates. It scrolls the element into view and clicks only if it is visible and not covered; it says what it hit and where the page is now. tab_id: optional (default: the target tab, which must be on screen). |
+| `browser_type` | Type text into a field. Pass a CSS selector to click the field first (recommended); without one it types into the focused element, and fails if nothing editable has focus. Returns the field and its value after typing. tab_id: optional (default: the target tab, which must be on screen). |
+| `browser_scroll` | Scroll. With a CSS selector, scroll that element into view. Otherwise scroll by (x, y) pixels (positive y is down) — the focused scrollable container if there is one, else the page — and report how far it really moved. tab_id: optional (default: the target tab, which must be on screen). |
+| `browser_eval` | Run arbitrary JavaScript in a tab's page context and return its (JSON-serializable) return value. Use for reading page state, form values, computed styles, etc. that don't need a screenshot. tab_id: optional (default: the target tab). |
+| `browser_read_text` | Get a tab's visible page text (document.body.innerText, truncated to 20000 chars). Cheaper than a screenshot when you just need to read content. tab_id: optional (default: the target tab). |
+| `browser_screenshot` | Take a screenshot of the attached browser tab's current viewport and attach it as visual context for the next model turn. The tab needs a rendered surface; browser_attach alone does not display it. browser_switch_tab displays and targets an existing tab. An unavailable capture is a failure, not visual evidence. tab_id: optional (default: the target tab). |
+| `browser_wait_for` | Wait until something is true in a tab: a CSS selector matches a visible element, the page shows some text, and/or the URL contains a string (every one you give must hold). timeout in seconds (default 10, at most 30). Use after a click or load before you check the result. tab_id: optional (default: the target tab). |
+| `browser_open_app` | Open one of the person's apps (an id from the apps tool, e.g. mapstation) the way they see it: as an app tab with its preload (window.iterApp), focusing it if it is already open. Waits for it to load and makes it your target. Use this, not browser_new_tab, before testing an app with app_probe or clicking in it. |
+| `app_probe` | Prove an open app works: run steps (JSON list of {kind: click\|fill, selector, value?}) then check assertions (JSON list of {kind: text\|value\|count\|visible, selector, expected}) in the app's tab. First line: PROBE <app>: <n> passed, <m> failed; then one line per assertion. Open the app first with browser_open_app. timeout: seconds. |
 | `browser_cdp` | Advanced/raw escape hatch: send an arbitrary Chrome DevTools Protocol command to the attached tab (e.g. method='Network.enable' or method='Emulation.setDeviceMetricsOverride'). cdp_params must be a JSON object string. Only use this when the simpler browser_* tools do not cover what you need. |
 
 **Live UI generation & component museum**

@@ -18,7 +18,6 @@ NEW_TOOLS = ["browser_wait_for", "browser_open_app", "app_probe"]
 class GuidanceTests(unittest.TestCase):
     """M13-D1"""
 
-    @pending("M13-D1")
     def test_building_section_and_tables(self):
         require_m13()
         seen = injected_agents_md()
