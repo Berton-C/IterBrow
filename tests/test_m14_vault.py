@@ -212,6 +212,40 @@ class AppsMenuTests(unittest.TestCase):
         self.assertNotIn("ITER_VAULT", main, "no env; the vault is settings.vault")
 
 
+@unittest.skipUnless(NODE, "needs node")
+class MapStationInTheVaultTests(unittest.TestCase):
+    """M14-A4 (found on the Mac, 2026-10-19): Map Station copied into the vault keeps native location."""
+
+    def test_location_trusts_the_vault_copy_and_nothing_else(self):
+        require_m14()
+        import tempfile
+        from m6_support import node
+        work = Path(tempfile.mkdtemp(prefix="m14-mapvault-"))
+        self.addCleanup(lambda: subprocess.run(["rm", "-rf", str(work)]))
+        iter_dir, vault = work / "iter", work / "vault"
+        for base in (iter_dir / "mapstation", vault / "mapstation", vault / "other"):
+            base.mkdir(parents=True)
+            (base / "index.html").write_text("<!doctype html>", encoding="utf-8")
+        main = main_js()
+        start = main.index("function vaultDir()")
+        helpers = main[start:main.index("// Run `python3 -m iterbrow_runtime.vault", start)]
+        check = main[main.index("function isMapStationPageOrigin("):main.index("const MAC_PRIVACY_PANES")]
+        code, out, err = node("""
+const fs = require('fs'); const path = require('path'); const { pathToFileURL } = require('url');
+const ITER_DIR = %s; const loadSettings = () => ({ vault: %s });
+%s
+%s
+const wc = (p) => ({ getURL: () => pathToFileURL(p).toString() });
+process.stdout.write(JSON.stringify([
+  isMapStationPageOrigin(wc(path.join(ITER_DIR, 'mapstation', 'index.html'))),
+  isMapStationPageOrigin(wc(path.join(%s, 'mapstation', 'index.html'))),
+  isMapStationPageOrigin(wc(path.join(%s, 'other', 'index.html'))),
+  isMapStationPageOrigin({ getURL: () => 'https://example.com/mapstation/index.html' }),
+]));""" % (json.dumps(str(iter_dir)), json.dumps(str(vault)), helpers, check, json.dumps(str(vault)), json.dumps(str(vault))))
+        self.assertEqual(code, 0, err)
+        self.assertEqual(json.loads(out.strip().splitlines()[-1]), [True, True, False, False])
+
+
 class SettingsTests(unittest.TestCase):
     """M14-A5"""
 

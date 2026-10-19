@@ -246,6 +246,18 @@ async function useVault(chosen) {
   return { vault: real, copied: copied || [] };
 }
 
+// M14-B4: the person's undo — restore the newest snapshot of a vault app and reload its tab.
+async function undoLastChange(appId) {
+  if (!vaultAppDir(appId)) return { error: 'not an app in the apps folder' };
+  const done = await runVaultCli(['rollback', appId, '1']);
+  if (!Array.isArray(done) || !done.length) { pushLog(`[vault] nothing to roll back in ${appId}`); return { done: [] }; }
+  pushLog(`[vault] rolled back ${appId}: ` + done.map((item) => item.file).join(', '));
+  for (const tab of tabs ? tabs.tabs.values() : []) {
+    if (tab.appScope && tab.appScope.appId === appId && tab.view && !tab.view.webContents.isDestroyed()) tab.view.webContents.reload();
+  }
+  return { done };
+}
+
 async function chooseVault() {
   if (!win) return { error: 'no window' };
   const current = vaultDir();
@@ -2676,9 +2688,13 @@ function isCapturePageOrigin(webContents) {
 function isMapStationPageOrigin(webContents) {
   const url = (webContents && webContents.getURL && webContents.getURL()) || '';
   try {
+    if (new URL(url).protocol !== 'file:') return false;
     const pagePath = path.resolve(decodeURIComponent(new URL(url).pathname));
-    const mapPath = path.resolve(ITER_DIR, 'mapstation', 'index.html');
-    return new URL(url).protocol === 'file:' && pagePath === mapPath;
+    // The shipped page, or (M14-A) the person's own copy in their apps folder: <vault>/mapstation/index.html.
+    const mapPaths = [path.resolve(ITER_DIR, 'mapstation', 'index.html')];
+    const mine = vaultAppDir('mapstation');
+    if (mine) mapPaths.push(path.resolve(mine, 'index.html'));
+    return mapPaths.includes(pagePath);
   } catch (_) {
     return false;
   }
@@ -3479,12 +3495,17 @@ ipcMain.handle('apps:menu', async () => {
   const settings = loadSettings();
   const vault = vaultDir();
   const open = (id) => openRegisteredApp(id).catch((error) => pushLog('[apps] could not open ' + id + ': ' + error.message));
-  const items = vaultMenuTemplate(apps, { vault, recentVaults: settings.recentVaults || [], undoable: [] }, {
+  // M14-B4: the displayed tab is a vault app Iter has changed → offer the person one-click undo.
+  const shown = tabs && tabs.tabs.get(tabs.activeId);
+  const shownApp = shown && shown.appScope && vaultAppDir(shown.appScope.appId) ? shown.appScope.appId : null;
+  const changes = shownApp ? await runVaultCli(['history', shownApp]) : null;
+  const undoable = Array.isArray(changes) && changes.length ? [shownApp] : [];
+  const items = vaultMenuTemplate(apps, { vault, recentVaults: settings.recentVaults || [], undoable }, {
     open,
     choose: () => chooseVault().catch((error) => pushLog('[vault] choose failed: ' + error.message)),
     reveal: () => { if (vault) shell.openPath(vault); },
     switchTo: (p) => useVault(p).catch((error) => pushLog('[vault] switch failed: ' + error.message)),
-    undo: () => {},
+    undo: (id) => undoLastChange(id).catch((error) => pushLog('[vault] undo failed: ' + error.message)),
   });
   const menu = Menu.buildFromTemplate(items);
   menu.popup({ window: win });
