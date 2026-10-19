@@ -5,6 +5,7 @@ This native port uses urllib.request directly against the same public
 APIs — no CORS concern exists outside a browser sandbox, so the request
 logic is unchanged; only the transport call is swapped.
 """
+import html as html_lib
 import json
 import re
 import time
@@ -13,17 +14,80 @@ import urllib.request
 import urllib.parse
 from iterbrow_runtime.tool_results import ToolInputError
 
-DESCRIPTION = "Search the web. source accepts auto (default; general search) or github (GitHub only); other values such as web are invalid. Returns JSON results with title, url, snippet."
+DESCRIPTION = ("Search the web. source: auto (default) searches DuckDuckGo first, then Wikipedia, Hacker News, GitHub, "
+               "Crossref and Open Library; github searches GitHub repositories only. Returns JSON results with title, "
+               "url, snippet; NO RESULTS: <query> when the services answered with nothing (try other words). To read a "
+               "repository's files, use the github tool.")
 
 _UA = "Mozilla/5.0 (IterBrowserElectron)"
-SEARCH_SECONDS = 9.0
+# DuckDuckGo's HTML endpoints answer an ordinary browser (M14-E2).
+_BROWSER_UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 14_6) AppleWebKit/537.36 (KHTML, like Gecko) "
+               "Chrome/128.0 Safari/537.36")
+_REACHED = []  # one entry per HTTP response received: tells "nothing found" from "nothing reachable"
+SEARCH_SECONDS = 12.0
 BACKEND_SECONDS = 2.5
 
 
-def _get(url, timeout=2.5):
-    req = urllib.request.Request(url, headers={"User-Agent": _UA})
+def _get(url, timeout=2.5, ua=_UA):
+    req = urllib.request.Request(url, headers={"User-Agent": ua})
     with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return resp.status, resp.read(2_000_000).decode("utf-8", errors="replace")
+        body = resp.read(2_000_000).decode("utf-8", errors="replace")
+        _REACHED.append(url)
+        return resp.status, body
+
+
+_TAG = re.compile(r"<[^>]+>")
+_ANCHOR = re.compile(r"<a\b([^>]*\bclass=[\"'](?:result__a|result-link)[\"'][^>]*)>(.*?)</a>", re.S | re.I)
+_SNIPPET = re.compile(r"<(?:a|td|div)\b[^>]*\bclass=[\"'](?:result__snippet|result-snippet)[\"'][^>]*>(.*?)</(?:a|td|div)>", re.S | re.I)
+_HREF = re.compile(r"\bhref=[\"']([^\"']+)[\"']", re.I)
+
+
+def _plain(fragment):
+    return " ".join(html_lib.unescape(_TAG.sub("", fragment or "")).split())
+
+
+def _unwrap(href):
+    """DuckDuckGo links go through /l/?uddg=<real url>; return the real url."""
+    href = html_lib.unescape(href or "")
+    if href.startswith("//"):
+        href = "https:" + href
+    parsed = urllib.parse.urlparse(href)
+    if parsed.path.startswith("/l/"):
+        target = urllib.parse.parse_qs(parsed.query).get("uddg")
+        if target:
+            return target[0]
+    return href
+
+
+def parse_ddg_html(page):
+    """[{title, url, snippet}] from a DuckDuckGo html/lite results page (pure; M14-E2)."""
+    page = page or ""
+    anchors = list(_ANCHOR.finditer(page))
+    out = []
+    for index, anchor in enumerate(anchors):
+        href = _HREF.search(anchor.group(1))
+        url = _unwrap(href.group(1)) if href else ""
+        if not url.startswith(("http://", "https://")):
+            continue
+        end = anchors[index + 1].start() if index + 1 < len(anchors) else len(page)
+        snippet = _SNIPPET.search(page, anchor.end(), end)
+        out.append({"title": _plain(anchor.group(2))[:120], "url": url,
+                    "snippet": _plain(snippet.group(1))[:300] if snippet else ""})
+    return out
+
+
+def _try_ddg_html(query, qe, max_results):
+    """Backend 0: DuckDuckGo's HTML results, then its lite page (M14-E2)."""
+    for base in ("https://html.duckduckgo.com/html/?q=", "https://lite.duckduckgo.com/lite/?q="):
+        try:
+            status, body = _get(base + qe, timeout=4, ua=_BROWSER_UA)
+        except Exception:
+            continue
+        if status == 200:
+            results = parse_ddg_html(body)
+            if results:
+                return results[:max_results]
+    return []
 
 
 def _flatten_ddg_topics(related_topics, max_count=20):
@@ -243,7 +307,7 @@ def run(query, max_results=10, source="auto"):
                 out.append(item)
         return out
 
-    backends = [_try_ddg_ia, _try_wikipedia, _try_opensearch,
+    backends = [_try_ddg_html, _try_ddg_ia, _try_wikipedia, _try_opensearch,
                 _try_hn, _try_github, _try_crossref, _try_openlibrary]
     if source == "github":
         backends = [_try_github]
@@ -267,11 +331,12 @@ def run(query, max_results=10, source="auto"):
                 pass
         worker = threading.Thread(target=fetch, daemon=True)
         worker.start()
-        worker.join(min(BACKEND_SECONDS, remaining))
+        worker.join(min(BACKEND_SECONDS + (2.5 if backend is _try_ddg_html else 0), remaining))
         if not worker.is_alive():
             all_results.extend(dedup(box))
 
     if all_results:
         return json.dumps(all_results[:max_results])
-
-    raise RuntimeError("web search failed: all backends returned no results")
+    if _REACHED:
+        return "NO RESULTS: %s" % query  # the services answered; the search worked and found nothing
+    raise RuntimeError("web search failed: no search service could be reached")

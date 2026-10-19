@@ -25,7 +25,6 @@ def online(host="api.github.com"):
 class GithubToolTests(unittest.TestCase):
     """M14-E1"""
 
-    @pending("M14-E1")
     def test_pure_helpers(self):
         gh = tool_module("github")
         self.assertEqual(gh.raw_url("alice/pomodoro", "src/app.js"), "https://raw.githubusercontent.com/alice/pomodoro/HEAD/src/app.js")
@@ -41,7 +40,6 @@ class GithubToolTests(unittest.TestCase):
         self.assertFalse(gh.valid_path("../etc/passwd"))
         self.assertTrue(gh.valid_path("src/app.js"))
 
-    @pending("M14-E1")
     def test_tool_shape_and_input_errors(self):
         r = vault_root("m14gh")
         self.addCleanup(r.close)
@@ -56,7 +54,6 @@ class GithubToolTests(unittest.TestCase):
             res = r.tool("github", **kwargs)
             self.assertEqual((res.get("execution") or {}).get("state"), "invalid_input", (kwargs, res))
 
-    @pending("M14-E1")
     @unittest.skipUnless(online(), "needs network")
     def test_live_search_tree_read(self):
         r = vault_root("m14ghlive")
@@ -68,8 +65,12 @@ class GithubToolTests(unittest.TestCase):
         self.assertTrue(1 <= len(lines) <= 3, out)
         self.assertRegex(lines[0], r"^\S+/\S+ ★\d+ — .* https://github\.com/\S+/\S+$")
         tree = r.text("github", action="tree", repo="octocat/Hello-World")
+        if tree.startswith("RATE-LIMITED"):
+            self.skipTest(tree)  # a shared address can spend the hourly allowance; the rate limit is reported honestly
         self.assertRegex(tree, r"(?m)^README\s+\d+$")
         read = r.text("github", action="read", repo="octocat/Hello-World", path="README")
+        if read.startswith("RATE-LIMITED"):
+            self.skipTest(read)
         self.assertTrue(read.startswith("octocat/Hello-World:README (lines 1–"), read)
         self.assertRegex(read, r"(?m)^    1\| ")
         missing = r.tool("github", action="read", repo="octocat/Hello-World", path="nope.txt")
@@ -79,7 +80,6 @@ class GithubToolTests(unittest.TestCase):
 class WebsearchTests(unittest.TestCase):
     """M14-E2"""
 
-    @pending("M14-E2")
     def test_parse_ddg_html(self):
         ws = tool_module("websearch")
         results = ws.parse_ddg_html((FIXTURES / "ddg_html.html").read_text(encoding="utf-8"))
@@ -90,7 +90,6 @@ class WebsearchTests(unittest.TestCase):
         self.assertEqual(ws.parse_ddg_html((FIXTURES / "ddg_empty.html").read_text(encoding="utf-8")), [])
         self.assertEqual(ws.parse_ddg_html(""), [])
 
-    @pending("M14-E2")
     def test_backends_and_the_honest_empty_result(self):
         src = tool_source("websearch")
         self.assertIn("html.duckduckgo.com/html/", src)
@@ -108,7 +107,6 @@ class WebsearchTests(unittest.TestCase):
         self.assertIn("DuckDuckGo", module.DESCRIPTION)
         self.assertIn("NO RESULTS", module.DESCRIPTION)
 
-    @pending("M14-E2")
     @unittest.skipUnless(online("html.duckduckgo.com"), "needs network")
     def test_live_general_query_has_results(self):
         self.assertIn("html.duckduckgo.com", tool_source("websearch"), "E2's backend (today's cascade sometimes answers too)")

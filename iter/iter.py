@@ -58,7 +58,7 @@ PRINT_CALLS = False
 MAX_TOOL_CALLS = 10
 MAX_TOOL_OUTPUT_CHARS = 5000
 # M13-A1: reading tools carry a whole page (READ_WIRE_CHARS); every other tool keeps the 4,500 wire.
-READ_TOOLS = {"read_file", "grep_files", "list_files", "browser_read_text", "run_tests", "read_tool_result"}
+READ_TOOLS = {"read_file", "grep_files", "list_files", "browser_read_text", "run_tests", "read_tool_result", "github"}
 MAX_EXPERIENCE_SIZE = 100   # soft tail limit; active work is never discarded
 RETAIN_EXPERIENCE_SIZE = 80 # older task history is archived before leaving the tail
 MAX_FAST_STEPS = 50
