@@ -16,6 +16,15 @@ Implementation notes so far:
   last 30 that those 50 do not already cover (so 55 same-day writes keep 50, not 51).
 - **C4 — a probe counts only when it ran** (its result has `PROBE <app>`); a probe that could not reach the
   bridge leaves the note in place.
+- **E before D** (D3's test needs the github tool and the new websearch description). The github
+  rate-limit line names the right allowance (10 searches a minute, or 60 core requests an hour per address);
+  live tests skip on a rate limit at any step.
+- **F3 — measured on the e2e harness** (same script, 4 cycles each, median): transformation stage
+  **11.19 s per process → 1.21 s batched**; whole request preparation 11.48 s → 1.46 s. Verified in batch
+  mode: no runtime errors in the log or prompts, NACE's tracker committed tool outcomes, the courier ran.
+  `ITER_TRANSFORMATIONS_PER_PROCESS=1` keeps the old path (escape hatch, and how the first number was
+  taken). Batch result items carry `{path, ok, error?, seconds}` (no per-item result); a dead worker reruns
+  the whole cycle per-process from the original messages.
 - **Test fixes (tests were wrong, not the code):** the test vault lives outside the throwaway repo; two
   menu lookups indexed `label` on separators; byte counts 31→33; the live websearch test waits for E2. Base: M6–M13. Tests: `tests/test_m14_*.py` and
 `tests/e2e/test_m14_loop.py`; helpers in `tests/m14_support.py`. How to build it: `CLAUDE.md` at the repo

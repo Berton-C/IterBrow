@@ -26,7 +26,8 @@ milestone's own design lives in its spec, `docs/milestones/Mxx_*.md`.
 
 Specs are written to be implemented section by section. Each comes with `@pending("Mxx-yy")` tests
 (`tests/test_mxx_*.py`, maybe `tests/e2e/test_mxx_*.py`) and a support module `tests/mxx_support.py`.
-**The tests are the acceptance criteria; the spec explains them.**
+**The tests are the acceptance criteria; the spec explains them.** Tag every test with its item — `@pending("Mxx-yy")` while pending and a `"""Mxx-yy"""` docstring
+on the test or its class — so `scripts/check_section.sh` still finds it once the decorator is gone.
 
 1. Read the whole spec first: Why, Decisions, Test seams, Vocabulary, every section's Build notes, and
    "Not in this milestone". Then read the support module and the section's tests, then the code they

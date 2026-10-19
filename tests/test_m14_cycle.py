@@ -66,7 +66,6 @@ class BatchWorkerTests(unittest.TestCase):
                               cwd=str(ITER_SRC), env=dict(os.environ, ITER_DIR=str(ITER_SRC)), capture_output=True, text=True, timeout=60)
         return proc, json.loads(result.read_text(encoding="utf-8")), time.monotonic() - started
 
-    @pending("M14-F1")
     def test_one_process_runs_them_all_in_order_with_isolation_per_item(self):
         require_m14()
         proc, out, elapsed = self._run_batch()
@@ -91,7 +90,6 @@ class BatchWorkerTests(unittest.TestCase):
         self.assertEqual([t["name"] for t in tools], ["send"], "d's returned tools reached the result; b and c changed nothing")
         self.assertEqual(messages[0]["content"].count("[a pid"), 1)
 
-    @pending("M14-F1")
     def test_loop_uses_the_batch_and_falls_back_per_process(self):
         require_m14()
         src = (ITER_SRC / "iter.py").read_text(encoding="utf-8")

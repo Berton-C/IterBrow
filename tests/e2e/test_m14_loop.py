@@ -30,6 +30,7 @@ def transform(messages, tools):
 
 class FoundryLoopTests(unittest.TestCase):
     def test_build_mode_scaffold_note_probe_rollback(self):
+        """M14-D1"""
         require_m14()
         script = [
             [tool("new_app", id="todo", title="Todo")],
@@ -62,8 +63,8 @@ class FoundryLoopTests(unittest.TestCase):
             self.assertTrue(noted, "the note appeared after the send that followed the change")
             self.assertFalse(any("[build: vault/todo changed" in r["system"] for r in requests[:3]), "not before the send")
 
-    @pending("M14-F3")
     def test_one_process_per_cycle_for_the_transformations(self):
+        """M14-F3"""
         require_m14()
         run = IterRun([[send("first")], [send("second")], [send("M14-F3-DONE")]], name="m14f3")
         (run.root / "transformations" / "zz_m14_pid.py").write_text(PID_TRANSFORMATION, encoding="utf-8")

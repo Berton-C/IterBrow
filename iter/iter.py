@@ -304,6 +304,113 @@ def invoke_dynamic(path, function, /, *args, **kwargs):
             except FileNotFoundError:
                 pass
 
+class _BatchItemTimeout(BaseException):
+    """Raised by SIGALRM inside one transformation. A BaseException, so a transformation's own
+    `except Exception` cannot swallow its deadline."""
+
+
+def batch_worker():
+    """M14-F1: run every transformation of a cycle in this one process, in order, each with its own
+    deadline (SIGALRM) and its own copy of the messages, exactly as one process per transformation would:
+    a transformation that raises or times out changes nothing, and the next gets the previous result."""
+    manifest = json.loads(Path(sys.argv[2]).read_text())
+    result_path = Path(sys.argv[3])
+    os.chdir(ITER_ROOT)
+    payload = json.loads(Path(manifest["payload"]).read_text())
+    state = json.dumps(payload.get("args", [[], []]), ensure_ascii=False)
+
+    def _alarm(_signum, _frame):
+        raise _BatchItemTimeout()
+
+    signal.signal(signal.SIGALRM, _alarm)
+    items = []
+    for entry in manifest.get("items", []):
+        path = Path(entry["path"])
+        timeout = int(entry.get("timeout") or DYNAMIC_TIMEOUT)
+        started = time.monotonic()
+        record = {"path": str(path)}
+        try:
+            component_dir = str(path.resolve().parent)
+            if component_dir not in sys.path:
+                sys.path.insert(0, component_dir)
+            signal.setitimer(signal.ITIMER_REAL, timeout)
+            spec = importlib.util.spec_from_file_location("_dynamic_" + path.stem, path)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            messages, tools = json.loads(state)  # a fresh copy: a failure leaves no half-made change behind
+            produced = module.transform(messages, tools)
+            signal.setitimer(signal.ITIMER_REAL, 0)
+            new_state = json.dumps(list(produced), ensure_ascii=False)
+            if len(json.loads(new_state)) != 2:
+                raise ValueError("transform must return (messages, tools)")
+            state = new_state
+            record["ok"] = True
+        except _BatchItemTimeout:
+            record.update(ok=False, error=f"TIMEOUT after {timeout}s in {path.stem}.transform; worker stopped. "
+                                            "Effects may be partial; inspect the outcome before repeating the action.")
+        except BaseException as error:  # noqa: B902 — one transformation's failure never ends the batch
+            record.update(ok=False, error=f"{type(error).__name__}: {error}")
+        finally:
+            signal.setitimer(signal.ITIMER_REAL, 0)
+        record["seconds"] = round(time.monotonic() - started, 4)
+        items.append(record)
+    result_path.write_text(json.dumps({"pid": os.getpid(), "items": items, "result": json.loads(state)},
+                                      ensure_ascii=False))
+
+
+def invoke_dynamic_batch(paths, messages, tools):
+    """M14-F1: every transformation of the cycle in one worker. The batch result, or None when the worker
+    died (killed, no result, bad exit), so the caller can fall back to one process per transformation."""
+    process = None
+    files = []
+    try:
+        for prefix in ("iter-batch-payload-", "iter-batch-manifest-", "iter-batch-result-"):
+            handle, name = tempfile.mkstemp(prefix=prefix, suffix=".json")
+            os.close(handle)
+            files.append(name)
+        payload_file, manifest_file, result_file = files
+        Path(payload_file).write_text(json.dumps({"args": [messages, tools]}, ensure_ascii=False))
+        Path(manifest_file).write_text(json.dumps({
+            "payload": payload_file,
+            "items": [{"path": str(Path(path).resolve()), "timeout": DYNAMIC_TIMEOUT} for path in paths]}))
+        process = subprocess.Popen(
+            [sys.executable, str(Path(__file__).resolve()), "--invoke-batch", manifest_file, result_file],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=True, close_fds=True)
+        _DYNAMIC_WORKERS.add(process)
+        try:
+            process.wait(timeout=DYNAMIC_TIMEOUT * max(1, len(paths)) + 15)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.wait()
+            return {"failed": "batch deadline passed"}
+        if process.returncode != 0:
+            return {"failed": f"worker exited with code {process.returncode}"}
+        try:
+            batch = json.loads(Path(result_file).read_text())
+        except Exception as error:
+            return {"failed": f"no valid result ({type(error).__name__})"}
+        if len(batch.get("items", [])) != len(paths) or not isinstance(batch.get("result"), list):
+            return {"failed": "incomplete result"}
+        return batch
+    finally:
+        if process is not None:
+            if process.poll() is None:
+                stop_dynamic_workers()
+            _DYNAMIC_WORKERS.discard(process)
+        for name in files:
+            try:
+                os.unlink(name)
+            except FileNotFoundError:
+                pass
+
+
+if len(sys.argv) > 1 and sys.argv[1] == "--invoke-batch":
+    batch_worker()
+    sys.exit(0)
 if len(sys.argv) > 1 and sys.argv[1] == "--invoke":
     dynamic_worker()
     sys.exit(0)
@@ -557,11 +664,46 @@ def load_transformation_descriptions():
 TRANSFORMATION_HEALTH_FAILURE = False
 
 
-def apply_transformation(messages, tools, timings=None):
+TRANSFORMATION_PROCESSES = 0
+
+
+def _transformation_failed(path, error, errors):
     global TRANSFORMATION_HEALTH_FAILURE
+    errors.append(f"[RUNTIME ERROR in {path}: {error}. Repair {path} if needed.]")
+    # An unchanged transformation's timeout remains visible for repair,
+    # but is not evidence that an unrelated new component broke. Real
+    # exceptions and timeouts in changed transformations still fail probation.
+    relative = "transformations/" + Path(path).name
+    changed = (ACTIVE_COMPONENT_SNAPSHOT or {}).get("changed_paths", [])
+    if "TIMEOUT after " not in str(error) or relative in changed:
+        TRANSFORMATION_HEALTH_FAILURE = True
+
+
+def apply_transformation(messages, tools, timings=None):
+    global TRANSFORMATION_HEALTH_FAILURE, TRANSFORMATION_PROCESSES
     TRANSFORMATION_HEALTH_FAILURE = False
     errors = []
     paths = _component_paths("transformations")
+    # M14-F1: one worker runs them all (one interpreter start, one import of the shared runtime, instead of
+    # one per transformation). Each still gets its own deadline and its own copy of the messages.
+    started = time.monotonic()
+    # ITER_TRANSFORMATIONS_PER_PROCESS=1 keeps the old one-process-per-transformation path (escape hatch, measuring).
+    per_process = os.environ.get("ITER_TRANSFORMATIONS_PER_PROCESS") == "1"
+    batch = invoke_dynamic_batch(paths, messages, tools) if paths and not per_process else {"failed": "per-process asked"}
+    if paths and "failed" not in batch:
+        TRANSFORMATION_PROCESSES = 1
+        for path, item in zip(paths, batch["items"]):
+            if timings is not None:
+                timings[path.name] = item.get("seconds", 0.0)
+            if not item.get("ok"):
+                _transformation_failed(path, item.get("error", "failed"), errors)
+        if timings is not None:
+            timings["_batch_seconds"] = round(time.monotonic() - started, 4)
+        messages, tools = batch["result"]
+        return messages, tools, "\n".join(errors)
+    if paths and not per_process:
+        print(f"[transformations] batch worker failed ({batch['failed']}); per-process this cycle")
+    TRANSFORMATION_PROCESSES = len(paths)
     for path in paths:
         started = time.monotonic()
         try:
@@ -570,14 +712,7 @@ def apply_transformation(messages, tools, timings=None):
                 raise RuntimeError(result["error"])
             messages, tools = result["result"]
         except Exception as error:
-            errors.append(f"[RUNTIME ERROR in {path}: {type(error).__name__}: {error}. Repair {path} if needed.]")
-            # An unchanged transformation's timeout remains visible for repair,
-            # but is not evidence that an unrelated new component broke. Real
-            # exceptions and timeouts in changed transformations still fail probation.
-            relative = "transformations/" + path.name
-            changed = (ACTIVE_COMPONENT_SNAPSHOT or {}).get("changed_paths", [])
-            if "TIMEOUT after " not in str(error) or relative in changed:
-                TRANSFORMATION_HEALTH_FAILURE = True
+            _transformation_failed(path, f"{type(error).__name__}: {error}", errors)
         finally:
             if timings is not None:
                 timings[path.name] = round(time.monotonic() - started, 4)
@@ -746,6 +881,7 @@ while True:
             preparation["transformations_seconds"] = {}
             request_messages, request_tools, transformation_error = apply_transformation(
                 request_messages, TOOLS, timings=preparation["transformations_seconds"])
+            preparation["transformations_processes"] = TRANSFORMATION_PROCESSES  # M14-F3
             stage_started = time.monotonic()
             request_tools = ensure_observation_reader(request_tools, INOPS)
             # Question-first PoC: use this ordinary turn, its real context and
