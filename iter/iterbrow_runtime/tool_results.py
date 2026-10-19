@@ -19,6 +19,9 @@ import uuid
 
 
 WIRE_CHARS = 4500
+# Reading tools (read_file, grep_files, …) may carry a whole page into the prompt (M13-A1); everything else
+# keeps WIRE_CHARS. ~24k characters is ~8k tokens; the request budget adapts to the active working set.
+READ_WIRE_CHARS = 24000
 MAX_RECORD_BYTES = 16 * 1024 * 1024
 MAX_CACHE_BYTES = 64 * 1024 * 1024
 MAX_RECORDS = 128
@@ -354,8 +357,8 @@ def capture_tool_output(iter_dir, text, *, tool_call_id, tool_name, generation_i
     """Never retry or raise a capture failure after the original tool has run."""
     budget = WIRE_CHARS
     try:
-        if type(max_chars) is not int or not 512 <= max_chars <= WIRE_CHARS:
-            raise OutputUnavailable("wire_budget_must_be_512_through_4500")
+        if type(max_chars) is not int or not 512 <= max_chars <= READ_WIRE_CHARS:
+            raise OutputUnavailable("wire_budget_must_be_512_through_24000")
         budget = max_chars
         if not isinstance(text, str):
             raise OutputUnavailable("output_text_must_be_string")

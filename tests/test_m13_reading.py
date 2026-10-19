@@ -17,7 +17,6 @@ sys.path.insert(0, str(ITER_SRC))
 class WireAllowanceTests(unittest.TestCase):
     """M13-A1"""
 
-    @pending("M13-A1")
     def test_reading_tools_get_a_24k_wire_and_others_keep_4500(self):
         require_m13()
         from iterbrow_runtime import tool_results
@@ -43,7 +42,6 @@ class WireAllowanceTests(unittest.TestCase):
 class AdvisoryTests(unittest.TestCase):
     """M13-A2"""
 
-    @pending("M13-A2")
     def test_short_note(self):
         require_m13()
         from iterbrow_runtime.advisory import short_note

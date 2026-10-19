@@ -20,7 +20,8 @@ from iterbrow_runtime.episodic_history import archive_text, load_experience
 from iterbrow_runtime.atomspace_store import _atomic_json
 # PORT: Retain oversized observations for reading without repeating tool effects.
 from iterbrow_runtime import tool_results as retained_text
-from iterbrow_runtime.tool_results import capture_tool_output
+from iterbrow_runtime.tool_results import capture_tool_output, READ_WIRE_CHARS
+from iterbrow_runtime.advisory import short_note
 from iterbrow_runtime.work_inquiry import question_context
 from iterbrow_runtime.working_handoff import cycle_handoff, runtime_context
 from iterbrow_runtime.loop_continuity import resume_event_wait, complete_interrupted_turn
@@ -56,6 +57,8 @@ KEEP_REASONING_IN_EPISODE = True
 PRINT_CALLS = False
 MAX_TOOL_CALLS = 10
 MAX_TOOL_OUTPUT_CHARS = 5000
+# M13-A1: reading tools carry a whole page (READ_WIRE_CHARS); every other tool keeps the 4,500 wire.
+READ_TOOLS = {"read_file", "grep_files", "list_files", "browser_read_text", "run_tests", "read_tool_result"}
 MAX_EXPERIENCE_SIZE = 100   # soft tail limit; active work is never discarded
 RETAIN_EXPERIENCE_SIZE = 80 # older task history is archived before leaving the tail
 MAX_FAST_STEPS = 50
@@ -934,7 +937,7 @@ while True:
                                 ret = f"Tool execution blocked by reasoning substrate ({gate_mode} mode): {gate_detail}"
                             else:
                                 if gate_action == "ADVISE":
-                                    gate_note = f"[NACE advisory: {gate_detail}] "
+                                    gate_note = short_note(tool_name, gate_detail)  # M13-A2: one short line
                                 result = invoke_dynamic(INOPS[tool_name][0], "run", **tool_arguments)
                                 execution = result.get("execution") or {
                                     "success": bool(result["ok"]),
@@ -980,7 +983,7 @@ while True:
                 ITER_ROOT, ret, tool_call_id=tool_call.id, tool_name=tool_name,
                 generation_id=ACTIVE_COMPONENT_SNAPSHOT["generation_id"],
                 raw_result=raw_tool_result, advisory=gate_note, execution=execution,
-                max_chars=MAX_TOOL_OUTPUT_CHARS - 500,
+                max_chars=READ_WIRE_CHARS if tool_name in READ_TOOLS else MAX_TOOL_OUTPUT_CHARS - 500,
             )
             experience += [{"role": "tool", "tool_call_id": tool_call.id,
                             "content": "Step " + get_current_time() + ": " + ret,
