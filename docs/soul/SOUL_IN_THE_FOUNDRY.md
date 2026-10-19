@@ -151,6 +151,16 @@ quarantine of click/type/cdp that vetoed every call and could never be unlearned
 test runner, guidance that never reached the prompt. M12 unties the hands; M13 (the builder's eyes:
 wait-for, honest click/type, open-app and probe tools, target-stealing fixed) follows.
 
+### M13 — The builder's eyes (spec: `docs/milestones/M13_builder_eyes.md`)
+Honest click/type/scroll with post-action state, wait_for, newTab that waits, tab_id everywhere, only
+Iter's own tabs move its target, browser_tabs that tells the truth, browser_open_app and app_probe for
+every app, app tabs stay on their app, a 24k wire for reading tools, one-line advisories.
+
+### M14 — The vault and the foundry loop (next)
+A vault the person chooses for their apps (examples copied in on first open; file-recovery snapshots,
+not git); new_app scaffold; per-app probe spec before "done" and after every edit; build mode wired
+to the Soul's cards; GitHub research tool; the five-app benchmark.
+
 ### Out of scope until Berton says otherwise
 Gates/vetoes of any kind; NACE consuming Soul or kb conclusions (the parked "stage 1"
 remains available); continuity-of-mind; judging Iter's own promoted code.
