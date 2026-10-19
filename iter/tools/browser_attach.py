@@ -4,8 +4,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _browser_bridge import call
 
 DESCRIPTION = (
-    "Mark a tab as the current target for navigate/click/type/screenshot/eval/scroll, so you don't have to "
-    "pass tab_id on every call. Pass tab_id from browser_tabs, or omit to target the current active tab. "
+    "Mark a tab as the current target for navigate/click/type/screenshot/eval/scroll (each also takes an optional "
+    "tab_id for one call). Pass tab_id from browser_tabs, or omit to target the displayed tab. "
     "This does not display a background tab; browser_switch_tab both displays and targets a tab."
 )
 

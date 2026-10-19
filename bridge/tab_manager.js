@@ -19,6 +19,7 @@
 // service-worker eviction to fight. A raw CDP passthrough (cdp()) is
 // still exposed for advanced cases (network interception, emulation)
 // that really do need the DevTools Protocol.
+const pageScripts = require('./page_scripts'); // M13-B1: every page script lives there (pure, testable)
 const { WebContentsView } = require('electron');
 const path = require('path');
 const { pathToFileURL } = require('url');
@@ -497,42 +498,47 @@ class TabManager {
     return { detached: target || null };
   }
 
-  navigate(id, url) {
+  // Resolves when the tab's current load settles: did-finish-load, a real did-fail-load (ERR_ABORTED -3 is a
+  // superseded navigation, not a failure), or 15 s. Register before (or in the same tick as) the load starts.
+  // `start` is called after the listeners are attached. Shared by navigate and the bridge's newTab/openApp.
+  awaitLoad(id, start) {
     const tab = this._tab(id);
-    // Deliberately do NOT just `await webContents.loadURL(url)` — Electron's
-    // returned promise is keyed to "whichever load event fires next", so if
-    // a previous navigation (e.g. the tab's initial page) is still in
-    // flight, calling loadURL again can reject THIS call with the OLD
-    // navigation's aborted error. We instead correlate against the actual
-    // load events ourselves, and treat ERR_ABORTED (-3, "superseded by a
-    // newer navigation") as a non-error, since the tab's url/title are kept
-    // in sync separately via the did-navigate listeners set up in createTab.
+    const contents = tab.view.webContents;
     return new Promise((resolve) => {
       let done = false;
       const cleanup = () => {
-        tab.view.webContents.removeListener('did-finish-load', onFinish);
-        tab.view.webContents.removeListener('did-fail-load', onFail);
+        contents.removeListener('did-finish-load', onFinish);
+        contents.removeListener('did-fail-load', onFail);
         clearTimeout(timer);
       };
-      const finish = (info) => {
+      const finish = (warning) => {
         if (done) return;
         done = true;
         cleanup();
+        const info = { url: contents.getURL() || tab.url, title: contents.getTitle() || tab.title };
+        if (warning) info.warning = warning;
         resolve(info);
       };
-      const onFinish = () => finish({ navigated: url });
+      const onFinish = () => finish(null);
       const onFail = (_e, errorCode, errorDescription, validatedURL) => {
         if (errorCode === -3) return; // ERR_ABORTED — superseded, not a real failure
-        finish({ navigated: url, warning: `${errorCode} ${errorDescription} (${validatedURL})` });
+        finish(`${errorCode} ${errorDescription} (${validatedURL})`);
       };
-      tab.view.webContents.once('did-finish-load', onFinish);
-      tab.view.webContents.once('did-fail-load', onFail);
-      const timer = setTimeout(
-        () => finish({ navigated: url, warning: 'timed out waiting for a load event; navigation may still be in progress' }),
-        15000
-      );
-      tab.view.webContents.loadURL(url).catch(() => { /* real outcome handled by the listeners above */ });
+      contents.on('did-finish-load', onFinish);
+      contents.on('did-fail-load', onFail);
+      const timer = setTimeout(() => finish('timed out waiting for a load event; navigation may still be in progress'), 15000);
+      if (start) start(contents);
+      else if (!contents.isLoading()) finish(null);
     });
+  }
+
+  navigate(id, url) {
+    // Deliberately do NOT just `await webContents.loadURL(url)` — Electron's returned promise is keyed to
+    // "whichever load event fires next", so a previous navigation still in flight can reject THIS call with
+    // the OLD navigation's aborted error. awaitLoad correlates against the actual load events instead.
+    return this.awaitLoad(id, (contents) => {
+      contents.loadURL(url).catch(() => { /* real outcome handled by awaitLoad's listeners */ });
+    }).then((info) => (info.warning ? { navigated: url, warning: info.warning } : { navigated: url }));
   }
 
   async screenshot(id) {
@@ -577,41 +583,66 @@ class TabManager {
     return this.evaluate(id, "document.body ? document.body.innerText.slice(0, 20000) : ''");
   }
 
-  async elementCenter(id, selector) {
-    const rectJson = await this.evaluate(
-      id,
-      `(() => { const el = document.querySelector(${JSON.stringify(selector)}); if (!el) return null; const r = el.getBoundingClientRect(); return JSON.stringify({x: r.left + r.width/2, y: r.top + r.height/2}); })()`
-    );
-    if (!rectJson) throw new Error(`No element matched selector: ${selector}`);
-    return JSON.parse(rectJson);
+  // Actions need the tab on screen: input sent to a view outside the window is dropped. Never switch the view
+  // under the person; say what to do instead.
+  _displayed(tab) {
+    if (tab.id !== this.activeId) throw new Error(`Tab ${tab.id} is not displayed; browser_switch_tab(${tab.id}) first`);
   }
 
   async click({ id, x, y, selector }) {
     const tab = this._tab(id);
+    if (tab.id !== this.activeId) throw new Error(`Tab ${tab.id} is not displayed; browser_switch_tab(${tab.id}) first`);
+    let located = null;
     if (selector) {
-      const center = await this.elementCenter(tab.id, selector);
-      x = center.x;
-      y = center.y;
+      located = await this.evaluate(tab.id, pageScripts.locateScript(selector));
+      if (located.error === 'invalid') throw new Error(`Invalid CSS selector: ${selector}`);
+      if (located.error === 'missing') throw new Error(`No element matched selector: ${selector}`);
+      if (!located.visible) throw new Error(`Element matched ${selector} but is not visible (${located.reason})`);
+      if (located.covered) {
+        const by = located.coveredBy || {};
+        throw new Error(`Element matched ${selector} but is covered by ${by.tag || 'an element'}${by.id ? '#' + by.id : ''}${by.text ? " '" + by.text + "'" : ''}`);
+      }
+      x = Math.round(located.rect.x);
+      y = Math.round(located.rect.y);
     }
     if (x === undefined || y === undefined) throw new Error('click requires either selector or x,y.');
+    x = Math.round(Number(x));
+    y = Math.round(Number(y));
     tab.view.webContents.focus();
     tab.view.webContents.sendInputEvent({ type: 'mouseMove', x, y });
     tab.view.webContents.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 });
     tab.view.webContents.sendInputEvent({ type: 'mouseUp', x, y, button: 'left', clickCount: 1 });
-    return { clicked: selector || `${x},${y}` };
+    await new Promise((resolve) => setTimeout(resolve, 50)); // let the page react
+    const state = await this.evaluate(tab.id, pageScripts.stateScript());
+    const clicked = selector || `${x},${y}`;
+    return { clicked, target: located ? located.summary : null, url: state.url, title: state.title, active: state.active };
   }
 
   async type({ id, text, selector }) {
     const tab = this._tab(id);
-    if (selector) {
-      await this.click({ id: tab.id, selector });
-    }
-    tab.view.webContents.insertText(text);
-    return { typed: text.length + ' chars' };
+    this._displayed(tab);
+    if (selector) await this.click({ id: tab.id, selector });
+    const before = await this.evaluate(tab.id, pageScripts.stateScript());
+    if (!before.activeEditable) throw new Error('Nothing editable is focused; pass a selector for the field');
+    tab.view.webContents.insertText(String(text));
+    await new Promise((resolve) => setTimeout(resolve, 50)); // let the page react
+    const state = await this.evaluate(tab.id, pageScripts.stateScript());
+    return { typed: String(text).length + ' chars', target: state.active, url: state.url, title: state.title };
   }
 
-  async scroll({ id, x, y }) {
-    return this.evaluate(id, `window.scrollBy(${Number(x) || 0}, ${Number(y) || 0})`);
+  async scroll({ id, x, y, selector }) {
+    const tab = this._tab(id);
+    this._displayed(tab);
+    const result = await this.evaluate(tab.id, pageScripts.scrollScript({ selector, x, y }));
+    if (result && result.error === 'invalid') throw new Error(`Invalid CSS selector: ${selector}`);
+    if (result && result.error === 'missing') throw new Error(`No element matched selector: ${selector}`);
+    return result;
+  }
+
+  async waitFor({ id, selector, text, url, timeoutMs }) {
+    const tab = this._tab(id);
+    this._displayed(tab); // timers in a page that is not on screen are throttled
+    return this.evaluate(tab.id, pageScripts.waitScript({ selector, text, url, timeoutMs }));
   }
 
   async cdp(id, method, params = {}) {
@@ -619,7 +650,13 @@ class TabManager {
     // demand for anything the native webContents API doesn't cover.
     const tab = this._tab(id);
     const dbg = tab.view.webContents.debugger;
-    if (!dbg.isAttached()) dbg.attach('1.3');
+    if (!dbg.isAttached()) {
+      try {
+        dbg.attach('1.3');
+      } catch (error) {
+        throw new Error(`DevTools is open on tab ${tab.id}; close it to use browser_cdp (${error.message || error})`, { cause: error });
+      }
+    }
     return dbg.sendCommand(method, params);
   }
 }

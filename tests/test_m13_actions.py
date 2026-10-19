@@ -16,7 +16,7 @@ from m13_support import (pending, require_m13, page_script, run_in_page, bridge_
 
 PAGE = """<!doctype html><html><head><style>
   body { margin: 0; } #tall { height: 2000px; } #below { position: absolute; top: 1500px; }
-  #hidden { display: none; } #zero { width: 0; height: 0; overflow: hidden; }
+  #hidden { display: none; } #zero { display: inline-block; width: 0; height: 0; overflow: hidden; }
   #cover { position: fixed; left: 0; top: 0; width: 200px; height: 100px; background: red; z-index: 10; }
   #under { position: absolute; left: 10px; top: 10px; width: 50px; height: 30px; }
   #box { height: 100px; overflow: auto; } #box div { height: 1000px; }
@@ -35,7 +35,6 @@ PAGE = """<!doctype html><html><head><style>
 class PageScriptTests(unittest.TestCase):
     """M13-B1"""
 
-    @pending("M13-B1")
     def test_locate_names_every_way_a_click_could_not_happen(self):
         require_m13()
         invalid = run_in_page(PAGE, page_script("locateScript", "button[id="))
@@ -58,7 +57,6 @@ class PageScriptTests(unittest.TestCase):
         self.assertFalse(below["editable"])
         self.assertTrue(run_in_page(PAGE, page_script("locateScript", "#name"))["editable"])
 
-    @pending("M13-B1")
     def test_state_wait_and_scroll(self):
         state = run_in_page(PAGE, page_script("stateScript"), setup_js="document.getElementById('name').value='Ada'; document.getElementById('name').focus()")
         self.assertEqual(state["active"], {"tag": "input", "id": "name", "text": "Ada"})
@@ -83,7 +81,6 @@ class PageScriptTests(unittest.TestCase):
                             setup_js="document.getElementById('box').tabIndex = 0; document.getElementById('box').focus()")
         self.assertEqual(inner["after"]["y"], 200, "the focused scrollable container moved, not the window")
 
-    @pending("M13-B1")
     def test_probe_script_moved_and_reexported(self):
         import subprocess
         from m13_support import BRIDGE
@@ -96,7 +93,6 @@ class PageScriptTests(unittest.TestCase):
 class TabManagerTests(unittest.TestCase):
     """M13-B2 / M13-B6 (source: tab_manager.js needs Electron)"""
 
-    @pending("M13-B2")
     def test_click_and_type_are_honest(self):
         require_m13()
         src = tab_manager_js()
@@ -116,7 +112,6 @@ class TabManagerTests(unittest.TestCase):
         self.assertIn("scrollScript(", scroll)
         self.assertNotIn("elementCenter", src, "the old center-only locator is gone")
 
-    @pending("M13-B6")
     def test_cdp_explains_devtools(self):
         src = tab_manager_js()
         cdp = src[src.index("async cdp("):]
@@ -139,7 +134,6 @@ class BridgeWaitAndNewTabTests(unittest.TestCase):
   list() { return []; },
 }"""
 
-    @pending("M13-B3")
     def test_wait_for_clamps_and_throws_on_timeout(self):
         require_m13()
         out = bridge_call(self.FAKE, "waitFor", {"selector": "#go", "timeoutMs": 50})
@@ -149,7 +143,6 @@ class BridgeWaitAndNewTabTests(unittest.TestCase):
         self.assertFalse(out["ok"])
         self.assertRegex(out["error"], r"timed out after 30s waiting for .*#never.*x")
 
-    @pending("M13-B4")
     def test_new_tab_waits_and_reports(self):
         out = bridge_call(self.FAKE, "newTab", {"url": "https://a.test/"})
         self.assertTrue(out["ok"], out)
@@ -163,7 +156,6 @@ class BridgeWaitAndNewTabTests(unittest.TestCase):
 class ToolWrapperTests(unittest.TestCase):
     """M13-B3 (tool) / M13-B5"""
 
-    @pending("M13-B3")
     def test_browser_wait_for_tool(self):
         require_m13()
         r = m12_root("m13wait")
@@ -177,7 +169,6 @@ class ToolWrapperTests(unittest.TestCase):
             self.assertTrue(out.startswith("RAISED"), "a timeout is a failure the loop scores")
             self.assertIn("timed out", out)
 
-    @pending("M13-B5")
     def test_tab_id_on_every_action_tool(self):
         for name in ("browser_click", "browser_type", "browser_scroll", "browser_eval", "browser_read_text", "browser_screenshot", "browser_wait_for"):
             src = tool_source(name)

@@ -61,3 +61,18 @@ def refused(value):
     """True when `call` returned the person's refusal; a tool returns it as its own result."""
     outcome = getattr(value, "execution_outcome", None)
     return isinstance(outcome, dict) and outcome.get("state") == "refused"
+
+
+def named(summary):
+    """An element summary {tag, id, text} as `button#go 'Go'` (M13)."""
+    if not isinstance(summary, dict):
+        return "nothing"
+    label = (summary.get("tag") or "element") + ("#" + summary["id"] if summary.get("id") else "")
+    return label + (" %r" % summary["text"] if summary.get("text") else "")
+
+
+def where(result):
+    """Where the page is after an action: `now: <title> <url>`."""
+    title = (result or {}).get("title") or ""
+    url = (result or {}).get("url") or ""
+    return "now: %s%s" % ((repr(title) + " ") if title else "", url)

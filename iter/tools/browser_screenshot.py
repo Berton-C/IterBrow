@@ -9,12 +9,13 @@ from _browser_bridge import call
 DESCRIPTION = (
     "Take a screenshot of the attached browser tab's current viewport and attach it as visual context for the "
     "next model turn. The tab needs a rendered surface; browser_attach alone does not display it. "
-    "browser_switch_tab displays and targets an existing tab. An unavailable capture is a failure, not visual evidence."
+    "browser_switch_tab displays and targets an existing tab. An unavailable capture is a failure, not visual evidence. "
+    "tab_id: optional (default: the target tab)."
 )
 
 
-def run():
-    result = call("screenshot")
+def run(tab_id=""):
+    result = call("screenshot", **({"tabId": int(tab_id)} if str(tab_id or "").strip() else {}))
     data_url = result["dataUrl"]
     _, encoded = data_url.split(",", 1)
     image_bytes = base64.b64decode(encoded, validate=True)
