@@ -8,6 +8,7 @@
 //   Iter tool  --(unix socket, one line JSON in/out)-->  this server
 //   this server --(Electron webContents API, in-process)--> the tab
 const fs = require('fs');
+const path = require('path');
 const net = require('net');
 const { validateProbeSpec } = require('./foundry_apps');
 const { probeScript } = require('./page_scripts');
@@ -51,6 +52,22 @@ function assertUnlocked(tabs, id, action) {
   }
 }
 
+// M14-H1: the newest modification time (ms) of any file under an app folder (dot-files and node_modules skipped).
+function newestFileTime(dir, depth = 0) {
+  let newest = 0;
+  let entries = [];
+  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (_) { return 0; }
+  for (const entry of entries) {
+    if (entry.name.startsWith('.') || entry.name === 'node_modules') continue;
+    const full = path.join(dir, entry.name);
+    try {
+      if (entry.isDirectory()) { if (depth < 4) newest = Math.max(newest, newestFileTime(full, depth + 1)); }
+      else if (entry.isFile()) newest = Math.max(newest, fs.statSync(full).mtimeMs);
+    } catch (_) { /* a file that vanished mid-scan */ }
+  }
+  return newest;
+}
+
 function buildMethods(tabs, apps = {}) {
   return {
     async openApp(params) {
@@ -58,9 +75,24 @@ function buildMethods(tabs, apps = {}) {
       // M13-C3: the app as the person sees it (an app tab, with its preload), loaded before we answer, and
       // Iter's target from now on (it opened it to work in it).
       const opened = await apps.open(params.appId);
-      const loaded = opened.focused ? { url: tabs.tabs.get(opened.tabId).url } : await tabs.awaitLoad(opened.tabId);
+      let loaded;
+      let reloaded = false;
+      if (opened.focused) {
+        const tab = tabs.tabs.get(opened.tabId);
+        // M14-H1: an open app whose files changed since the page loaded is reloaded, so what Iter looks at is
+        // what is on disk (otherwise an edit never shows and the stale page looks like a mystery).
+        if (opened.dir && newestFileTime(opened.dir) > (tab.loadedAt || 0) && !tabs.isLocked(opened.tabId)) {
+          loaded = await tabs.awaitLoad(opened.tabId, (contents) => contents.reload());
+          reloaded = true;
+        } else {
+          loaded = { url: tab.url };
+        }
+      } else {
+        loaded = await tabs.awaitLoad(opened.tabId);
+      }
       tabs.attach(opened.tabId);
-      return { ...opened, focused: !!opened.focused, ...loaded };
+      const { dir, ...rest } = opened;
+      return { ...rest, focused: !!opened.focused, reloaded, ...loaded };
     },
     // M13-C4: a scripted probe of any open app tab (plain apps included; no revision id). `ready` is the
     // app's data-iter-ready flag, reported and never required. A locked app tab refuses, like every action.

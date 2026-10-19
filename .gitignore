@@ -75,3 +75,5 @@ iter/task_state.metta
 /hyperon-src-debug/
 /debug_symbols/
 *.BACKUP_before_singleton_lock_fix
+# M14-H2: a symlink to the person's apps folder, maintained by main.js
+iter/vault

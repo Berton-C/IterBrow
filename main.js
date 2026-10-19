@@ -217,6 +217,24 @@ function vaultAppDir(id) {
   return dir;
 }
 
+// M14-H2: <ITER_DIR>/vault is a symlink to the chosen folder, so `vault/<app>/…` is a real path in shell,
+// python and run_tests, exactly as it is for the file tools. No vault → no link (no trace).
+function ensureVaultLink() {
+  const link = path.join(ITER_DIR, 'vault');
+  const vault = vaultDir();
+  let current = null;
+  try { current = fs.lstatSync(link).isSymbolicLink() ? fs.readlinkSync(link) : false; } catch (_) { current = null; }
+  if (current === false) return; // a real folder named vault: never touched
+  try {
+    if (!vault) { if (current !== null) fs.unlinkSync(link); return; }
+    if (current === vault) return;
+    if (current !== null) fs.unlinkSync(link);
+    fs.symlinkSync(vault, link, 'dir');
+  } catch (error) {
+    pushLog('[vault] could not update the iter/vault link: ' + error.message);
+  }
+}
+
 // Run `python3 -m iterbrow_runtime.vault <args>` and return its JSON (null on any failure).
 function runVaultCli(args) {
   return new Promise((resolve) => {
@@ -241,6 +259,7 @@ async function useVault(chosen) {
   }
   const settings = loadSettings();
   saveSettings({ ...settings, vault: real, recentVaults: nextRecent(settings.vault, settings.recentVaults, real) });
+  ensureVaultLink();
   const copied = await runVaultCli(['copy-examples']);
   pushLog(`[vault] ${real} ` + (copied && copied.length ? `(copied: ${copied.join(', ')})` : '(nothing to copy)'));
   return { vault: real, copied: copied || [] };
@@ -517,19 +536,23 @@ async function loadCurrentAppRevision(appId = 'crm') {
 async function openRegisteredApp(appId) {
   // M10-C5: an app that is already open is focused, not opened again.
   const open = tabs.findTab((t) => !!t.appScope && t.appScope.appId === appId);
-  if (open) return { appId, tabId: tabs.focusTab(open.id), focused: true };
+  if (open) {
+    // M14-H1: the folder lets the bridge reload the tab when the app's files changed since it loaded.
+    const dir = vaultAppDir(appId) || plainAppDir(appId);
+    return { appId, tabId: tabs.focusTab(open.id), focused: true, ...(dir ? { dir } : {}) };
+  }
   // M10-C3: a plain app (mapstation, nodequest ...) opens as an app tab: app scope, the app
   // preload and the margin, straight from its folder (no revision manager, no contract).
   // M14-A4: the person's own app in their vault comes first, the same way (app tab from its folder).
   const mine = vaultAppDir(appId);
   if (mine) {
     const tabId = tabs.createTab(pathToFileURL(path.join(mine, 'index.html')).toString(), appTabOptions(appId));
-    return { appId, tabId, kind: 'vault' };
+    return { appId, tabId, kind: 'vault', dir: mine };
   }
   const plain = plainAppDir(appId);
   if (plain) {
     const tabId = tabs.createTab(pathToFileURL(path.join(plain, 'index.html')).toString(), appTabOptions(appId));
-    return { appId, tabId, kind: 'plain' };
+    return { appId, tabId, kind: 'plain', dir: plain };
   }
   if (!/^[a-z][a-z0-9-]{0,62}$/.test(appId || '')) throw new Error('Invalid application id');
   if (atomspaceLifecycleBusy) throw new Error('State maintenance is in progress');
@@ -2706,6 +2729,7 @@ const MAC_PRIVACY_PANES = {
 };
 
 async function createWindow() {
+  ensureVaultLink(); // M14-H2: the link follows the setting (a folder moved or removed drops it)
   // Finish orphan reconciliation before a window can claim "stopped" or Start.
   await retirePreviousIter(ITER_DIR, pushLog);
   if (appQuitting) return;

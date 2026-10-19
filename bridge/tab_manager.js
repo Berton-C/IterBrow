@@ -153,6 +153,9 @@ class TabManager {
     };
     this.tabs.set(id, tab);
     if (this.onTabCreated) this.onTabCreated(view.webContents, tab);
+    // M14-H1: when the page last finished loading, so an app tab can be reloaded once its files are newer.
+    tab.loadedAt = Date.now();
+    view.webContents.on('did-finish-load', () => { tab.loadedAt = Date.now(); });
     view.webContents.on('page-title-updated', (_e, title) => {
       tab.title = title;
       this._notify();

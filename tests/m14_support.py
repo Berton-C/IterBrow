@@ -63,6 +63,12 @@ class VaultRoot:
         else:
             settings["vault"] = str(path)
         settings_path.write_text(json.dumps(settings), encoding="utf-8")
+        # M14-H2: main.js keeps <ITER_DIR>/vault linked to the folder; the tests do the same.
+        link = self.root / "vault"
+        if link.is_symlink():
+            link.unlink()
+        if path is not None and Path(path).is_dir():
+            os.symlink(str(path), str(link), target_is_directory=True)
 
     def app(self, app_id, html="<!doctype html><title>%s</title><body data-iter-ready='true'><h1 id='title'>%s</h1>",
             probe=None, brief=None):

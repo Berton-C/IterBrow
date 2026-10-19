@@ -20,7 +20,7 @@ BUILD_LOOP = """[foundry loop — making or changing an app]
 1 Research: beyond a tweak, one websearch(source="github") and at most two github reads for ideas; then stop.
 2 Propose: one card(kind="fork") with 2–3 shapes — the ask as stated, the ask plus one creative addition you name, the smallest version — a pattern on each choice; wait for [choice card=… pick=…]. Skip it for a tweak or when the person already said how.
 3 Build: new_app, then write_file/edit_file under vault/<id>/; keep probe.json current with each feature.
-4 Prove: browser_open_app, browser_wait_for the main element, app_probe(<id>), then one real browser_click on the main action; fix until the probe passes; never report a probe you did not run.
+4 Prove: after each edit browser_open_app (reloads a changed app), browser_wait_for the main element, app_probe(<id>), one real browser_click on the main action; fix until the probe passes; never report a probe you did not run.
 5 Report: one send — what works, what the probe checked, what you would add next — then card(kind="offer") with up to three next steps. When the person says who the app is for, brief it and offer ally_sdk.
 Throughout: a message to the person is a question you need answered or a report of a tool result since your last message — never a progress note."""
 
@@ -60,9 +60,36 @@ def active(messages):
     return False
 
 
+THEATRE = ("[you sent two messages in a row with nothing done between them — do the next step (a tool call), "
+           "then say what it showed]")
+
+
+def theatre(messages):
+    """M14-H3: the newest assistant turn is a send, and so was the previous one, with no other tool result
+    between them (a progress note after a progress note). None otherwise. Pure; a note, never a gate."""
+    turns = []
+    names = {}
+    for message in messages or []:
+        if not isinstance(message, dict):
+            continue
+        if message.get("role") == "assistant":
+            calls = [c for c in message.get("tool_calls") or [] if isinstance(c, dict)]
+            for call in calls:
+                names[call.get("id")] = (call.get("function") or {}).get("name", "")
+            kinds = {(c.get("function") or {}).get("name", "") for c in calls}
+            turns.append("send" if kinds == {"send"} else ("other" if kinds else "text"))
+        elif message.get("role") == "tool" and names.get(message.get("tool_call_id")) not in ("send", "nop", None):
+            turns.append("result")
+        elif message.get("role") == "user":
+            turns.append("user")
+    recent = [t for t in turns if t != "text"]
+    return THEATRE if len(recent) >= 2 and recent[-1] == "send" and recent[-2] == "send" else None
+
+
 def transform(messages, tools):
     try:
         on = active(messages)
+        note = theatre(messages) if on else None
     except Exception:
         return messages, tools
     if not on:
@@ -71,6 +98,9 @@ def transform(messages, tools):
         if isinstance(message, dict) and message.get("role") == "system":
             content = str(message.get("content") or "")
             if BUILD_LOOP not in content:
-                message["content"] = content + "\n\n" + BUILD_LOOP
+                content += "\n\n" + BUILD_LOOP
+            if note and note not in content:
+                content += "\n\n" + note
+            message["content"] = content
             break
     return messages, tools

@@ -30,6 +30,8 @@ Implementation notes:
   `file://` app shares one origin; a full clear would wipe the person's other apps). Theatre = sends with no
   other tool result since the previous message, matched by call id. `bench.py` needs a live IterBrow and was
   not run here; Berton's first run is the baseline for later changes.
+- **H and I (Fable, after Berton's activity log):** the cycle was a stale tab plus a path only the file tools
+  understood; and every AtomSpace commit rebuilt an engine nobody queried. See sections H and I.
 - **Berton on the Mac:** restart IterBrow after pulling (main.js changed); the apps folder is already chosen;
   run the benchmark when convenient (`docs/bench/README.md`).
 - **Test fixes (tests were wrong, not the code):** the test vault lives outside the throwaway repo; two
@@ -379,6 +381,52 @@ Build notes: `bench.py` drives a live IterBrow, which this environment does not 
 `table` pure, validate the briefs with `validateProbeSpec`, and leave the live run to Berton.
 
 Tests: `tests/test_m14_bench.py` (the briefs validate; `score`; the report table).
+
+## H. What made Iter cycle (from Berton's 2026-10-19 activity log, after D–G)
+
+The log: Iter edited `vault/mapstation/index.html` (19:00), then "opened" Map Station — which focused the
+tab that was already open and had loaded the *old* file — read the page with `browser_eval`, found the new
+function missing, concluded "the running page is stale", and sent six messages in a row saying it was tracing
+the handoff. Its one `shell` check said `vault/mapstation/index.html: No such file or directory`, because
+`vault/` was a spelling only the file tools knew. Three repairs, all tested in `tests/test_m14_cycling.py`:
+
+- **H1 — an open app tab shows what is on disk.** `tab_manager` stamps `loadedAt` on every finished load;
+  `openRegisteredApp` returns the app's folder (`dir`) for vault and plain apps; the bridge's `openApp`
+  reloads a focused app tab when any file under the folder is newer than `loadedAt` (never a locked tab)
+  and answers `reloaded: true`; `browser_open_app` prints `reloaded (files changed since it loaded)` and its
+  description says to open after every edit.
+- **H2 — `vault/<app>/…` is a real path everywhere.** `main.js` keeps `<ITER_DIR>/vault` a symlink to the
+  chosen folder (`ensureVaultLink`, at startup and after choosing; removed when no vault — no trace), so
+  shell, python and run_tests see the same paths as the file tools. `.gitignore` has `iter/vault`; the
+  catalog and briefs never treat the link as an app; export/reset ignore it (undeclared in the manifest, as
+  a link into the person's folder must be).
+- **H3 — the theatre note.** `build_mode.theatre(messages)`: when the newest assistant turn is a `send` and
+  so was the previous one with no tool result between (text-only turns do not count as work), one line
+  joins the prompt: *you sent two messages in a row with nothing done between them — do the next step (a
+  tool call), then say what it showed*. Only while building; a note, never a gate.
+
+## I. The store keeps up (the cost behind the courier and the tracker)
+
+Berton's log after F: the transformation stage still took 10 s per cycle — `nace_courier` 3.9 s,
+`tool_reliability_tracker` 3.2 s, `metta_reasoning` 1.3 s — all of it AtomSpace service time, none of it in
+their own code. The cause, in `metta_server.py`: every `transact` called `_rebuild_engine(next_atoms)`,
+which constructed a **new Hyperon engine from every stored atom** (a 4.7 MB snapshot on the Mac) — and that
+in-process engine is never queried: queries run in an isolated worker from the store's atoms (`query` →
+`_run_query_worker`). Each commit paid seconds to rebuild something nobody read; the courier and the
+tracker each commit once per tool call.
+
+- **I1 — the engine is updated in place.** `_rebuild_engine(atoms)` keeps `_engine_atoms` (what the engine
+  holds), computes the delta, parses only the atoms that changed (a malformed atom still raises, so the
+  transaction still aborts), removes/adds them on the native space, and reconstructs from scratch only
+  when there is no engine, when a removal is not confirmed by the space, or on any error (a failed
+  reconstruction leaves no engine, so the next call reconstructs). NACE's courier, tracker and the store's
+  journal are untouched; the engine's contents after every commit are exactly what a reconstruction would
+  give.
+- **I2 — measured.** Real Hyperon, 20,000 atoms: reconstruction 0.70 s, an in-place commit 0.07 s (the
+  test asserts < 0.75 s per commit over 20k atoms). On the Mac this should take the courier and the tracker
+  from ~3.5 s each to well under a second; the remaining cost is the isolated query worker
+  (`metta_reasoning` and the courier's cross-check each rebuild a space from the snapshot in a subprocess)
+  — a later item if it still bites.
 
 ## Commit plan
 

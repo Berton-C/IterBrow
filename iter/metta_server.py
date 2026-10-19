@@ -193,6 +193,7 @@ class MettaSpace:
         self.engine_lock = threading.RLock()
         self.engine_error = None
         self.engine = None
+        self._engine_atoms = None  # M14-I1: what the in-process engine holds, for in-place updates
         self.query_cache = {}
         self.seed_files = _load_declared_seeds()
         self.seed_units, self.soul_seed_units = _split_seed_units(self.seed_files)
@@ -247,10 +248,47 @@ class MettaSpace:
             return self._new_engine_unlocked(atoms)
 
     def _rebuild_engine(self, atoms):
+        """Bring the in-process engine to `atoms`.
+
+        M14-I1: a transaction changes a few atoms of thousands, so the engine is updated in place — the
+        atoms that changed are parsed (a malformed atom still aborts the transaction, as before) and
+        removed/added on the native space. A full reconstruction happens only when there is no engine yet,
+        when the delta cannot be applied exactly (a removal the space does not confirm), or on any error;
+        a failed reconstruction leaves no engine, so the next call reconstructs from scratch.
+        """
         with self.engine_lock:
-            replacement = self._new_engine_unlocked(atoms)
-            self.engine = replacement
-            self.engine_error = None
+            previous = self._engine_atoms if self.engine is not None else None
+            if previous is None:
+                self.engine = None
+                self._engine_atoms = None
+                self.engine = self._new_engine_unlocked(atoms)
+                self._engine_atoms = dict(atoms)
+                self.engine_error = None
+                return
+            removed = [key for key in previous if key not in atoms or atoms[key] != previous[key]]
+            added = [key for key in atoms if key not in previous or atoms[key] != previous[key]]
+            try:
+                space = self.engine.space()
+                parsed = []
+                for key in added:
+                    units = self.engine.parse_all(atoms[key])
+                    if len(units) != 1:
+                        raise ValueError("stored source unit must contain exactly one atom (%s)" % key)
+                    parsed.append(units[0])
+                for key in removed:
+                    units = self.engine.parse_all(previous[key])
+                    if len(units) != 1 or not space.remove_atom(units[0]):
+                        raise RuntimeError("engine out of step with the store at %s" % key)
+                for atom in parsed:
+                    space.add_atom(atom)
+                self._engine_atoms = dict(atoms)
+                self.engine_error = None
+            except Exception:
+                self.engine = None
+                self._engine_atoms = None
+                self.engine = self._new_engine_unlocked(atoms)  # validates every atom; raises as before
+                self._engine_atoms = dict(atoms)
+                self.engine_error = None
 
     def _kb_backfill(self):
         """Bring pre-Milestone-5 formalizations and the seed vocabulary into the kb.

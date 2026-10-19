@@ -14,7 +14,8 @@ DEFAULT_TIMEOUT = 120
 MAX_TIMEOUT = 170  # the loop's own bound for shell is 180 s
 
 DESCRIPTION = (
-    "Execute a command on %s using %s. cwd: a folder relative to iter/ (default iter/; `..` is the repo root). "
+    "Execute a command on %s using %s. cwd: a folder relative to iter/ (default iter/; `..` is the repo root; "
+    "vault/<app> is the person's apps folder). "
     "timeout: seconds, default %d, at most %d. stdout first, then a `--- stderr ---` section when there is one. "
     "python3 here is Iter's own Python. For reading or changing files, prefer read_file / edit_file."
     % ({"darwin": "macOS", "win32": "Windows"}.get(sys.platform, sys.platform),

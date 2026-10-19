@@ -50,6 +50,13 @@ class FakeMeTTa:
         self.calls.append(("add", atom))
         self.atoms.append(atom)
 
+    def remove_atom(self, atom):
+        self.calls.append(("remove", atom))
+        if atom in self.atoms:
+            self.atoms.remove(atom)
+            return True
+        return False
+
 
 class ThreadSensitiveMeTTa(FakeMeTTa):
     activity_lock = threading.Lock()
