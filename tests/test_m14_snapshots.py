@@ -54,6 +54,23 @@ class SnapshotTests(unittest.TestCase):
         self.assertFalse((r.root / ".iter").exists())
 
 
+class AllySdkSnapshotTests(unittest.TestCase):
+    """M14-B1 (audit 2026-10-19): ally_sdk's change to a vault app's index.html is undoable too."""
+
+    def test_ally_install_is_snapshotted(self):
+        r = vault_root("m14ally", with_main_js=True)
+        self.addCleanup(r.close)
+        r.app("todo", html="<!doctype html><title>t</title><body></body>\n", brief={"for": "me", "flourishing": "x"})
+        self.assertEqual(r.text("ally_sdk", app="todo"), "ALLY-SDK: installed in todo")
+        files = sorted(e["file"] for e in r.snapshots("todo"))
+        self.assertIn("index.html", files)
+        self.assertTrue(all(e["reason"] == "ally_sdk" for e in r.snapshots("todo")))
+        out = r.text("app_rollback", app="todo", steps=str(len(files)))
+        self.assertIn("ROLLED BACK todo: index.html (to ", out)
+        self.assertEqual((r.vault / "todo" / "index.html").read_text(encoding="utf-8"), "<!doctype html><title>t</title><body></body>\n")
+        self.assertFalse((r.vault / "todo" / "iter_ally.js").exists(), "the SDK files a change created are gone too")
+
+
 class RollbackTests(unittest.TestCase):
     """M14-B2"""
 

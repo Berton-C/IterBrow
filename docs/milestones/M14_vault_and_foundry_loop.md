@@ -1,6 +1,23 @@
 # Milestone 14 — The vault and the foundry loop: apps that live somewhere, and a way of building them
 
-Status: **scoped 2026-10-19, not implemented.** Base: M6–M13. Tests: `tests/test_m14_*.py` and
+Status: **A–C implemented 2026-10-19 (Opus), audited the same day (Fable); D–G pending.**
+Implementation notes so far:
+- **A4 — the menu is not reopened after choosing a folder** (a popup straight after a dialog loses focus
+  on macOS). `main.js` keeps its M10 `appsMenuTemplate` (pinned by `tests/test_m10_apps.py`); the Apps
+  button uses `bridge/vault_menu.js`. An example copied into the vault is no longer listed under
+  Examples (the catalog hides a same-named plain app; the vault copy is the one you use);
+  `new_app(from_example=…)` always copies the *shipped* example, so a fresh start is always possible.
+- **A fix found on the Mac:** Map Station's native location trusted only `iter/mapstation/index.html`;
+  it now also trusts `<vault>/mapstation/index.html` (`MapStationInTheVaultTests`).
+- **Audit fixes:** writes under `.git`/`node_modules` inside the vault are refused like the repo's (the
+  person may keep the apps folder in git); `ally_sdk`'s change to a vault app is snapshotted (undoable);
+  `vault.py` uses an aware UTC clock.
+- **B3 — pruning rule as implemented:** the newest 50, plus the newest entry of each earlier UTC day of the
+  last 30 that those 50 do not already cover (so 55 same-day writes keep 50, not 51).
+- **C4 — a probe counts only when it ran** (its result has `PROBE <app>`); a probe that could not reach the
+  bridge leaves the note in place.
+- **Test fixes (tests were wrong, not the code):** the test vault lives outside the throwaway repo; two
+  menu lookups indexed `label` on separators; byte counts 31→33; the live websearch test waits for E2. Base: M6–M13. Tests: `tests/test_m14_*.py` and
 `tests/e2e/test_m14_loop.py`; helpers in `tests/m14_support.py`. How to build it: `CLAUDE.md` at the repo
 root (the workflow and the standing rules); check a section with `scripts/check_section.sh M14-A`. Every
 test starts `@pending("M14-xx")`; remove the decorator as each passes. `M14_IMPLEMENTED` is keyed on

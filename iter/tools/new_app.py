@@ -97,8 +97,9 @@ def run(id, title="", from_example=""):
         return _files.input_error("EXISTS: vault/%s" % app_id)
     example = str(from_example or "").strip()
     if example:
-        source = store.app_dir(example, vault) or (soul_briefs._plain_dir(store.iter_root(), example)
-                                                  if store.APP_ID.match(example) else None)
+        # The shipped example first (a fresh copy even after the vault's own copy was changed), then a vault app.
+        source = (soul_briefs._plain_dir(store.iter_root(), example) if store.APP_ID.match(example) else None) \
+            or store.app_dir(example, vault)
         if source is None:
             return _files.input_error("ERROR: no app named %r to copy (shipped examples: %s)" % (example, ", ".join(store.EXAMPLES)))
         store.copy_folder(source, folder)

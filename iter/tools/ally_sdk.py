@@ -97,5 +97,7 @@ def run(app):
                 return "ERROR: %s/%s is a symlink" % (app, name)
             temporary = target / (".%s.%d.tmp" % (name, os.getpid()))
             temporary.write_text(text, encoding="utf-8")
+            from iterbrow_runtime import vault
+            vault.snapshot(path, "ally_sdk")  # M14-B1: undoable in a vault app; a no-op elsewhere
             os.replace(temporary, path)
     return "ALLY-SDK: %s in %s" % ("installed" if "index.html" in updates else "updated", app)

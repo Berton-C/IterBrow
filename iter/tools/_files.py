@@ -42,13 +42,18 @@ def repo_root():
 NO_VAULT = "REFUSED: no apps folder chosen yet (Apps ▸ Choose apps folder…)"
 
 
+_VAULT = []  # one lookup per tool run (each run is its own process); the next run reads settings afresh
+
+
 def vault_dir():
-    """The person's vault (real path) or None. Read from settings on every call."""
-    try:
-        from iterbrow_runtime import vault
-    except Exception:
-        return None
-    return vault.path(iter_dir() / ".runtime" / "settings.json")
+    """The person's vault (real path) or None, from .runtime/settings.json (read once per tool run)."""
+    if not _VAULT:
+        try:
+            from iterbrow_runtime import vault
+            _VAULT.append(vault.path(iter_dir() / ".runtime" / "settings.json"))
+        except Exception:
+            _VAULT.append(None)
+    return _VAULT[0]
 
 
 def roots():
@@ -83,8 +88,12 @@ def resolve(path, *, write=False):
     root = Path(os.path.realpath(repo_root()))
     vault = vault_dir()
     if vault and _inside(real, vault):
-        if write and (OWN_PART in real.relative_to(vault).parts[:1]):
-            raise FileScopeError("REFUSED: %s is under vault/.iter, which holds IterBrow's snapshots and is never written" % raw)
+        if write:
+            parts = real.relative_to(vault).parts
+            if parts[:1] == (OWN_PART,):
+                raise FileScopeError("REFUSED: %s is under vault/.iter, which holds IterBrow's snapshots and is never written" % raw)
+            if NO_WRITE_PARTS.intersection(parts):  # the person may keep their apps folder in git
+                raise FileScopeError("REFUSED: %s is under .git or node_modules, which the file tools never write" % raw)
         return real
     if not _inside(real, root):
         where = "the repository (%s)" % root + (" and the apps folder (%s)" % vault if vault else "")

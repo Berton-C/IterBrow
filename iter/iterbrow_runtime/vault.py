@@ -165,6 +165,10 @@ KEEP_NEWEST = 50
 KEEP_DAYS = 30
 
 
+def _utcnow():
+    return dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
+
+
 def _store(root, app_id):
     return Path(root) / OWN / "snapshots" / app_id
 
@@ -216,7 +220,7 @@ def snapshot(real, reason, root=None, now=None):
     if where is None:
         return None
     vault, app_id, rel = where
-    now = now or dt.datetime.utcnow()
+    now = now or _utcnow()
     entry = {"at": now.strftime("%Y-%m-%dT%H:%M:%S.%fZ"), "file": rel, "bytes": None, "stored": None, "reason": str(reason)}
     store = _store(vault, app_id)
     store.mkdir(parents=True, exist_ok=True)
@@ -265,7 +269,7 @@ def prune(app_id, root=None, now=None):
     if root is None:
         return 0
     items = entries(root, app_id)
-    keep = prune_plan(items, now or dt.datetime.utcnow())
+    keep = prune_plan(items, now or _utcnow())
     if len(keep) == len(items):
         return 0
     kept = {item.get("stored") for item in keep}

@@ -65,6 +65,13 @@ class NewAppTests(unittest.TestCase):
         r.text("new_app", id="quest2", title="Quest", from_example="nodequest")
         self.assertEqual(json.loads((r.vault / "quest2" / "probe.json").read_text(encoding="utf-8")), PROBE, "the example's own probe is kept")
         self.assertEqual((r.tool("new_app", id="x", title="x", from_example="nope").get("execution") or {}).get("state"), "invalid_input")
+        # Audit 2026-10-19: the shipped example wins over the vault's (edited) copy, so a fresh start is always possible.
+        r.app("mapstation", html="<!doctype html><title>edited copy</title>")
+        r.text("new_app", id="fresh", title="Fresh", from_example="mapstation")
+        self.assertIn("Iter Map Station", (r.vault / "fresh" / "index.html").read_text(encoding="utf-8"))
+        r.app("ownapp", html="<!doctype html><title>mine</title>")
+        r.text("new_app", id="ownapp2", title="Mine", from_example="ownapp")
+        self.assertIn("mine", (r.vault / "ownapp2" / "index.html").read_text(encoding="utf-8"), "a vault app can be copied too")
 
     @unittest.skipUnless(playwright_available(), "needs playwright")
     def test_the_scaffold_runs_and_sets_ready(self):
