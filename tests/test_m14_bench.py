@@ -29,7 +29,6 @@ def bench_module():
 class BriefsTests(unittest.TestCase):
     """M14-G1"""
 
-    @pending("M14-G1")
     @unittest.skipUnless(NODE, "needs node")
     def test_five_briefs_each_with_a_valid_probe(self):
         require_m14()
@@ -55,7 +54,6 @@ class ScoreTests(unittest.TestCase):
               "sends_without_tool_result": 0, "cards": 2, "probe_passed": True, "elapsed_s": 412.5,
               "iteration_kept_working": True, "baseline": False}
 
-    @pending("M14-G2")
     def test_score_and_table(self):
         bench = bench_module()
         self.assertEqual(bench.score(self.RECORD), {"built": True, "kept": True, "theatre": 0})
@@ -68,7 +66,6 @@ class ScoreTests(unittest.TestCase):
         self.assertTrue(any(line.startswith("kanban") and "no" in line for line in lines), table)
         self.assertIn("gpt-6-luna", table)
 
-    @pending("M14-G2")
     def test_bench_shape(self):
         src = (BENCH / "bench.py").read_text(encoding="utf-8")
         for word in ("--app", "--baseline", "ITER_DIR", "inbox", "probe", "experience.json", "docs/bench/", "iteration_kept_working", "20 * 60"):
@@ -80,7 +77,6 @@ class ScoreTests(unittest.TestCase):
 class DocsTests(unittest.TestCase):
     """M14-G3"""
 
-    @pending("M14-G3")
     def test_docs(self):
         require_m14()
         readme = (REPO / "docs" / "bench" / "README.md").read_text(encoding="utf-8")

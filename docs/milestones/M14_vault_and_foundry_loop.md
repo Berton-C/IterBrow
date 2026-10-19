@@ -1,7 +1,7 @@
 # Milestone 14 — The vault and the foundry loop: apps that live somewhere, and a way of building them
 
-Status: **A–C implemented 2026-10-19 (Opus), audited the same day (Fable); D–G pending.**
-Implementation notes so far:
+Status: **implemented 2026-10-19** (A–C by Opus, audited by Fable; D–G by Opus). Benchmark not yet run on the Mac.
+Implementation notes:
 - **A4 — the menu is not reopened after choosing a folder** (a popup straight after a dialog loses focus
   on macOS). `main.js` keeps its M10 `appsMenuTemplate` (pinned by `tests/test_m10_apps.py`); the Apps
   button uses `bridge/vault_menu.js`. An example copied into the vault is no longer listed under
@@ -25,6 +25,13 @@ Implementation notes so far:
   `ITER_TRANSFORMATIONS_PER_PROCESS=1` keeps the old path (escape hatch, and how the first number was
   taken). Batch result items carry `{path, ok, error?, seconds}` (no per-item result); a dead worker reruns
   the whole cycle per-process from the original messages.
+- **G — the briefs name their element ids** in the ask, so the probes (written in advance) can check what
+  Iter builds. Before each probe `bench.py` clears only the app's `iter:<id>:` localStorage keys (every
+  `file://` app shares one origin; a full clear would wipe the person's other apps). Theatre = sends with no
+  other tool result since the previous message, matched by call id. `bench.py` needs a live IterBrow and was
+  not run here; Berton's first run is the baseline for later changes.
+- **Berton on the Mac:** restart IterBrow after pulling (main.js changed); the apps folder is already chosen;
+  run the benchmark when convenient (`docs/bench/README.md`).
 - **Test fixes (tests were wrong, not the code):** the test vault lives outside the throwaway repo; two
   menu lookups indexed `label` on separators; byte counts 31→33; the live websearch test waits for E2. Base: M6–M13. Tests: `tests/test_m14_*.py` and
 `tests/e2e/test_m14_loop.py`; helpers in `tests/m14_support.py`. How to build it: `CLAUDE.md` at the repo

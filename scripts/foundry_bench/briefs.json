@@ -1,0 +1,100 @@
+[
+  {
+    "id": "todo",
+    "ask": "Build me a todo app called todo. I add a todo by typing in #new-todo and clicking #add; each todo is an li in #list showing its text in a .label, with a .toggle button that marks it done (the li gets class done) and a .delete button. Todos persist across a reload.",
+    "iterate": "Add a dark mode toggle to todo: a #theme-toggle button that switches light/dark and remembers the choice across reloads.",
+    "main_action": "#add",
+    "probe": {
+      "steps": [
+        {"kind": "fill", "selector": "#new-todo", "value": "buy milk"},
+        {"kind": "click", "selector": "#add"},
+        {"kind": "fill", "selector": "#new-todo", "value": "call mom"},
+        {"kind": "click", "selector": "#add"},
+        {"kind": "click", "selector": "#list li:first-child .toggle"}
+      ],
+      "assertions": [
+        {"kind": "count", "selector": "#list li", "expected": 2},
+        {"kind": "text", "selector": "#list li:first-child .label", "expected": "buy milk"},
+        {"kind": "count", "selector": "#list li.done", "expected": 1},
+        {"kind": "visible", "selector": "#add", "expected": true}
+      ]
+    }
+  },
+  {
+    "id": "pomodoro",
+    "ask": "Build me a pomodoro timer app called pomodoro: 25-minute focus and 5-minute break. #time shows the remaining time as MM:SS (25:00 at the start), #mode shows Focus or Break, and #start, #pause and #reset buttons control it (reset returns to 25:00 Focus).",
+    "iterate": "Add a dark mode toggle to pomodoro: a #theme-toggle button that switches light/dark and remembers the choice across reloads.",
+    "main_action": "#start",
+    "probe": {
+      "steps": [
+        {"kind": "click", "selector": "#start"},
+        {"kind": "click", "selector": "#pause"},
+        {"kind": "click", "selector": "#reset"}
+      ],
+      "assertions": [
+        {"kind": "text", "selector": "#time", "expected": "25:00"},
+        {"kind": "text", "selector": "#mode", "expected": "Focus"},
+        {"kind": "visible", "selector": "#start", "expected": true},
+        {"kind": "visible", "selector": "#pause", "expected": true}
+      ]
+    }
+  },
+  {
+    "id": "notes",
+    "ask": "Build me a markdown notes app called notes: I write in the #note-body textarea and click #save; saved notes are li items in #notes; #preview shows the current note rendered as markdown (headings, emphasis, lists). Notes persist across a reload.",
+    "iterate": "Add a dark mode toggle to notes: a #theme-toggle button that switches light/dark and remembers the choice across reloads.",
+    "main_action": "#save",
+    "probe": {
+      "steps": [
+        {"kind": "fill", "selector": "#note-body", "value": "# Hello\n\nsome *text*\n\n- one\n- two"},
+        {"kind": "click", "selector": "#save"}
+      ],
+      "assertions": [
+        {"kind": "count", "selector": "#notes li", "expected": 1},
+        {"kind": "text", "selector": "#preview h1", "expected": "Hello"},
+        {"kind": "text", "selector": "#preview em", "expected": "text"},
+        {"kind": "count", "selector": "#preview li", "expected": 2}
+      ]
+    }
+  },
+  {
+    "id": "convert",
+    "ask": "Build me a unit converter app called convert with paired inputs that convert both ways as I type, rounded to 2 decimals without trailing zeros (212, 3.28, 2.2): #celsius and #fahrenheit, #meters and #feet, #kg and #lb.",
+    "iterate": "Add a dark mode toggle to convert: a #theme-toggle button that switches light/dark and remembers the choice across reloads.",
+    "main_action": "#celsius",
+    "probe": {
+      "steps": [
+        {"kind": "fill", "selector": "#celsius", "value": "100"},
+        {"kind": "fill", "selector": "#meters", "value": "1"},
+        {"kind": "fill", "selector": "#kg", "value": "1"},
+        {"kind": "fill", "selector": "#fahrenheit", "value": "32"}
+      ],
+      "assertions": [
+        {"kind": "value", "selector": "#celsius", "expected": "0"},
+        {"kind": "value", "selector": "#feet", "expected": "3.28"},
+        {"kind": "value", "selector": "#lb", "expected": "2.2"}
+      ]
+    }
+  },
+  {
+    "id": "kanban",
+    "ask": "Build me a kanban board app called kanban with three columns #todo-col, #doing-col and #done-col. I add a card by typing in #new-card and clicking #add-card (it lands in #todo-col); each .card shows its text in a .title and has a .move-right button that moves it to the next column. Cards persist across a reload.",
+    "iterate": "Add a dark mode toggle to kanban: a #theme-toggle button that switches light/dark and remembers the choice across reloads.",
+    "main_action": "#add-card",
+    "probe": {
+      "steps": [
+        {"kind": "fill", "selector": "#new-card", "value": "write spec"},
+        {"kind": "click", "selector": "#add-card"},
+        {"kind": "fill", "selector": "#new-card", "value": "ship it"},
+        {"kind": "click", "selector": "#add-card"},
+        {"kind": "click", "selector": "#todo-col .card:first-child .move-right"}
+      ],
+      "assertions": [
+        {"kind": "count", "selector": "#todo-col .card", "expected": 1},
+        {"kind": "count", "selector": "#doing-col .card", "expected": 1},
+        {"kind": "text", "selector": "#doing-col .card .title", "expected": "write spec"},
+        {"kind": "count", "selector": "#done-col .card", "expected": 0}
+      ]
+    }
+  }
+]
