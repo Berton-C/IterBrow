@@ -11,12 +11,12 @@
 - `shell` takes cwd (a folder in the repo) and timeout (seconds, max 170); its python3 is Iter's own.
 - Test with `run_tests` (a tests/ path, or a -k expression). Its first line is RESULT: — read it before
   claiming anything works.
-- Apps: a plain app is iter/<id>/index.html; a Foundry project is iter/apps/<id>/app.json with src/.
-  An app opened from the Apps menu runs with the app preload (window.iterApp); a tab opened by URL does not.
-  Open one yourself with `browser_open_app`, then `browser_wait_for` what should appear, then prove it
-  with `app_probe` (steps + assertions) before saying it works.
-  New apps go in the person's apps folder: `new_app` → vault/<id>/ (docs/APP_CONTRACT.md); `app_probe(<id>)`
-  with no assertions runs the app's probe.json.
+- Apps live in the person's apps folder: vault/<id>/ (index.html + probe.json, docs/APP_CONTRACT.md).
+  Start one with `new_app`; edit vault/<id>/… — every change can be undone with `app_rollback`. Shipped
+  examples (iter/<id>/index.html) and Foundry projects (iter/apps/<id>/app.json) are not where new work goes.
+  Apps menu apps run with window.iterApp; a tab opened by URL does not. Prove each change: `browser_open_app`,
+  `browser_wait_for`, then `app_probe` (no assertions → its probe.json) before saying it works.
+- Message the person with a question you need answered or what a tool result showed — never a progress note.
 - Actions say what they hit (target) and where the page is now; they act only on the displayed tab.
   `browser_tabs` shows which tab is your target. Check UI with `browser_eval` against real DOM, never from
   a screenshot alone. A tab the person locked refuses actions; that is their choice, not a failure.
@@ -407,8 +407,11 @@ were confirmation.
 | `browser_tabs` | List tabs: displayed, your target, locked by the person, and which app (app=- for a page) |
 | `browser_wait_for` | Wait until a selector is visible, the page shows text, and/or the URL contains a string |
 | `browser_open_app` | Open one of the person's apps as they see it (app tab, with its preload) and target it |
-| `app_probe` | Run click/fill steps and text/value/count/visible assertions in an open app; PROBE <app>: n passed, m failed |
-| `websearch` | Search the web — 5-backend cascade: DDG IA, Wikipedia search, Wikipedia OpenSearch, HN Algolia, DDG HTML via CORS proxy. Returns JSON results. |
+| `app_probe` | Prove an open app works: run steps (JSON list of {kind: click\|fill, selector, value?}) then check assertions (JSON list of {kind: text\|value\|count\|visible, selector, expected}) in the app's tab. With no assertions, the app's own probe.json ({steps, assertions}) is the spec — run it after every change. First line: PROBE <app>: <n> passed, <m> failed; then one line per assertion. Open the app first with browser_open_app. timeout: seconds. |
+| `new_app` | Start a new app in the person's apps folder: creates vault/<id>/ with index.html, probe.json and README.md following docs/APP_CONTRACT.md (data-iter-ready, state in localStorage under iter:<id>:, a probe that passes). id: lowercase letters, digits, dashes. from_example: copy an existing app instead (e.g. mapstation). Then edit vault/<id>/… with write_file/edit_file, keep probe.json current, and open it with browser_open_app(<id>). |
+| `app_rollback` | Undo your last change(s) to an app in the person's apps folder (vault/<app>/): every write_file/edit_file there saved the previous content first. steps: how many changes to undo, newest first (default 1; a file a change created is deleted). steps="0" lists the history (newest first) and changes nothing. Use it when an edit broke a working app, then app_probe again. |
+| `github` | Read GitHub for ideas and patterns (read-only, no account). action=search: query → repositories by stars (owner/name ★stars — description (license) url). action=tree: repo=owner/name → its files with sizes. action=read: repo + path → the file with numbered lines. Name what you adopted in the app's README and respect each project's license. Without a token GitHub allows 10 searches a minute. |
+| `websearch` | Search the web. source: auto (default) searches DuckDuckGo first, then Wikipedia, Hacker News, GitHub, Crossref and Open Library; github searches GitHub repositories only. Returns JSON results with title, url, snippet; NO RESULTS: <query> when the services answered with nothing (try other words). To read a repository's files, use the github tool. |
 | `soul_lock` | Mutation lock (begin → verify → commit/rollback) around the Soul kernel seed and the NACE belief files |
 | `soul_reflect` | Read a situation through the Soul lens: facets of the named patterns, tension vectors, declared pairs. No ruling |
 | `card` | Show the person a sidebar card with 1-3 choices (optional pattern / museum_id per choice); their click returns as a `[choice ...]` user line |
@@ -417,7 +420,7 @@ were confirmation.
 | `soul_mode` | Switch the person's mode: open, jam, quiet, critique, museum |
 | `soul_absent_test` | Report moments in an app that are technically correct and dead, each with its kernel gap signature; changes nothing |
 | `ally_sdk` | Install the IterAlly SDK into an app (needs a brief); idempotent |
-| `apps` | List every local app (Foundry and plain folders) with its file URL and brief |
+| `apps` | List every local app the person has (their apps folder first — vault apps, which you edit as vault/<id>/… — then Foundry projects under apps/ and plain folders like crm, mapstation, nodequest) with its real file URL and brief. Open one yourself with browser_open_app(<id>) — an app tab, with window.iterApp, as the person gets from the Apps menu; browser_navigate to the listed URL shows the page without the app preload. Never guess a path. |
 | `wonder` | The wonder jar: keep an idea cut from a build (add), list, take or let_go |
 | `museum_night` | Walk kept / rejected / unvoted variants joined to the forks that decided them, plus the person's leans |
 | `tool_reliability` | Query NAL truth-weighted tool reliability scores |

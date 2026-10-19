@@ -436,7 +436,8 @@ PROTECTED_TOOL_NAMES = {"send", "nop", "shell", "python", "start_new_task", "rea
                         # The builder's hands and eyes (M12/M13): never dropped by the cap either.
                         "read_file", "write_file", "edit_file", "list_files", "grep_files", "run_tests",
                         "browser_click", "browser_type", "browser_eval", "browser_wait_for", "browser_open_app",
-                        "app_probe", "browser_tabs", "browser_navigate", "browser_new_tab"}
+                        "app_probe", "browser_tabs", "browser_navigate", "browser_new_tab",
+                        "new_app", "app_rollback", "github"}  # M14-D4
 
 def load_tools():
     # PORT: The kernel creates retained references, so their read-only consumer

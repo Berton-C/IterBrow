@@ -16,7 +16,6 @@ from m14_support import (pending, require_m14, transformation, agents_md, inject
 class BuildModeTests(unittest.TestCase):
     """M14-D1"""
 
-    @pending("M14-D1")
     def test_active_from_recent_calls_or_the_persons_words(self):
         mode = transformation("build_mode")
         quiet = [system(), user("what time is it in Goa?"), assistant("It is 11:02.")]
@@ -31,7 +30,6 @@ class BuildModeTests(unittest.TestCase):
         old = [system(), user("build me a todo app")] + [assistant("…"), user("thanks")] * 9
         self.assertFalse(mode.active(old), "only the last 16 messages count")
 
-    @pending("M14-D1")
     def test_transform_appends_the_loop_only_when_active(self):
         mode = transformation("build_mode")
         self.assertLessEqual(len(mode.BUILD_LOOP), 1100)
@@ -48,7 +46,6 @@ class BuildModeTests(unittest.TestCase):
 class LoopTextTests(unittest.TestCase):
     """M14-D2"""
 
-    @pending("M14-D2")
     def test_the_five_steps_and_the_one_rule(self):
         text = transformation("build_mode").BUILD_LOOP
         order = [text.index(w) for w in ("Research", "Propose", "Build", "Prove", "Report")]
@@ -65,7 +62,6 @@ class LoopTextTests(unittest.TestCase):
 class GuidanceTests(unittest.TestCase):
     """M14-D3"""
 
-    @pending("M14-D3")
     def test_building_section_and_tables(self):
         require_m14()
         seen = injected_agents_md()
@@ -97,13 +93,13 @@ class GuidanceTests(unittest.TestCase):
 class NeverHiddenTests(unittest.TestCase):
     """M14-D4"""
 
-    @pending("M14-D4")
     def test_protected_in_both_lists(self):
         require_m14()
         budget = (ITER_SRC / "transformations" / "dynamic_tool_budget.py").read_text(encoding="utf-8")
         block = budget[budget.index("PROTECTED_TOOLS"):budget.index("}", budget.index("PROTECTED_TOOLS")) + 1]
         loop = (ITER_SRC / "iter.py").read_text(encoding="utf-8")
-        names = loop[loop.index("PROTECTED_TOOL_NAMES"):loop.index("}", loop.index("PROTECTED_TOOL_NAMES")) + 1]
+        start = loop.index("PROTECTED_TOOL_NAMES = {")  # the definition, not an earlier comment
+        names = loop[start:loop.index("}", start) + 1]
         for name in NEW_TOOLS:
             self.assertIn('"%s"' % name, block, name)
             self.assertIn('"%s"' % name, names, name)

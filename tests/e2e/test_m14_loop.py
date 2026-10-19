@@ -29,7 +29,6 @@ def transform(messages, tools):
 
 
 class FoundryLoopTests(unittest.TestCase):
-    @pending("M14-D1")
     def test_build_mode_scaffold_note_probe_rollback(self):
         require_m14()
         script = [

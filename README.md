@@ -25,7 +25,7 @@ hand-written summaries, so it stays truthful as the code changes.
 1. [What IterBrow can actually do](#what-iterbrow-can-actually-do)
 2. [How it's built (architecture)](#how-its-built-architecture)
 3. [The cognitive loop, at a glance](#the-cognitive-loop-at-a-glance)
-4. [Full tool catalog (81 tools)](#full-tool-catalog-81-tools)
+4. [Full tool catalog (84 tools)](#full-tool-catalog-84-tools)
 5. [Full transformation pipeline (31 stages)](#full-transformation-pipeline-31-stages)
 6. [Memory architecture](#memory-architecture)
 7. [The Soul system — value-grounded self-evaluation](#the-soul-system--value-grounded-self-evaluation)
@@ -57,6 +57,12 @@ hand-written summaries, so it stays truthful as the code changes.
   you're looking at and screenshot the result to check its own work, or open several full HTML/JS
   variants side by side in real tabs for comparison — every attempt is saved to a searchable
   "component museum" with a keep/reject vote that feeds back into its own tool-reliability beliefs.
+- **Where apps live.** Apps ▸ Choose apps folder… picks a folder of your own (like an Obsidian vault);
+  Map Station and NodeQuest are copied in as examples the first time. Ask Iter to build an app and it
+  researches, offers you a choice of shapes, builds it in that folder (`vault/<id>/`), proves it with the
+  app's own `probe.json`, and reports. Every change Iter makes there keeps the previous version:
+  Apps ▸ Undo Iter's last change (or `app_rollback`) puts it back. The folder is yours — copy it to move
+  or back it up. See `docs/APP_CONTRACT.md`.
 - **You can lock any tab (🔒).** A locked tab refuses every action from the agent (navigate,
   click, type, scroll, close, run JS) while you can still use it completely normally yourself.
   Use this on anything sensitive — banking, email, whatever you don't want the agent touching.
@@ -132,7 +138,7 @@ run transformations → wait for the next input. Two of the folders under `iter/
 all of this project's actual capability lives, and both can be updated through recoverable runtime generations:
 
 - **`iter/tools/`** (53 active) — things the model can explicitly call: browse, remember,
-  reason, self-modify, communicate. See the [full catalog](#full-tool-catalog-81-tools) below.
+  reason, self-modify, communicate. See the [full catalog](#full-tool-catalog-84-tools) below.
 - **`iter/transformations/`** (31 active) — pipeline stages that run automatically every cycle
   around the model call: injecting memory/context, tracking reliability, running the self-improve
   and governance checks, updating dashboards. See the [full pipeline](#full-transformation-pipeline-31-stages)
@@ -142,7 +148,7 @@ all of this project's actual capability lives, and both can be updated through r
 A file starting with `_` in either folder is deactivated without being deleted — the fastest way
 to see exactly what's currently live vs. retired is `ls iter/tools/` / `ls iter/transformations/`.
 
-## Full tool catalog (81 tools)
+## Full tool catalog (84 tools)
 
 Generated directly from each file's `DESCRIPTION` constant — this is everything the model can
 currently call, grouped by what it's for. (A further ~22 tools exist but are deactivated —
@@ -167,7 +173,11 @@ currently call, grouped by what it's for. (A further ~22 tools exist but are dea
 | `browser_screenshot` | Take a screenshot of the attached browser tab's current viewport and attach it as visual context for the next model turn. The tab needs a rendered surface; browser_attach alone does not display it. browser_switch_tab displays and targets an existing tab. An unavailable capture is a failure, not visual evidence. tab_id: optional (default: the target tab). |
 | `browser_wait_for` | Wait until something is true in a tab: a CSS selector matches a visible element, the page shows some text, and/or the URL contains a string (every one you give must hold). timeout in seconds (default 10, at most 30). Use after a click or load before you check the result. tab_id: optional (default: the target tab). |
 | `browser_open_app` | Open one of the person's apps (an id from the apps tool, e.g. mapstation) the way they see it: as an app tab with its preload (window.iterApp), focusing it if it is already open. Waits for it to load and makes it your target. Use this, not browser_new_tab, before testing an app with app_probe or clicking in it. |
-| `app_probe` | Prove an open app works: run steps (JSON list of {kind: click\|fill, selector, value?}) then check assertions (JSON list of {kind: text\|value\|count\|visible, selector, expected}) in the app's tab. First line: PROBE <app>: <n> passed, <m> failed; then one line per assertion. Open the app first with browser_open_app. timeout: seconds. |
+| `app_probe` | Prove an open app works: run steps (JSON list of {kind: click\|fill, selector, value?}) then check assertions (JSON list of {kind: text\|value\|count\|visible, selector, expected}) in the app's tab. With no assertions, the app's own probe.json ({steps, assertions}) is the spec — run it after every change. First line: PROBE <app>: <n> passed, <m> failed; then one line per assertion. Open the app first with browser_open_app. timeout: seconds. |
+| `new_app` | Start a new app in the person's apps folder: creates vault/<id>/ with index.html, probe.json and README.md following docs/APP_CONTRACT.md (data-iter-ready, state in localStorage under iter:<id>:, a probe that passes). id: lowercase letters, digits, dashes. from_example: copy an existing app instead (e.g. mapstation). Then edit vault/<id>/… with write_file/edit_file, keep probe.json current, and open it with browser_open_app(<id>). |
+| `app_rollback` | Undo your last change(s) to an app in the person's apps folder (vault/<app>/): every write_file/edit_file there saved the previous content first. steps: how many changes to undo, newest first (default 1; a file a change created is deleted). steps="0" lists the history (newest first) and changes nothing. Use it when an edit broke a working app, then app_probe again. |
+| `github` | Read GitHub for ideas and patterns (read-only, no account). action=search: query → repositories by stars (owner/name ★stars — description (license) url). action=tree: repo=owner/name → its files with sizes. action=read: repo + path → the file with numbered lines. Name what you adopted in the app's README and respect each project's license. Without a token GitHub allows 10 searches a minute. |
+| `apps` | List every local app the person has (their apps folder first — vault apps, which you edit as vault/<id>/… — then Foundry projects under apps/ and plain folders like crm, mapstation, nodequest) with its real file URL and brief. Open one yourself with browser_open_app(<id>) — an app tab, with window.iterApp, as the person gets from the Apps menu; browser_navigate to the listed URL shows the page without the app preload. Never guess a path. |
 | `browser_cdp` | Advanced/raw escape hatch: send an arbitrary Chrome DevTools Protocol command to the attached tab (e.g. method='Network.enable' or method='Emulation.setDeviceMetricsOverride'). cdp_params must be a JSON object string. Only use this when the simpler browser_* tools do not cover what you need. |
 
 **Live UI generation & component museum**
@@ -242,7 +252,7 @@ currently call, grouped by what it's for. (A further ~22 tools exist but are dea
 
 | Name | What it does |
 |---|---|
-| `websearch` | Search the web. Returns JSON array of results with title, url, snippet. |
+| `websearch` | Search the web. source: auto (default) searches DuckDuckGo first, then Wikipedia, Hacker News, GitHub, Crossref and Open Library; github searches GitHub repositories only. Returns JSON results with title, url, snippet; NO RESULTS: <query> when the services answered with nothing (try other words). To read a repository's files, use the github tool. |
 
 **System / general purpose**
 

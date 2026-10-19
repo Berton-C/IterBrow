@@ -30,7 +30,8 @@ PROTECTED_TOOLS = {"send", "nop", "shell", "python", "start_new_task", "read_too
                    "browser_click", "browser_type", "browser_scroll", "browser_eval", "browser_read_text",
                    "browser_navigate", "browser_new_tab", "browser_close_tab",
                    "read_file", "write_file", "edit_file", "list_files", "grep_files", "run_tests",
-                   "browser_wait_for", "browser_open_app", "app_probe"}  # M13: the eyes, never hidden either
+                   "browser_wait_for", "browser_open_app", "app_probe",  # M13: the eyes, never hidden either
+                   "new_app", "app_rollback", "github"}  # M14-D4: the foundry loop's own tools
 ISSUE_LOG = RUNTIME_DIR + "/budget_issues.log"
 
 def _log_issue(detail):
