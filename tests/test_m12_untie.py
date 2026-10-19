@@ -109,7 +109,8 @@ class HiddenToolsTests(unittest.TestCase):
         src = (ITER_SRC / "transformations" / "dynamic_tool_budget.py").read_text(encoding="utf-8")
         block = src[src.index("PROTECTED_TOOLS"):src.index("}", src.index("PROTECTED_TOOLS")) + 1]
         for name in BUILD_TOOLS + ["browser_click", "browser_type", "browser_scroll", "browser_eval", "browser_read_text",
-                                   "browser_navigate", "browser_new_tab", "browser_close_tab"]:
+                                   "browser_navigate", "browser_new_tab", "browser_close_tab",
+                                   "browser_wait_for", "browser_open_app", "app_probe"]:  # M13's eyes too
             self.assertIn('"%s"' % name, block, name)
 
 

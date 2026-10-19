@@ -1,6 +1,8 @@
 # Milestone 13 — The builder's eyes: Iter can see what it did
 
-Status: **implemented 2026-10-19** (all `@pending` decorators removed).
+Status: **implemented 2026-10-19, audited the same day** (all `@pending` removed). Audit: the three new tools
+were missing from `dynamic_tool_budget`'s never-hide list (M12-A4's rule), so a weak early record could have
+hidden `app_probe`; added, with the M12 test extended. No other deviation found.
 Implementation notes:
 - **A regression the full run caught: the loader's tool cap.** `iter.py` loads at most `MAX_TOOLS - 1`
   tools (protected first, then alphabetically) and drops the rest silently; M13's three tools took the count
