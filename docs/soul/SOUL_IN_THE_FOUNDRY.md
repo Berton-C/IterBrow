@@ -156,10 +156,12 @@ Honest click/type/scroll with post-action state, wait_for, newTab that waits, ta
 Iter's own tabs move its target, browser_tabs that tells the truth, browser_open_app and app_probe for
 every app, app tabs stay on their app, a 24k wire for reading tools, one-line advisories.
 
-### M14 — The vault and the foundry loop (next)
-A vault the person chooses for their apps (examples copied in on first open; file-recovery snapshots,
-not git); new_app scaffold; per-app probe spec before "done" and after every edit; build mode wired
-to the Soul's cards; GitHub research tool; the five-app benchmark.
+### M14 — The vault and the foundry loop (spec: `docs/milestones/M14_vault_and_foundry_loop.md`)
+A vault the person chooses for their apps (examples copied in when it is chosen; file-recovery snapshots
+and one-action rollback, not git); `new_app` scaffold and the app contract; the app's own `probe.json`
+run before "done" and after every edit; build mode that puts the research → fork card → build → probe →
+report loop in front of the model and notices a message without progress; a GitHub research tool and a
+web search that finds things; every transformation of a cycle in one interpreter; the five-app benchmark.
 
 ### Out of scope until Berton says otherwise
 Gates/vetoes of any kind; NACE consuming Soul or kb conclusions (the parked "stage 1"

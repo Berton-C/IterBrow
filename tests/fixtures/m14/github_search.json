@@ -1,0 +1,3 @@
+{"total_count":2,"incomplete_results":false,"items":[
+{"full_name":"alice/pomodoro","html_url":"https://github.com/alice/pomodoro","description":"A tiny pomodoro timer in vanilla JS","stargazers_count":1234,"license":{"spdx_id":"MIT","name":"MIT License"}},
+{"full_name":"bob/tomato","html_url":"https://github.com/bob/tomato","description":null,"stargazers_count":56,"license":null}]}

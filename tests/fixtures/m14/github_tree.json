@@ -1,0 +1,6 @@
+{"sha":"abc","url":"https://api.github.com/repos/o/r/git/trees/abc","tree":[
+{"path":"README.md","mode":"100644","type":"blob","sha":"1","size":1200,"url":"x"},
+{"path":"src","mode":"040000","type":"tree","sha":"2","url":"x"},
+{"path":"src/index.html","mode":"100644","type":"blob","sha":"3","size":4321,"url":"x"},
+{"path":"src/app.js","mode":"100644","type":"blob","sha":"4","size":987,"url":"x"},
+{"path":"LICENSE","mode":"100644","type":"blob","sha":"5","size":1070,"url":"x"}],"truncated":false}
