@@ -2736,6 +2736,8 @@ async function createWindow() {
       if (i === savedSession.activeIndex) restoredActive = id;
     });
     if (restoredActive) tabs.switchTab(restoredActive);
+    // M13-C1: no explicit target after a restore, so Iter acts on the tab that is on screen.
+    tabs.attachedId = null;
     pushLog(`[tabs] restored ${savedSession.tabs.length} tab(s) from last session`);
   } else {
     tabs.createTab('https://www.google.com');

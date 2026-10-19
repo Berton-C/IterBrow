@@ -9,6 +9,8 @@
 //   this server --(Electron webContents API, in-process)--> the tab
 const fs = require('fs');
 const net = require('net');
+const { validateProbeSpec } = require('./foundry_apps');
+const { probeScript } = require('./page_scripts');
 
 const SOCKET_PATH = process.env.ITER_BRIDGE_SOCKET || '/tmp/iter-browser-bridge.sock';
 
@@ -53,7 +55,45 @@ function buildMethods(tabs, apps = {}) {
   return {
     async openApp(params) {
       if (!apps.open) throw new Error('Application factory is unavailable');
-      return apps.open(params.appId);
+      // M13-C3: the app as the person sees it (an app tab, with its preload), loaded before we answer, and
+      // Iter's target from now on (it opened it to work in it).
+      const opened = await apps.open(params.appId);
+      const loaded = opened.focused ? { url: tabs.tabs.get(opened.tabId).url } : await tabs.awaitLoad(opened.tabId);
+      tabs.attach(opened.tabId);
+      return { ...opened, focused: !!opened.focused, ...loaded };
+    },
+    // M13-C4: a scripted probe of any open app tab (plain apps included; no revision id). `ready` is the
+    // app's data-iter-ready flag, reported and never required. A locked app tab refuses, like every action.
+    async probe(params) {
+      const spec = validateProbeSpec(params);
+      const tab = [...tabs.tabs.values()].find((item) => item.appScope && item.appScope.appId === spec.appId);
+      if (!tab) throw new Error(`No open app tab for ${spec.appId}; browser_open_app("${spec.appId}") first`);
+      assertUnlocked(tabs, tab.id, 'probed');
+      let timer;
+      let facts;
+      try {
+        facts = await Promise.race([
+          tab.view.webContents.executeJavaScript(probeScript(spec), true),
+          new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Browser probe timed out')), spec.timeoutMs + 1000); }),
+        ]);
+      } finally { clearTimeout(timer); }
+      const observations = (facts.observations || []).map((item) => ({ ...item, passed: item.actual === item.expected }));
+      const passed = observations.filter((item) => item.passed).length;
+      return { observations, passed, failed: observations.length - passed, ready: facts.ready === true, title: facts.title, tabId: tab.id };
+    },
+    // M13-B3: wait until a selector is visible, the page shows some text, or the URL contains a string (all
+    // given must hold). A read: allowed on locked tabs.
+    async waitFor(params) {
+      const id = tabs.resolveTabId(params.tabId);
+      const timeoutMs = Math.min(30000, Math.max(100, Number(params.timeoutMs) || 10000));
+      const result = await tabs.waitFor({ id, selector: params.selector, text: params.text, url: params.url, timeoutMs });
+      if (!result || !result.found) {
+        const wanted = [['selector', params.selector], ['text', params.text], ['url', params.url]]
+          .filter(([, value]) => value).map(([name, value]) => `${name} ${value}`).join(', ');
+        const why = result && result.error ? ` (${result.error})` : '';
+        throw new Error(`timed out after ${Math.round(timeoutMs / 1000)}s waiting for ${wanted || 'nothing'}${why}`);
+      }
+      return result;
     },
     async inspectApp(params) {
       if (!apps.inspect) throw new Error('Application probe is unavailable');
@@ -69,8 +109,10 @@ function buildMethods(tabs, apps = {}) {
       return tabs.detach(params.tabId);
     },
     async newTab(params) {
-      const id = tabs.createTab(params.url || 'https://www.google.com');
-      return { created: id };
+      // M13-C1: Iter's own tab becomes its target; M13-B4: answer once it has loaded.
+      const id = tabs.createTab(params.url || 'https://www.google.com', { agent: true });
+      const loaded = await tabs.awaitLoad(id);
+      return { created: id, url: loaded.url, title: loaded.title, ...(loaded.warning ? { warning: loaded.warning } : {}) };
     },
     async closeTab(params) {
       const id = tabs.resolveTabId(params.tabId);
@@ -88,6 +130,12 @@ function buildMethods(tabs, apps = {}) {
     async navigate(params) {
       const id = tabs.resolveTabId(params.tabId);
       assertUnlocked(tabs, id, 'navigated');
+      // M13-C5: an app tab holds the app preload; it never loads another page (will-navigate does not fire
+      // for a programmatic load, so the rule is checked here too). Its own URL and its folder are fine.
+      const tab = tabs.tabs && tabs.tabs.get(id);
+      if (tab && tab.appScope && params.url !== tab.allowedUrl && !tabs._insideAppDir(tab, params.url)) {
+        throw new Error(`App tab ${id} stays on its app; open another page in a new tab`);
+      }
       return tabs.navigate(id, params.url);
     },
     async screenshot(params) {
@@ -117,7 +165,7 @@ function buildMethods(tabs, apps = {}) {
     async scroll(params) {
       const id = tabs.resolveTabId(params.tabId);
       assertUnlocked(tabs, id, 'modified');
-      return tabs.scroll({ id, x: params.x, y: params.y });
+      return tabs.scroll({ id, x: params.x, y: params.y, selector: params.selector });
     },
     async cdp(params) {
       const id = tabs.resolveTabId(params.tabId);
@@ -207,4 +255,4 @@ function startBridgeServer(tabs, log = () => {}, socketPath = SOCKET_PATH, apps 
   return server;
 }
 
-module.exports = { inspectSocketPath, startBridgeServer, SOCKET_PATH };
+module.exports = { inspectSocketPath, startBridgeServer, buildMethods, SOCKET_PATH };

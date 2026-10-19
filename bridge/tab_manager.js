@@ -53,6 +53,7 @@ class TabManager {
       active: t.id === this.activeId,
       locked: !!t.locked,
       pinned: !!t.pinned,
+      attached: t.id === this.attachedId, // M13-C2: Iter's explicit target, if it set one
       app: t.appScope ? t.appScope.appId : null, // M11-D2: the toolbar keeps app-tab-only buttons off
       canGoBack: t.view.webContents.navigationHistory.canGoBack(),
       canGoForward: t.view.webContents.navigationHistory.canGoForward(),
@@ -182,12 +183,11 @@ class TabManager {
     }
     view.webContents.loadURL(url);
     this.switchTab(id);
-    // A new tab also becomes the implicit target for bare navigate/eval/
-    // click/type/scroll calls, matching what browser_new_tab.py already
-    // tells the model to expect. Fixes a bug where a stale attach() to an
-    // older tab silently hijacked those calls after a fresh tab was created
-    // for something else (see AGENTS.md, 2026-09-14 note).
-    this.attachedId = id;
+    // M13-C1: a tab Iter opened (the bridge passes agent: true) becomes its target, so its next action lands
+    // there (the 2026-09-14 stale-attach fix). A tab the person opens (Cmd+T, a link, reopen-closed, the Apps
+    // menu, session restore) never moves Iter's target: that used to send Iter's clicks to whatever the
+    // person opened last.
+    if (opts.agent === true) this.attachedId = id;
     return id;
   }
 

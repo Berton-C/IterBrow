@@ -18,7 +18,6 @@ from m13_support import (pending, require_m13, bridge_call, fake_bridge, m12_roo
 class TargetTests(unittest.TestCase):
     """M13-C1 (source: createTab needs Electron)"""
 
-    @pending("M13-C1")
     def test_only_agent_tabs_retarget(self):
         require_m13()
         tm = tab_manager_js()
@@ -38,7 +37,6 @@ class TargetTests(unittest.TestCase):
 class TabsListTests(unittest.TestCase):
     """M13-C2"""
 
-    @pending("M13-C2")
     def test_browser_tabs_shows_displayed_target_locked_app(self):
         require_m13()
         tm = tab_manager_js()
@@ -58,7 +56,6 @@ class TabsListTests(unittest.TestCase):
 class OpenAppTests(unittest.TestCase):
     """M13-C3"""
 
-    @pending("M13-C3")
     def test_browser_open_app_tool(self):
         require_m13()
         r = m12_root("m13open")
@@ -93,7 +90,6 @@ class ProbeTests(unittest.TestCase):
   list() { return []; },
 }"""
 
-    @pending("M13-C4")
     def test_validate_probe_spec_and_bridge_probe(self):
         require_m13()
         code, out, err = node("""const F = require(%s);
@@ -117,7 +113,6 @@ process.stdout.write(JSON.stringify({ spec, bad, rev }));""" % json.dumps(str(BR
         self.assertFalse(missing["ok"])
         self.assertIn("nope", missing["error"])
 
-    @pending("M13-C4")
     def test_app_probe_tool_reports_each_assertion(self):
         r = m12_root("m13probe")
         self.addCleanup(r.close)
@@ -156,7 +151,6 @@ class AppTabNavigationTests(unittest.TestCase):
   list() { return []; },
 }"""
 
-    @pending("M13-C5")
     def test_bridge_refuses_to_navigate_an_app_tab_away(self):
         require_m13()
         away = bridge_call(self.FAKE, "navigate", {"tabId": 2, "url": "https://evil.test/"})
