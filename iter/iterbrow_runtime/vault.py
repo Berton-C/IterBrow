@@ -9,8 +9,16 @@ examples marker) and is never an app.
 No vault chosen → every function answers None/[] and nothing is written anywhere (a feature that is off
 leaves no trace).
 
-CLI (main.js and the tests): python3 -m iterbrow_runtime.vault {path|apps|copy-examples}, JSON on stdout.
+Snapshots (M14-B): before a file tool writes a file inside a vault app, the previous bytes are saved to
+<vault>/.iter/snapshots/<app>/<stamp>__<rel with / as __> and a line is appended to that folder's log.jsonl
+({"at", "file", "bytes", "stored", "reason"}; a new file logs bytes/stored null so rollback can delete it).
+rollback() restores the newest entries newest-first; prune() keeps the newest 50 plus one per earlier UTC
+day for 30 days.
+
+CLI (main.js and the tests): python3 -m iterbrow_runtime.vault
+{path|apps|copy-examples|history <app>|rollback <app> [n]}, JSON on stdout.
 """
+import datetime as dt
 import json
 import os
 import re
@@ -152,6 +160,174 @@ def copy_examples(root, iter_dir):
     return copied
 
 
+# ---- Snapshots, rollback, pruning (M14-B) ---------------------------------------------------------------
+KEEP_NEWEST = 50
+KEEP_DAYS = 30
+
+
+def _store(root, app_id):
+    return Path(root) / OWN / "snapshots" / app_id
+
+
+def locate(real, root=None):
+    """(vault, app_id, rel) for a path inside a vault app folder, else None. `rel` uses '/'."""
+    root = Path(root) if root is not None else path()
+    if root is None:
+        return None
+    real = Path(os.path.realpath(real))
+    try:
+        parts = real.relative_to(root).parts
+    except ValueError:
+        return None
+    if len(parts) < 2 or parts[0] == OWN or parts[0].startswith(".") or not APP_ID.match(parts[0]):
+        return None
+    return root, parts[0], "/".join(parts[1:])
+
+
+def entries(root, app_id):
+    """The app's snapshot log, oldest first ([] when none or unreadable lines)."""
+    log = _store(root, app_id) / "log.jsonl"
+    out = []
+    try:
+        for line in log.read_text(encoding="utf-8").splitlines():
+            try:
+                item = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(item, dict) and isinstance(item.get("file"), str) and isinstance(item.get("at"), str):
+                out.append(item)
+    except OSError:
+        return []
+    return out
+
+
+def _write_log(root, app_id, items):
+    store = _store(root, app_id)
+    store.mkdir(parents=True, exist_ok=True)
+    temporary = store / (".log.jsonl.%d.tmp" % os.getpid())
+    temporary.write_text("".join(json.dumps(item, sort_keys=True) + "\n" for item in items), encoding="utf-8")
+    os.replace(temporary, store / "log.jsonl")
+
+
+def snapshot(real, reason, root=None, now=None):
+    """Save the current bytes of `real` (a file in a vault app) before a tool replaces it. Returns the entry,
+    or None when `real` is not inside a vault app (then nothing at all is written)."""
+    where = locate(real, root)
+    if where is None:
+        return None
+    vault, app_id, rel = where
+    now = now or dt.datetime.utcnow()
+    entry = {"at": now.strftime("%Y-%m-%dT%H:%M:%S.%fZ"), "file": rel, "bytes": None, "stored": None, "reason": str(reason)}
+    store = _store(vault, app_id)
+    store.mkdir(parents=True, exist_ok=True)
+    real = Path(real)
+    if real.is_file():
+        data = real.read_bytes()
+        stored = "%s__%s" % (now.strftime("%Y%m%dT%H%M%S%fZ"), rel.replace("/", "__"))
+        temporary = store / (".%s.tmp" % stored)
+        temporary.write_bytes(data)
+        os.replace(temporary, store / stored)
+        entry.update(bytes=len(data), stored=stored)
+    with open(store / "log.jsonl", "a", encoding="utf-8") as handle:
+        handle.write(json.dumps(entry, sort_keys=True) + "\n")
+    prune(app_id, vault, now=now)
+    return entry
+
+
+def _parse(at):
+    try:
+        return dt.datetime.strptime(at, "%Y-%m-%dT%H:%M:%S.%fZ")
+    except (TypeError, ValueError):
+        return None
+
+
+def prune_plan(items, now):
+    """The entries to keep (original order): the newest 50, plus — for each UTC day of the last 30 that the
+    newest 50 do not already cover — that day's newest entry."""
+    if len(items) <= KEEP_NEWEST:
+        return list(items)
+    keep = set(range(len(items) - KEEP_NEWEST, len(items)))
+    covered = {items[i]["at"][:10] for i in keep}
+    cutoff = (now.date() - dt.timedelta(days=KEEP_DAYS)).isoformat()
+    newest_of_day = {}
+    for index in range(len(items) - KEEP_NEWEST):
+        day = items[index]["at"][:10]
+        if day >= cutoff and day not in covered:
+            if day not in newest_of_day or items[index]["at"] >= items[newest_of_day[day]]["at"]:
+                newest_of_day[day] = index
+    keep.update(newest_of_day.values())
+    return [items[i] for i in sorted(keep)]
+
+
+def prune(app_id, root=None, now=None):
+    """Apply prune_plan to the app's log and delete the stored files of dropped entries."""
+    root = Path(root) if root is not None else path()
+    if root is None:
+        return 0
+    items = entries(root, app_id)
+    keep = prune_plan(items, now or dt.datetime.utcnow())
+    if len(keep) == len(items):
+        return 0
+    kept = {item.get("stored") for item in keep}
+    for item in items:
+        stored = item.get("stored")
+        if stored and stored not in kept:
+            try:
+                (_store(root, app_id) / stored).unlink()
+            except OSError:
+                pass
+    _write_log(root, app_id, keep)
+    return len(items) - len(keep)
+
+
+def _second(at):
+    parsed = _parse(at)
+    return parsed.strftime("%Y-%m-%dT%H:%M:%SZ") if parsed else at
+
+
+def history(app_id, root=None):
+    """The app's changes, newest first."""
+    root = Path(root) if root is not None else path()
+    return list(reversed(entries(root, app_id))) if root is not None else []
+
+
+def rollback(app_id, steps=1, root=None):
+    """Undo the newest `steps` changes, newest first: restore each saved file, delete each file a change
+    created. Consumed entries leave the log. Returns [{file, restored_from} | {file, deleted: True}]."""
+    root = Path(root) if root is not None else path()
+    if root is None or steps < 1:
+        return []
+    items = entries(root, app_id)
+    if not items:
+        return []
+    take, rest = items[-steps:][::-1], items[:-steps] if steps < len(items) else []
+    folder = root / app_id
+    done = []
+    for item in take:
+        target = folder / item["file"]
+        if not locate(target, root) or locate(target, root)[1] != app_id:
+            continue  # a log line that points outside the app is never followed
+        stored = item.get("stored")
+        if stored:
+            source = _store(root, app_id) / stored
+            if not source.is_file():
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            temporary = target.with_name(".%s.rollback-%d" % (target.name, os.getpid()))
+            temporary.write_bytes(source.read_bytes())
+            os.replace(temporary, target)
+            source.unlink()
+            done.append({"file": item["file"], "restored_from": _second(item["at"])})
+        else:
+            try:
+                target.unlink()
+            except FileNotFoundError:
+                pass
+            done.append({"file": item["file"], "deleted": True})
+    _write_log(root, app_id, rest)
+    return done
+
+
 def _cli(argv):
     command = argv[0] if argv else "path"
     vault = path()
@@ -161,7 +337,11 @@ def _cli(argv):
         return apps(vault)
     if command == "copy-examples":
         return copy_examples(vault, iter_root()) if vault else []
-    raise SystemExit("usage: python3 -m iterbrow_runtime.vault {path|apps|copy-examples}")
+    if command in ("history", "rollback") and len(argv) >= 2 and APP_ID.match(argv[1]):
+        if command == "history":
+            return history(argv[1], vault)
+        return rollback(argv[1], int(argv[2]) if len(argv) > 2 else 1, vault)
+    raise SystemExit("usage: python3 -m iterbrow_runtime.vault {path|apps|copy-examples|history <app>|rollback <app> [n]}")
 
 
 if __name__ == "__main__":

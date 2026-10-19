@@ -19,6 +19,11 @@ def _umask():
 
 
 def run(path, content=""):
+    return write(path, content, "write_file")
+
+
+def write(path, content, reason):
+    """The write itself; `reason` names the tool in the vault's snapshot log (edit_file passes its own)."""
     try:
         real = _files.resolve(path, write=True)
     except _files.FileScopeError as error:
@@ -32,6 +37,7 @@ def run(path, content=""):
         return _files.input_error("ERROR: %s is a directory" % path)
     if real.exists() and real.read_bytes() == data:
         return "WROTE %s (unchanged)" % path
+    _files.before_write(real, reason)  # M14-B1: the previous content is kept (vault apps only)
     mode = (real.stat().st_mode & 0o7777) if real.exists() else (0o666 & ~_umask())
     real.parent.mkdir(parents=True, exist_ok=True)
     handle, temp = tempfile.mkstemp(prefix="." + real.name + ".", suffix=".tmp", dir=str(real.parent))

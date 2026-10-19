@@ -32,7 +32,7 @@ def run(path, old, new=""):
         return _files.input_error("EDIT-FAILED: old text occurs %d times in %s" % (occurrences, path))
     at = text.index(old)
     updated = text[:at] + new + text[at + len(old):]
-    written = write_file.run(path, updated)
+    written = write_file.write(path, updated, "edit_file")
     if not str(written).startswith("WROTE"):
         return written
     lines = updated.splitlines()

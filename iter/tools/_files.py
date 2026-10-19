@@ -110,6 +110,16 @@ def shown(real):
     return os.path.relpath(str(real), str(iter_dir())).replace(os.sep, "/")
 
 
+def before_write(real, reason):
+    """M14-B1: save a vault app file's current bytes before a tool replaces it (a new file logs a null
+    snapshot, so rollback deletes it). Outside the vault this does nothing at all."""
+    vault = in_vault(real)
+    if not vault:
+        return None
+    from iterbrow_runtime import vault as vault_store
+    return vault_store.snapshot(real, reason, root=vault)
+
+
 def label(path, real):
     """The name a tool's result line uses: vault files always as `vault/<rel>`, others as the caller wrote them."""
     return shown(real) if in_vault(real) else str(path)

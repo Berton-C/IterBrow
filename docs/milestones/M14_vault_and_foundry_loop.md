@@ -164,9 +164,10 @@ Files: `iter/iterbrow_runtime/vault.py` (`snapshot`, `rollback`, `history`, `pru
   (to 2026-10-19T05:12:03Z)` one line per file, or `NOTHING TO ROLL BACK: todo`; `steps="0"` prints the
   history: `todo: 3 changes` then `2026-10-19T05:12:03Z edit_file index.html (1,204 bytes)` newest first,
   at most 20. Unknown app → input error; no vault → refused (A3's message).
-- **B3 — pruning.** After every snapshot, `vault.prune(app)` keeps the newest 50 entries plus, among older
-  ones, the newest entry of each UTC day for 30 days; everything else (file and line) goes. Pure over the
-  log (`prune_plan(entries, now)` returns what to keep) so it is tested with synthetic timestamps.
+- **B3 — pruning.** After every snapshot, `vault.prune(app)` keeps the newest 50 entries plus, for each
+  earlier UTC day of the last 30 that those 50 do not already cover, that day's newest entry; everything else
+  (file and line) goes. Pure over the log (`prune_plan(entries, now)` returns what to keep) so it is tested
+  with synthetic timestamps.
 - **B4 — the person's undo.** The Apps menu gains `Undo Iter's last change to <id>` when the displayed tab
   is a vault app with history (`vault history` via CLI, cached per menu open); it runs `vault rollback
   <id> 1`, reloads the tab, logs `[vault] rolled back <id>: index.html`. Nothing is shown when there is
