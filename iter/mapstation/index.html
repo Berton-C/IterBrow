@@ -19,6 +19,11 @@
   #dock header .logo{width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,#4fd1c5,#3182ce);display:flex;align-items:center;justify-content:center;font-weight:800;color:#07121a;font-size:15px}
   #dock header h1{font-size:15px;font-weight:700}
   #dock header .sub{font-size:11px;color:var(--muted);margin-top:1px}
+  #dock header[role="button"]{cursor:pointer}
+  #dock header[role="button"]:focus-visible{outline:2px solid var(--accent);outline-offset:-3px;border-radius:12px}
+  #dock.collapsed .logo,#dock.collapsed header .sub{display:none}
+  #dock.collapsed header{border-bottom:0}
+  #dock.collapsed .chips,#dock.collapsed #chatlog,#dock.collapsed #inputRow{display:none}
   .chips{display:flex;gap:6px;padding:10px 12px;flex-wrap:wrap;border-bottom:1px solid #232a33}
   .chip{cursor:pointer;user-select:none;font-size:12px;padding:6px 11px;border-radius:999px;border:1px solid #2c3542;background:#151b22;color:var(--text);transition:.15s}
   .chip:hover{border-color:var(--accent);color:var(--accent)}
@@ -43,6 +48,11 @@
   .card{position:absolute;z-index:1000;bottom:16px;right:14px;width:340px;max-height:44vh;overflow-y:auto;background:rgba(16,20,24,.94);border:1px solid #232a33;border-radius:16px;padding:12px;display:none}
   .card h3{font-size:13px;color:var(--accent);margin-bottom:8px;display:flex;justify-content:space-between}
   .card h3 .x{cursor:pointer;color:var(--muted);font-weight:400}
+  #resultsCard h3 #cardTitle{cursor:pointer}
+  #resultsCard h3 #cardTitle:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:3px}
+  #resultsCard.collapsed{max-height:none;overflow:hidden}
+  #resultsCard.collapsed h3{margin-bottom:0}
+  #resultsCard.collapsed #results,#resultsCard.collapsed #cardClose{display:none}
   .res{border:1px solid #232a33;border-radius:10px;padding:8px 10px;margin-bottom:7px;cursor:pointer;transition:.15s;background:#131920}
   .res:hover{border-color:var(--accent)}
   .res .nm{font-size:12.5px;font-weight:600}
@@ -54,6 +64,7 @@
   .res-pin span{transform:rotate(45deg);font-size:13px}
   .res-pin.c-restaurant{background:#f5695c} .res-pin.c-cafe{background:#e0a84f}
   .res-pin.c-metro{background:#6ba8f5} .res-pin.c-pharmacy{background:#7ed957}
+  .res-pin.c-hospital{background:#e85d75} .res-pin.c-lodging{background:#55c6b0}
   .res-pin.c-poi{background:#c77dff} .res-pin.c-travel{background:#ff9ecb}
   .leaflet-marker-icon.hidden{display:none}
   #legend{position:absolute;z-index:1000;bottom:16px;left:14px;background:rgba(16,20,24,.92);border:1px solid #232a33;border-radius:12px;padding:8px 12px;font-size:11.5px;color:#8a97a8;display:flex;gap:8px;flex-wrap:wrap;max-width:calc(100vw - 420px)}
@@ -66,6 +77,7 @@
   .leaflet-popup-tip{background:#101418}
   .leaflet-popup-content{font-size:12.5px;line-height:1.5;margin:10px 12px}
   .leaflet-container a.leaflet-popup-close-button{color:#8a97a8}
+  .place-details{margin-top:5px}.place-details>div{margin-top:3px}.place-links,.place-directions{margin-top:6px}.place-source{font-size:10px;color:#8a97a8;margin-top:6px}.place-details a{color:#73c8ff;text-decoration:none}.place-details a:hover{text-decoration:underline}
   ::-webkit-scrollbar{width:8px}::-webkit-scrollbar-thumb{background:#232a33;border-radius:4px}
 </style>
 </head>
@@ -74,7 +86,7 @@
 <div id="status"><span id="pulse"></span><span id="statusText">Booting Map Station...</span></div>
 <button id="locateBtn" type="button" aria-label="Refresh the map at my current location" title="Request your current location and reload the map">◎ Locate me</button>
 <div id="dock">
-  <header>
+  <header id="dockHeader" role="button" tabindex="0" aria-expanded="true" aria-controls="chips chatlog inputRow" title="Double-click or press Enter to collapse or expand">
     <div class="logo">&#9670;</div>
     <div><h1>Iter Map Station</h1><div class="sub">talk to your agent &middot; anywhere you are</div></div>
   </header>
@@ -84,6 +96,8 @@
     <div class="chip" data-q="nearest metro stations">&#128647; Metro</div>
     <div class="chip" data-q="things to do near me">&#127905; Things to do</div>
     <div class="chip" data-q="pharmacies near me">&#128138; Pharmacy</div>
+    <div class="chip" data-q="hospitals near me">&#127973; Hospitals</div>
+    <div class="chip" data-q="hotels resorts spas near me">&#127976; Hotels &amp; spas</div>
   </div>
   <div id="chatlog"></div>
   <div id="inputRow">
@@ -97,17 +111,36 @@
   <span class="lgi" data-cat="cafe"><b style="background:#e0a84f"></b>&#9749; Caf&eacute;s</span>
   <span class="lgi" data-cat="metro"><b style="background:#6ba8f5"></b>&#128647; Metro</span>
   <span class="lgi" data-cat="pharmacy"><b style="background:#7ed957"></b>&#128138; Pharmacy</span>
+  <span class="lgi" data-cat="hospital"><b style="background:#e85d75"></b>&#127973; Hospitals</span>
+  <span class="lgi" data-cat="lodging"><b style="background:#55c6b0"></b>&#127976; Hotels &amp; spas</span>
   <span class="lgi" data-cat="poi"><b style="background:#c77dff"></b>&#127905; Things to do</span>
   <span class="lgi" data-cat="travel"><b style="background:#ff9ecb"></b>&#9992; Travel</span>
 </div>
 <div class="card" id="resultsCard">
-  <h3><span id="cardTitle">Results</span><span class="x" id="cardClose">&#10005;</span></h3>
+  <h3><span id="cardTitle" role="button" tabindex="0" aria-expanded="true" title="Double-click or press Enter to collapse or expand">Results</span><span class="x" id="cardClose">&#10005;</span></h3>
   <div id="results"></div>
 </div>
 <script>
 (() => {
   const $ = id => document.getElementById(id);
-  const state = { pos: null, resultMarkers: [], lastResults: [], offCats: {}, solo: null };
+  const dock = $('dock'), dockHeader = $('dockHeader');
+  const resultsCard = $('resultsCard'), cardTitle = $('cardTitle');
+  const toggleCollapsed = (panel, control) => {
+    const collapsed = panel.classList.toggle('collapsed');
+    control.setAttribute('aria-expanded', String(!collapsed));
+  };
+  dockHeader.addEventListener('dblclick', () => toggleCollapsed(dock, dockHeader));
+  dockHeader.addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleCollapsed(dock, dockHeader); }
+  });
+  resultsCard.querySelector('h3').addEventListener('dblclick', e => {
+    if (e.target.closest('#cardClose')) return;
+    toggleCollapsed(resultsCard, cardTitle);
+  });
+  cardTitle.addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleCollapsed(resultsCard, cardTitle); }
+  });
+  const state = { pos: null, resultMarkers: [], lastResults: [], resultsTitle: null, offCats: {}, solo: null };
   const log = (html, cls) => {
     const m = document.createElement('div');
     m.className = 'msg ' + (cls || 'iter');
@@ -135,12 +168,80 @@
     } else { agentMarker.setLatLng([lat + 0.004, lon + 0.004]); }
     map.setView([lat, lon], 14, { animate: true });
   }
-  function clearResults() { state.resultMarkers.forEach(m => m.remove()); state.resultMarkers = []; }
+  function clearResults() { map.closePopup(); state.resultMarkers.forEach(m => m.remove()); state.resultMarkers = []; state.lastResults = []; }
+  const escapeHTML = value => String(value == null ? '' : value).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+  function detailRows(r) {
+    const t = r.details || {};
+    const rows = [];
+    const add = (label, value) => { if (value) rows.push('<div><strong>' + label + ':</strong> ' + escapeHTML(value) + '</div>'); };
+    add('Cuisine', t.cuisine);
+    add('Address', [t['addr:housenumber'], t['addr:street'], t['addr:unit'], t['addr:place'], t['addr:city'], t['addr:postcode']].filter(Boolean).join(' '));
+    add('Phone', t.phone || t['contact:phone']);
+    add('Email', t.email || t['contact:email']);
+    add('Hours', t.opening_hours);
+    const links = [];
+    const website = t.website || t['contact:website'] || t.url;
+    if (website && /^https?:\/\//i.test(website)) links.push('<a target="_blank" rel="noopener noreferrer" href="' + escapeHTML(website) + '">Website</a>');
+    const phone = t.phone || t['contact:phone'];
+    if (phone) links.push('<a href="tel:' + escapeHTML(phone.replace(/[^+0-9*#;,]/g, '')) + '">Call</a>');
+    if (t.menu || t['contact:menu'] || t['website:menu'] || t['menu:website']) {
+      const menu = t.menu || t['contact:menu'] || t['website:menu'] || t['menu:website'];
+      if (/^https?:\/\//i.test(menu)) links.push('<a target="_blank" rel="noopener noreferrer" href="' + escapeHTML(menu) + '">Menu</a>');
+    }
+    const destination = encodeURIComponent(Number(r.lat) + ',' + Number(r.lon));
+    const origin = state.pos && Number.isFinite(Number(state.pos.lat)) && Number.isFinite(Number(state.pos.lon))
+      ? '&amp;origin=' + encodeURIComponent(Number(state.pos.lat) + ',' + Number(state.pos.lon)) : '';
+    const directions = ['walking','driving','transit','bicycling'].map(mode => '<a target="_blank" rel="noopener noreferrer" href="https://www.google.com/maps/dir/?api=1&amp;destination=' + destination + origin + '&amp;travelmode=' + mode + '">' + ({walking:'Walk',driving:'Drive',transit:'Transit',bicycling:'Cycle'}[mode]) + '</a>');
+    const listingQuery = encodeURIComponent((r.name || '') + ' ' + r.lat + ',' + r.lon);
+    links.push('<a target="_blank" rel="noopener noreferrer" href="https://www.google.com/maps/search/?api=1&amp;query=' + listingQuery + '">Google Maps listing (reviews if available)</a>');
+    if (t['osm_type'] && t['osm_id']) links.push('<a target="_blank" rel="noopener noreferrer" href="https://www.openstreetmap.org/' + escapeHTML(t['osm_type']) + '/' + encodeURIComponent(t['osm_id']) + '">OpenStreetMap</a>');
+    if (links.length) rows.push('<div class="place-links">' + links.join(' · ') + '</div>');
+    rows.push('<div class="place-directions">Directions (opens Google Maps): ' + directions.join(' · ') + '</div>');
+    rows.push('<div class="place-source">Details are OpenStreetMap tags when available; missing fields are not supplied. Google Maps links may show reviews and calculate route distance/time.</div>');
+    return rows.join('');
+  }
+  const osmDetailCache = new Map();
+  function markerPopup(r) {
+    const safeName = escapeHTML(r.name || 'Spot');
+    return '<b>' + safeName + '</b>' + (r.meta ? '<br>' + escapeHTML(r.meta) : '') + '<div class="place-details">' + detailRows(r) + '</div>';
+  }
+  async function enrichMarkerDetails(marker, r) {
+    const type = r.details && r.details.osm_type, id = r.details && r.details.osm_id;
+    if (!['node','way','relation'].includes(type) || !/^\d+$/.test(String(id || ''))) return;
+    const key = type + '/' + id;
+    const popup = marker.getPopup();
+    if (popup && popup.isOpen()) popup.setContent(markerPopup(r) + '<div class="place-source" data-osm-loading>Loading additional OpenStreetMap details…</div>');
+    try {
+      let pending = osmDetailCache.get(key);
+      if (!pending) {
+        pending = fetch('https://api.openstreetmap.org/api/0.6/' + key + '.json')
+          .then(response => { if (!response.ok) throw new Error('OSM details HTTP ' + response.status); return response.json(); })
+          .then(data => {
+            const element = data && Array.isArray(data.elements) && data.elements.find(e => e.type === type && String(e.id) === String(id));
+            if (!element || !element.tags) throw new Error('No OSM tags in detail response');
+            return element.tags;
+          });
+        osmDetailCache.set(key, pending);
+      }
+      const tags = await pending;
+      r.details = { ...r.details, ...tags, osm_type: type, osm_id: id };
+      r.name = tags.name || r.name;
+      r.meta = [tags.cuisine, tags.operator].filter(Boolean).join(' · ') || r.meta;
+      if (marker.getPopup() && marker.getPopup().isOpen()) marker.setPopupContent(markerPopup(r));
+    } catch (err) {
+      // Keep the already useful popup; detail lookup is optional and never blocks map use.
+      osmDetailCache.delete(key);
+      const el = marker.getPopup() && marker.getPopup().getElement();
+      const loading = el && el.querySelector('[data-osm-loading]');
+      if (loading) loading.textContent = 'Additional OpenStreetMap details are temporarily unavailable.';
+    }
+  }
   function addResult(r, i) {
     const cat = r.cat || 'poi';
-    const icons = { restaurant: '&#127861;', cafe: '&#9749;', metro: '&#128647;', pharmacy: '&#128138;', poi: '&#127905;', travel: '&#9992;' };
+    const icons = { restaurant: '&#127861;', cafe: '&#9749;', metro: '&#128647;', pharmacy: '&#128138;', hospital: '&#127973;', lodging: '&#127976;', poi: '&#127905;', travel: '&#9992;' };
     const mk = L.marker([r.lat, r.lon], { icon: L.divIcon({ className: '', html: '<div class="res-pin c-' + cat + '"><span>' + (icons[cat] || (i+1)) + '</span></div>', iconSize: [30,30], iconAnchor: [15,28] }) })
-      .addTo(map).bindPopup('<b>' + r.name + '</b>' + (r.meta ? '<br>' + r.meta : ''));
+      .addTo(map).bindPopup(markerPopup(r), { maxWidth: 320 });
+    mk.on('popupopen', () => { enrichMarkerDetails(mk, r); });
     mk._cat = cat;
     if (state.offCats[cat]) { const el = mk.getElement(); if (el) el.classList.add('hidden'); }
     state.resultMarkers.push(mk);
@@ -149,7 +250,7 @@
     $('cardTitle').textContent = title; $('results').innerHTML = '';
     results.forEach((r, i) => {
       const d = document.createElement('div'); d.className = 'res';
-      d.innerHTML = '<div class="nm">' + (i+1) + '. ' + r.name + '</div><div class="meta">' + (r.cat || 'poi') + (r.meta ? ' &middot; ' + r.meta : '') + '</div>';
+      d.innerHTML = '<div class="nm">' + (i+1) + '. ' + escapeHTML(r.name || 'Spot') + '</div><div class="meta">' + escapeHTML(r.cat || 'poi') + (r.meta ? ' &middot; ' + escapeHTML(r.meta) : '') + '</div>';
       d.onclick = () => { map.setView([r.lat, r.lon], 16); state.resultMarkers[i] && state.resultMarkers[i].openPopup(); };
       $('results').appendChild(d);
     });
@@ -269,21 +370,33 @@
 
   function intentOf(q) {
     const pos = state.pos || map.getCenter();
+    if (/hospital|clinic|doctor|medical|health.?care/i.test(q)) return { title: 'Hospitals & care', cat: 'hospital', icon: '&#127973;' };
+    if (/hotel|resort|spa|hostel|motel|guest.?house|lodging|stay|sleep/i.test(q)) return { title: 'Hotels & spas', cat: 'lodging', icon: '&#127976;' };
     if (/restaurant|ramen|food|eat|dinner|lunch|hungry|pizza|sushi|burger/i.test(q)) return { title: 'Restaurants', cat: 'restaurant', icon: '&#127861;' };
     if (/caf/i.test(q)) return { title: 'Cafes', cat: 'cafe', icon: '&#9749;' };
     if (/metro|subway|train|transit|station/i.test(q)) return { title: 'Metro', cat: 'metro', icon: '&#128647;' };
     if (/pharmac|drugstore|medicine|chemist/i.test(q)) return { title: 'Pharmacies', cat: 'pharmacy', icon: '&#128138;' };
-    if (/things|attraction|museum|fun|todo|park|see/i.test(q)) return { title: 'Things to do', cat: 'poi', icon: '&#127905;' };
-    if (/hotel|stay|sleep|travel to|trip|route|directions|how far/i.test(q)) return { title: 'Travel', cat: 'travel', icon: '&#9992;' };
+    if (/things|attraction|museum|fun|todo|park|see|activity|activities|visit/i.test(q)) return { title: 'Things to do', cat: 'poi', icon: '&#127905;' };
+    if (/travel to|trip|route|directions|how far/i.test(q)) return { title: 'Travel', cat: 'travel', icon: '&#9992;' };
     return null;
   }
 
+  function mapCoordinates(pos) {
+    // Saved/current-location state uses `lon`; Leaflet LatLng uses `lng`.
+    const lat = pos && pos.lat;
+    const lon = pos && (Number.isFinite(pos.lon) ? pos.lon : pos.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) throw new Error('Invalid map center coordinates');
+    return { lat, lon };
+  }
+
   function placeholderResults(intent, pos) {
+    const center = mapCoordinates(pos);
     const labels = ['Top pick', 'Highly rated', 'Nearby favorite', 'Budget option', 'Popular now'];
     const out = [];
     for (let i = 0; i < 5; i++) {
       out.push({ name: intent.icon + ' ' + intent.title + ' #' + (i+1) + ' - ' + labels[i],
-        lat: pos.lat + (Math.random()-0.5)*0.02, lon: pos.lng + (Math.random()-0.5)*0.02,
+        cat: intent.cat,
+        lat: center.lat + (Math.random()-0.5)*0.02, lon: center.lon + (Math.random()-0.5)*0.02,
         meta: 'approx ' + (Math.random()*2+0.2).toFixed(1) + ' km - agent will refine with live data' });
     }
     return out;
@@ -298,12 +411,12 @@
       return;
     }
     setTimeout(() => {
-      const pos = state.pos || map.getCenter();
+      const pos = mapCoordinates(state.pos || map.getCenter());
       const results = placeholderResults(intent, pos);
       t.innerHTML = 'Here is what I found for <b>' + intent.title + '</b> - plotted on the map with the results card. Say &ldquo;refine results&rdquo; and I will swap in live listings.<span class="stamp">' + new Date().toLocaleTimeString() + '</span>';
       clearResults(); results.forEach(addResult);
       showResultsCard(intent.title + ' (near you)', results);
-      const b = L.latLngBounds(results.map(r => [r.lat, r.lon])); b.extend([pos.lat, pos.lng]);
+      const b = L.latLngBounds(results.map(r => [r.lat, r.lon])); b.extend([pos.lat, pos.lon]);
       map.fitBounds(b, { padding: [40, 40] });
     }, 900);
   }
@@ -318,7 +431,7 @@
       el.classList.toggle('hidden', !!state.offCats[mk._cat]);
     });
   }
-  const CATS = ['restaurant','cafe','metro','pharmacy','poi','travel'];
+  const CATS = ['restaurant','cafe','metro','pharmacy','hospital','lodging','poi','travel'];
   document.querySelectorAll('#legend .lgi').forEach(li => {
     li.title = 'Click: toggle this category · Double-click: show ONLY this category';
     li.onclick = () => {
@@ -351,57 +464,270 @@
   window.iterMap = {
     map, placeUser, addResult, clearResults, showResultsCard,
     getPos: () => state.pos || map.getCenter(),
-    results: (title, arr, fit = true) => { clearResults(); arr.forEach(addResult); try{ localStorage.setItem('iterMapCache', JSON.stringify(arr)); }catch(e){}; showResultsCard(title, arr);
+    results: (title, arr, fit = true, persist = true) => { clearResults(); arr.forEach(addResult); state.lastResults = arr.slice(); state.resultsTitle = title; if (persist) { try{ localStorage.setItem('iterMapCache', JSON.stringify(arr)); }catch(e){} }; showResultsCard(title, arr);
       if (fit && arr.length) { const b = L.latLngBounds(arr.map(r => [r.lat, r.lon])); map.fitBounds(b, { padding: [40,40] }); } },
+    filterResultsToView: () => {
+      const bounds = map.getBounds();
+      const visible = state.lastResults.filter(r => Number.isFinite(Number(r.lat)) && Number.isFinite(Number(r.lon)) && bounds.contains([Number(r.lat), Number(r.lon)]));
+      const title = visible.length ? 'Previously loaded places in this view (may be incomplete)' : 'No cached places in this view';
+      if (visible.length !== state.lastResults.length || state.resultsTitle !== title) window.iterMap.results(title, visible, false, false);
+    },
     say: (html) => log(html)
   };
 })();
 </script>
 
 <script>
-// Restore saved result data without ever restoring an old hard-coded home pin.
+// Restore only cached places in the current viewport. Keep the original cache
+// untouched; it may belong to another map area and must not masquerade as live data.
 try {
   const saved = JSON.parse(localStorage.getItem('iterMapCache') || '[]');
   if (Array.isArray(saved) && saved.length) setTimeout(() => {
-    if (window.iterMap) window.iterMap.results('Saved places (may be from an earlier map area)', saved, false);
+    if (!window.iterMap) return;
+    const bounds = window.iterMap.map.getBounds();
+    const visible = saved.filter(r => Number.isFinite(Number(r.lat)) && Number.isFinite(Number(r.lon)) && bounds.contains([Number(r.lat), Number(r.lon)]));
+    if (visible.length) window.iterMap.results('Saved places in this view (offline cache; may be incomplete)', visible, false, false);
   }, 900);
 } catch (_) {}
 </script>
 <script>
 (function(){
-  // Refresh nearby OSM data around the acquired (or explicitly approximate) position.
-  let refreshed = false;
-  function refreshAt(pos) {
-    if (refreshed || !pos || !Number.isFinite(pos.lat) || !Number.isFinite(pos.lon)) return;
-    refreshed = true;
-    const q = '[out:json][timeout:20];(node["amenity"~"restaurant|cafe|pharmacy"](around:800,' + pos.lat + ',' + pos.lon + ');node["railway"="station"](around:2000,' + pos.lat + ',' + pos.lon + '););out 40;';
-    fetch('https://maps.mail.ru/osm/tools/overpass/api/interpreter', {
-      method: 'POST', body: 'data=' + encodeURIComponent(q),
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
-    }).then(r => r.text()).then(t => {
-      if (!t.trim().startsWith('{')) return;
-      const j = JSON.parse(t), fresh = [];
+  // Refresh OSM markers for the visible map area. Movement/resize events are
+  // debounced; in-flight requests are cancelled and stale responses ignored.
+  let refreshTimer = null, resizeTimer = null, requestId = 0;
+  let pendingKey = null, successfulKey = null, activeRequest = null;
+  const round = n => Number(n).toFixed(4);
+  function currentView() {
+    const bounds = window.iterMap.map.getBounds();
+    const sw = bounds.getSouthWest(), ne = bounds.getNorthEast();
+    const coords = [sw.lat, sw.lng, ne.lat, ne.lng];
+    if (!coords.every(Number.isFinite)) return null;
+    return { bounds, sw, ne, key: coords.map(round).join(',') + '@' + window.iterMap.map.getZoom() };
+  }
+  function refreshCurrentView() {
+    if (!window.iterMap) return;
+    const view = currentView();
+    if (!view || view.key === successfulKey || view.key === pendingKey) return;
+    if (activeRequest) activeRequest.abort();
+    const controller = new AbortController();
+    activeRequest = controller;
+    const thisRequest = ++requestId;
+    pendingKey = view.key;
+    // Overpass bbox order is south,west,north,east.
+    const south = Math.max(-85, view.sw.lat), north = Math.min(85, view.ne.lat);
+    const west = view.sw.lng, east = view.ne.lng;
+    const box = [south, west, north, east].map(n => Number(n).toFixed(5)).join(',');
+    // Explicit, useful nearby-place families; Overpass returns every matching
+    // node/way/relation in the viewport (unlike capped geocoder searches).
+    const q = '[out:json][timeout:25];(nwr["amenity"~"restaurant|fast_food|food_court|ice_cream|cafe|bar|pub|pharmacy|bank|library|cinema|theatre|museum|hospital|clinic|doctors|nursing_home|post_office|fuel|bus_station|ferry_terminal|arts_centre|community_centre|planetarium|aquarium|zoo|nightclub|spa|events_venue|music_venue|social_centre"](' + box + ');nwr["healthcare"~"hospital|clinic|doctor|rehabilitation"](' + box + ');nwr["railway"="station"](' + box + ');nwr["station"="subway"](' + box + ');nwr["tourism"~"attraction|museum|viewpoint|gallery|hotel|motel|guest_house|hostel|resort|spa|theme_park|zoo|aquarium|artwork|chalet|apartment|camp_site|caravan_site"](' + box + ');nwr["leisure"~"park|garden|sports_centre|water_park|marina|nature_reserve|beach_resort|spa|pitch|golf_course|playground|swimming_pool|bowling_alley|escape_game|amusement_arcade|dog_park"](' + box + ');nwr["shop"~"supermarket|convenience|bakery|mall"](' + box + '););out center tags;';
+    // Public Overpass instances can be intermittently overloaded. Try a small
+    // ordered set rather than making one mirror a single point of failure.
+    const endpoints = [
+      // Verified from the live app (valid Overpass JSON); keep first so an
+      // unavailable mirror does not delay every new-area refresh.
+      'https://overpass.osm.ch/api/interpreter',
+      'https://overpass-api.de/api/interpreter',
+      'https://overpass.kumi.systems/api/interpreter',
+      'https://maps.mail.ru/osm/tools/overpass/api/interpreter'
+    ];
+    async function fetchPhoton(view, signal) {
+      // Photon is a CORS-enabled OSM geocoder and remains usable when public
+      // Overpass mirrors return stale metadata or are overloaded. Query within
+      // the actual viewport and strictly filter tags so text matches (e.g.
+      // a restaurant named "Station") do not become unrelated map markers.
+      const south = Math.max(-85, view.sw.lat), north = Math.min(85, view.ne.lat);
+      const west = Math.max(-180, view.sw.lng), east = Math.min(180, view.ne.lng);
+      const searches = [
+        ['restaurant', p => p.osm_key === 'amenity' && /^(restaurant|fast_food|food_court|ice_cream)$/.test(p.osm_value || '')],
+        ['cafe', p => p.osm_key === 'amenity' && p.osm_value === 'cafe'],
+        ['pharmacy', p => p.osm_key === 'amenity' && p.osm_value === 'pharmacy'],
+        ['hospital', p => (p.osm_key === 'amenity' && p.osm_value === 'hospital') || (p.osm_key === 'healthcare' && p.osm_value === 'hospital')],
+        ['hotel', p => p.osm_key === 'tourism' && /^(hotel|motel|guest_house|hostel|resort|chalet|apartment|camp_site|caravan_site)$/.test(p.osm_value || '')],
+        ['spa', p => (p.osm_key === 'leisure' || p.osm_key === 'tourism' || p.osm_key === 'amenity') && p.osm_value === 'spa'],
+        ['attraction', p => (p.osm_key === 'tourism' && /^(attraction|museum|viewpoint|gallery|theme_park|zoo|aquarium|artwork)$/.test(p.osm_value || '')) || (p.osm_key === 'leisure' && /^(park|garden|sports_centre|water_park|marina|nature_reserve|pitch|golf_course|playground|swimming_pool|bowling_alley|escape_game|amusement_arcade|dog_park)$/.test(p.osm_value || '')) || (p.osm_key === 'amenity' && /^(cinema|theatre|arts_centre|planetarium|aquarium)$/.test(p.osm_value || ''))],
+        ['station', p => p.osm_key === 'railway' && p.osm_value === 'station']
+      ];
+      let succeeded = 0, lastError = null, saturated = false;
+      // A single Photon bbox query is capped, so recursively split only the
+      // category/tile pairs that hit the cap. This recovers many dense-area
+      // omissions without multiplying requests for sparse viewports.
+      const limit = 40, maxDepth = 3;
+      async function searchTile(term, matches, box, depth) {
+        const [w, s, e, n] = box;
+        const params = new URLSearchParams({ q: term, limit: String(limit), lang: 'en',
+          bbox: [w, s, e, n].join(',') });
+        const response = await fetch('https://photon.komoot.io/api/?' + params, { signal });
+        if (!response.ok) throw new Error('Photon returned HTTP ' + response.status);
+        const data = await response.json();
+        if (!data || !Array.isArray(data.features)) throw new Error('Photon returned invalid OSM data');
+        if (data.features.length >= limit) {
+          if (depth < maxDepth) {
+            const midX = (w + e) / 2, midY = (s + n) / 2;
+            const tiles = [[w,s,midX,midY],[midX,s,e,midY],[w,midY,midX,n],[midX,midY,e,n]];
+            return (await Promise.all(tiles.map(tile => searchTile(term, matches, tile, depth + 1)))).flat();
+          }
+          saturated = true;
+        }
+        return data.features.flatMap(feature => {
+          const p = feature.properties || {}, c = feature.geometry && feature.geometry.coordinates;
+          if (!matches(p) || !Array.isArray(c) || !Number.isFinite(c[0]) || !Number.isFinite(c[1]) ||
+              c[0] < w || c[0] > e || c[1] < s || c[1] > n) return [];
+          const tags = { [p.osm_key]: p.osm_value };
+          if (p.name) tags.name = p.name;
+          if (p.housenumber) tags['addr:housenumber'] = p.housenumber;
+          if (p.street) tags['addr:street'] = p.street;
+          if (p.city) tags['addr:city'] = p.city;
+          if (p.postcode) tags['addr:postcode'] = p.postcode;
+          const osmType = ({ N: 'node', W: 'way', R: 'relation' })[p.osm_type] || p.osm_type;
+          return [{ lat: c[1], lon: c[0], tags, type: osmType, id: p.osm_id }];
+        });
+      }
+      const batches = await Promise.all(searches.map(async ([term, matches]) => {
+        try { const found = await searchTile(term, matches, [west, south, east, north], 0); succeeded++; return found; }
+        catch (err) { if (signal.aborted) throw err; lastError = err; return []; }
+      }));
+      if (!succeeded) throw lastError || new Error('Photon did not return usable OSM data');
+      return { elements: batches.flat(), source: 'photon', partial: succeeded < searches.length, saturated };
+    }
+    async function fetchOverpass(query, signal) {
+      let lastError;
+      for (const endpoint of endpoints) {
+        if (signal.aborted) throw new DOMException('Request superseded', 'AbortError');
+        const attempt = new AbortController();
+        const cancelAttempt = () => attempt.abort();
+        signal.addEventListener('abort', cancelAttempt, { once: true });
+        const deadline = setTimeout(() => attempt.abort(), 8000);
+        try {
+          const response = await fetch(endpoint, {
+            method: 'POST', body: 'data=' + encodeURIComponent(query), signal: attempt.signal,
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+          });
+          if (!response.ok) throw new Error(endpoint + ' returned HTTP ' + response.status);
+          const data = await response.json();
+          const base = data && data.osm3s && data.osm3s.timestamp_osm_base;
+          // HTTP 200 alone is not proof of a usable Overpass result. One
+          // mirror has returned a corrupt timestamp plus an empty element list.
+          if (!data || data.version !== 0.6 || !Array.isArray(data.elements) ||
+              typeof base !== 'string' ||
+              !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})$/.test(base) ||
+              !Number.isFinite(Date.parse(base))) {
+            throw new Error(endpoint + ' returned invalid or incomplete OSM data');
+          }
+          return data;
+        } catch (err) {
+          if (signal.aborted) throw new DOMException('Request superseded', 'AbortError');
+          lastError = attempt.signal.aborted
+            ? new Error(endpoint + ' timed out after 8 seconds')
+            : err;
+        } finally {
+          clearTimeout(deadline);
+          signal.removeEventListener('abort', cancelAttempt);
+        }
+      }
+      throw lastError || new Error('No Overpass service is available');
+    }
+    // Prefer the full bounds query so named nodes, ways and relations are not
+    // capped by geocoder result limits. Photon is a fallback if Overpass fails.
+    fetchOverpass(q, controller.signal).catch(err => {
+      if (controller.signal.aborted) throw err;
+      console.warn('Overpass nearby lookup failed; trying Photon:', err);
+      return fetchPhoton(view, controller.signal);
+    }).then(j => {
+      if (thisRequest !== requestId || !window.iterMap) return;
+      const usedPhoton = j.source === 'photon';
+      const fresh = [], seen = new Set();
       (j.elements || []).forEach(e => {
-        const tg = e.tags || {}; let cat = 'poi';
-        if (tg.amenity === 'restaurant') cat = 'restaurant';
+        const tg = e.tags || {};
+        const lat = Number.isFinite(e.lat) ? e.lat : (e.center && e.center.lat);
+        const lon = Number.isFinite(e.lon) ? e.lon : (e.center && e.center.lon);
+        if (!Number.isFinite(lat) || !Number.isFinite(lon) || lat < south || lat > north || lon < west || lon > east) return;
+        let cat = null;
+        if (/^(restaurant|fast_food|food_court|ice_cream|bar|pub)$/.test(tg.amenity || '')) cat = 'restaurant';
         else if (tg.amenity === 'cafe') cat = 'cafe';
         else if (tg.amenity === 'pharmacy') cat = 'pharmacy';
+        else if (/^(hospital|clinic|doctors)$/.test(tg.amenity || '') || /^(hospital|clinic|doctor)$/.test(tg.healthcare || '')) cat = 'hospital';
+        else if (/^(hotel|motel|guest_house|hostel|resort|chalet|apartment|camp_site|caravan_site)$/.test(tg.tourism || '') || tg.leisure === 'spa' || tg.amenity === 'spa' || tg.tourism === 'spa') cat = 'lodging';
         else if (tg.railway === 'station' || tg.station === 'subway') cat = 'metro';
-        fresh.push({ name: tg.name || 'Spot', lat: e.lat, lon: e.lon, cat, meta: [tg.cuisine, tg.operator].filter(Boolean).join(' · ') });
+        else if ((tg.tourism && /^(attraction|museum|viewpoint|gallery|theme_park|zoo|aquarium|artwork)$/.test(tg.tourism)) ||
+                 (tg.leisure && /^(park|garden|sports_centre|water_park|marina|nature_reserve|pitch|golf_course|playground|swimming_pool|bowling_alley|escape_game|amusement_arcade|dog_park)$/.test(tg.leisure)) ||
+                 (tg.amenity && /^(library|cinema|theatre|museum|arts_centre|planetarium|aquarium|nightclub|events_venue|music_venue|social_centre)$/.test(tg.amenity))) cat = 'poi';
+        // This live layer is for discoverable venues, not every nearby tagged
+        // service (e.g. banks, post boxes or fuel pumps mislabeled as activities).
+        if (!cat) return;
+        // Prefer the source's stable OSM identity. Coordinate rounding at 4
+        // decimals (~11 m) used to collapse distinct nearby venues with the
+        // same name, making close-zoom coverage look sparse.
+        const key = e.type && e.id ? e.type + '/' + e.id
+          : (cat + '|' + (tg.name || 'Spot') + '|' + lat.toFixed(6) + '|' + lon.toFixed(6));
+        if (seen.has(key)) return;
+        seen.add(key);
+        const details = { ...tg };
+        if (e.type && e.id) { details.osm_type = e.type; details.osm_id = e.id; }
+        fresh.push({ name: tg.name || 'Spot', lat, lon, cat, source: 'osm-live', details,
+          meta: [tg.cuisine, tg.operator].filter(Boolean).join(' · ') });
       });
-      if (!fresh.length || !window.iterMap) return;
-      let old = [];
-      try { old = JSON.parse(localStorage.getItem('iterMapCache') || '[]'); } catch (_) {}
-      const keys = new Set(fresh.map(r => r.name + '|' + r.lat.toFixed(4)));
-      const keep = old.filter(r => !['restaurant','cafe','pharmacy','metro'].includes(r.cat) && !keys.has(r.name + '|' + r.lat.toFixed(4)));
-      const merged = fresh.concat(keep);
-      window.iterMap.results('Nearby this location (live OSM)', merged, false);
-      window.iterMap.say('Nearby refresh: ' + merged.length + ' places loaded around the displayed pin.');
-    }).catch(() => { /* retain saved results if the service is unavailable */ });
+      // Show only this viewport's live OSM results. Saved/search results remain
+      // untouched in localStorage and are restored only until a live refresh succeeds.
+      successfulKey = view.key;
+      pendingKey = null;
+      activeRequest = null;
+      window.iterMap.results(usedPhoton
+        ? 'Nearby this view (Photon fallback · limited coverage)'
+        : 'Nearby this location (OpenStreetMap)', fresh, false, false);
+      if (usedPhoton) {
+        const partial = j.partial ? ' Some category lookups also failed.' : '';
+        window.iterMap.say('Photon fallback: ' + fresh.length + ' places loaded. Dense result tiles were split to reduce omissions, but this geocoder cannot guarantee full viewport coverage.' + (j.saturated ? ' Some tiles still hit the result cap.' : '') + partial);
+      } else if (fresh.length) window.iterMap.say('Updated ' + fresh.length + ' live nearby places for this map view.');
+      else window.iterMap.say('No live nearby places were found in this map view.');
+    }).catch(err => {
+      if (thisRequest !== requestId) return;
+      pendingKey = null;
+      activeRequest = null;
+      // Keep only markers inside the current viewport; never present an old area's
+      // markers as if they belonged to the failed live lookup.
+      if (err.name !== 'AbortError') {
+        console.warn('Map Station nearby refresh failed:', err);
+        window.iterMap.say('Nearby map data could not be reached from the available OpenStreetMap services. Any shown cached markers are only those inside this view and may be incomplete; moving the map again will retry.');
+      }
+    });
   }
-  window.addEventListener('iter-location-ready', e => refreshAt(e.detail));
-  // A button-triggered reload restores its one-shot location before this script runs.
-  setTimeout(() => { if (window.iterMap) refreshAt(window.iterMap.getPos()); }, 1500);
+  function scheduleRefresh() {
+    if (window.iterMap) window.iterMap.filterResultsToView();
+    clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(refreshCurrentView, 450);
+  }
+  if (window.iterMap) {
+    const map = window.iterMap.map;
+    map.on('moveend', scheduleRefresh);
+    map.on('resize', scheduleRefresh);
+    // Leaflet's map resize event is not guaranteed when a parent is resized
+    // by the app shell, so observe the map element as well.
+    if (window.ResizeObserver) {
+      let observedWidth = 0, observedHeight = 0;
+      const observer = new ResizeObserver(entries => {
+        const rect = entries[0] && entries[0].contentRect;
+        if (!rect || (rect.width === observedWidth && rect.height === observedHeight)) return;
+        observedWidth = rect.width; observedHeight = rect.height;
+        clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(() => {
+          map.invalidateSize({ pan: false, debounceMoveend: true });
+          scheduleRefresh();
+        }, 250);
+      });
+      observer.observe(map.getContainer());
+    } else {
+      window.addEventListener('resize', () => {
+        clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(() => {
+          map.invalidateSize({ pan: false, debounceMoveend: true });
+          scheduleRefresh();
+        }, 250);
+      });
+    }
+    window.addEventListener('iter-location-ready', scheduleRefresh);
+    // Include the initial view, even if location acquisition doesn't move it.
+    setTimeout(scheduleRefresh, 1500);
+  }
 })();
 </script>
 </body>
