@@ -36,7 +36,7 @@ def run(app, for_whom=None, flourishing=None):
             return "ERROR: brief not saved (%s: %s)" % (type(error).__name__, str(error)[:200])
     brief = soul_briefs.read(app)
     if brief is None:
-        if soul_briefs._project_dir(soul_briefs.iter_root(), app) or soul_briefs._plain_dir(soul_briefs.iter_root(), app):
+        if soul_briefs._project_dir(soul_briefs.iter_root(), app) or soul_briefs.app_folder(soul_briefs.iter_root(), app):
             return "BRIEF-NONE: %s" % app
         return "ERROR: no app named %r" % app
     return soul_briefs.line(app, brief)

@@ -23,6 +23,7 @@ def run(path, content=""):
         real = _files.resolve(path, write=True)
     except _files.FileScopeError as error:
         return _files.refused(error)
+    path = _files.label(path, real)  # M14-A3: vault files are always named vault/<rel>
     text = "" if content is None else str(content)
     data = text.encode("utf-8")
     if len(data) > _files.MAX_WRITE_BYTES:

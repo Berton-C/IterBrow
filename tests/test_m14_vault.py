@@ -20,7 +20,6 @@ from semantic_memory_support import PYTHON  # noqa: E402
 class VaultModuleTests(unittest.TestCase):
     """M14-A1"""
 
-    @pending("M14-A1")
     def test_path_reads_settings_each_time_and_never_raises(self):
         r = vault_root("m14path")
         self.addCleanup(r.close)
@@ -40,7 +39,6 @@ class VaultModuleTests(unittest.TestCase):
         settings.unlink()
         self.assertIsNone(vault.path(settings), "no settings file")
 
-    @pending("M14-A1")
     def test_apps_lists_real_app_folders_only(self):
         r = vault_root("m14apps")
         self.addCleanup(r.close)
@@ -64,7 +62,6 @@ class VaultModuleTests(unittest.TestCase):
         self.assertIsNone(vault.app_dir(".iter", r.vault))
         self.assertIsNone(vault.app_dir("empty", r.vault))
 
-    @pending("M14-A1")
     def test_copy_examples_once_never_overwriting(self):
         r = vault_root("m14examples")
         self.addCleanup(r.close)
@@ -85,7 +82,6 @@ class VaultModuleTests(unittest.TestCase):
         self.assertEqual(vault.copy_examples(r.vault, ITER_SRC), [], "a deleted copy is not recreated")
         self.assertFalse((r.vault / "crm").exists())
 
-    @pending("M14-A1")
     def test_cli_prints_json(self):
         r = vault_root("m14cli")
         self.addCleanup(r.close)
@@ -103,7 +99,6 @@ class VaultModuleTests(unittest.TestCase):
 class CatalogTests(unittest.TestCase):
     """M14-A2"""
 
-    @pending("M14-A2")
     def test_catalog_puts_vault_apps_first_and_hides_same_named_plain_apps(self):
         r = vault_root("m14catalog")
         self.addCleanup(r.close)
@@ -122,7 +117,6 @@ class CatalogTests(unittest.TestCase):
         self.assertEqual(apps[1]["brief"]["for"], "the family")
         self.assertEqual(r.text("apps").splitlines()[1], "todo (vault) %s — for the family" % (r.vault / "todo" / "index.html").resolve().as_uri())
 
-    @pending("M14-A2")
     def test_brief_and_ally_find_the_vault_app_first(self):
         r = vault_root("m14brief")
         self.addCleanup(r.close)
@@ -139,7 +133,6 @@ class CatalogTests(unittest.TestCase):
 class FileToolsTests(unittest.TestCase):
     """M14-A3"""
 
-    @pending("M14-A3")
     def test_vault_spelling_resolves_and_prints_back(self):
         r = vault_root("m14files", with_main_js=True)
         self.addCleanup(r.close)
@@ -155,7 +148,6 @@ class FileToolsTests(unittest.TestCase):
         self.assertIn("todo", r.text("shell", cmd="pwd", cwd="vault/todo"))
         self.assertIn("lines 1–", r.text("read_file", path="../main.js"), "the repo is still in scope")
 
-    @pending("M14-A3")
     def test_refusals(self):
         r = vault_root("m14refuse", with_main_js=True)
         self.addCleanup(r.close)
@@ -180,7 +172,6 @@ class AppsMenuTests(unittest.TestCase):
                {"id": "crm", "kind": "plain", "path": "/i/crm", "entry": "index.html", "brief": None},
                {"id": "mapstation", "kind": "plain", "path": "/i/mapstation", "entry": "index.html", "brief": None}]
 
-    @pending("M14-A4")
     def test_menu_with_a_vault(self):
         require_m14()
         items = menu_template(self.CATALOG, {"vault": "/v", "recentVaults": ["/old"], "undoable": []})
@@ -191,12 +182,11 @@ class AppsMenuTests(unittest.TestCase):
         self.assertEqual([s["label"] for s in examples["submenu"]], ["crm", "mapstation"])
         self.assertEqual(examples["submenu"][1]["click"], "open:mapstation")
         self.assertIn("Choose apps folder…", labels)
-        self.assertEqual(next(i for i in items if i["label"] == "Choose apps folder…")["click"], "choose")
-        self.assertEqual(next(i for i in items if i["label"] == "Reveal apps folder")["click"], "reveal")
+        self.assertEqual(next(i for i in items if i.get("label") == "Choose apps folder…")["click"], "choose")
+        self.assertEqual(next(i for i in items if i.get("label") == "Reveal apps folder")["click"], "reveal")
         recent = next(i for i in items if i.get("label") == "Recent")
         self.assertEqual([(s["label"], s["click"]) for s in recent["submenu"]], [("/old", "switch:/old")])
 
-    @pending("M14-A4")
     def test_menu_without_a_vault_shows_only_examples_and_choose(self):
         require_m14()
         items = menu_template(self.CATALOG[2:], {"vault": None, "recentVaults": [], "undoable": []})
@@ -205,7 +195,6 @@ class AppsMenuTests(unittest.TestCase):
         self.assertNotIn("Reveal apps folder", labels)
         self.assertNotIn("Recent", labels)
 
-    @pending("M14-A4")
     def test_main_js_opens_vault_apps_from_their_folder(self):
         require_m14()
         main = main_js()
@@ -226,7 +215,6 @@ class AppsMenuTests(unittest.TestCase):
 class SettingsTests(unittest.TestCase):
     """M14-A5"""
 
-    @pending("M14-A5")
     def test_settings_show_the_vault_but_never_set_it(self):
         require_m14()
         html = (REPO / "renderer" / "index.html").read_text(encoding="utf-8")

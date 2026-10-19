@@ -65,7 +65,7 @@ if [[ $E2E -eq 1 && ${#E2E_FILES[@]} -gt 0 ]]; then
   "$PYTHON_BIN" -m pytest "${E2E_FILES[@]}" -q -p no:cacheprovider -rxX
 fi
 
-LEFT=$(grep -rhoE "@pending\(\"${ITEM}\"\)" tests | wc -l | tr -d ' ')
+LEFT=$( (grep -rhoE "@pending\(\"${ITEM}\"\)" tests || true) | wc -l | tr -d ' ')
 echo "[check] $SECTION: $LEFT @pending marker(s) left"
 if [[ "$LEFT" != "0" ]]; then
   grep -rnE "@pending\(\"${ITEM}\"\)" tests | sed 's/^/  /'

@@ -7,7 +7,7 @@ import os
 import sys
 from pathlib import Path
 
-DESCRIPTION = """List every local app the person has (Foundry projects under apps/ and plain folders like crm, mapstation, nodequest) with its real file URL and brief. Open one yourself with browser_open_app(<id>) — an app tab, with window.iterApp, as the person gets from the Apps menu; browser_navigate to the listed URL shows the page without the app preload. Never guess a path."""
+DESCRIPTION = """List every local app the person has (their apps folder first — vault apps, which you edit as vault/<id>/… — then Foundry projects under apps/ and plain folders like crm, mapstation, nodequest) with its real file URL and brief. Open one yourself with browser_open_app(<id>) — an app tab, with window.iterApp, as the person gets from the Apps menu; browser_navigate to the listed URL shows the page without the app preload. Never guess a path."""
 
 TOOLS_DIR = Path(__file__).resolve().parent
 ROOT = os.path.realpath(os.environ.get("ITER_DIR") or os.getcwd())

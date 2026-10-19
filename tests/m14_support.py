@@ -43,7 +43,10 @@ class VaultRoot:
     def __init__(self, name, with_vault=True, with_main_js=False):
         self.iter = m12_root(name, with_main_js=with_main_js)
         self.root = self.iter.root
-        self.vault = self.root.parent / "vault"
+        # Outside the throwaway repo, as a real vault is (~/Documents/…): "beside the vault" is outside every root.
+        import tempfile
+        self._vault_home = Path(tempfile.mkdtemp(prefix="m14-%s-" % name))
+        self.vault = self._vault_home / "vault"
         if with_vault:
             self.vault.mkdir()
             self.set_vault(self.vault)
@@ -88,7 +91,7 @@ class VaultRoot:
 
     def close(self):
         self.iter.close()
-        shutil.rmtree(self.vault, ignore_errors=True)
+        shutil.rmtree(self._vault_home, ignore_errors=True)
 
 
 def vault_root(name, **kwargs):

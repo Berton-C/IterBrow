@@ -17,6 +17,7 @@ def run(path, old, new=""):
         real = _files.resolve(path, write=True)
     except _files.FileScopeError as error:
         return _files.refused(error)
+    path = _files.label(path, real)  # M14-A3: vault files are always named vault/<rel>
     if not real.is_file():
         return _files.input_error("ERROR: no file at %s" % path)
     text, problem = _files.read_text(real)

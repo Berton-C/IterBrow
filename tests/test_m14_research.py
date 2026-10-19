@@ -111,6 +111,7 @@ class WebsearchTests(unittest.TestCase):
     @pending("M14-E2")
     @unittest.skipUnless(online("html.duckduckgo.com"), "needs network")
     def test_live_general_query_has_results(self):
+        self.assertIn("html.duckduckgo.com", tool_source("websearch"), "E2's backend (today's cascade sometimes answers too)")
         r = vault_root("m14wslive")
         self.addCleanup(r.close)
         out = r.text("websearch", query="pomodoro timer web app", max_results="5")

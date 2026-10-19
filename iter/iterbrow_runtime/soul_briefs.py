@@ -3,7 +3,8 @@
 docs/milestones/M7_soul_personality.md section C. A Foundry project keeps its brief in
 blueprint.json as `flourishing_brief` (written through FoundryProjects.revise_blueprint, so it
 is a checkpointed change with provenance); a plain app directory under ITER_DIR (one holding an
-index.html, e.g. crm or music) keeps it in <app>/brief.json. Reading never writes.
+index.html, e.g. crm or music) keeps it in <app>/brief.json; a vault app (M14-A2) in <vault>/<app>/brief.json,
+found before a same-named plain folder. Reading never writes.
 """
 import json
 import os
@@ -34,6 +35,19 @@ def _plain_dir(root, app):
     return path
 
 
+def _vault_dir(root, app):
+    """<vault>/<app> when the person has a vault holding that app (M14-A2), else None."""
+    from iterbrow_runtime import vault
+    if not APP_NAME.match(app or ""):
+        return None
+    return vault.app_dir(app, vault.path(vault.settings_file(root)))
+
+
+def app_folder(root, app):
+    """The folder of a folder app: the vault's copy first, then <ITER_DIR>/<app>. None for neither."""
+    return _vault_dir(root, app) or _plain_dir(root, app)
+
+
 def _project_dir(root, app):
     path = root / "apps" / app
     if not APP_NAME.match(app) or path.is_symlink() or not (path / "blueprint.json").is_file():
@@ -54,7 +68,7 @@ def read(app, root=None):
         if project:
             brief = json.loads((project / "blueprint.json").read_text(encoding="utf-8")).get("flourishing_brief")
             return brief if _valid(brief) else None
-        plain = _plain_dir(root, app)
+        plain = app_folder(root, app)
         if plain and (plain / "brief.json").is_file() and not (plain / "brief.json").is_symlink():
             brief = json.loads((plain / "brief.json").read_text(encoding="utf-8"))
             return brief if _valid(brief) else None
@@ -75,6 +89,8 @@ def all_briefs(root=None):
     if apps.is_dir() and not apps.is_symlink():
         names.update(p.name for p in apps.iterdir() if p.is_dir())
     names.update(p.name for p in root.iterdir() if p.is_dir() and (p / "index.html").is_file())
+    from iterbrow_runtime import vault
+    names.update(app["id"] for app in vault.apps(vault.path(vault.settings_file(root))))
     out = []
     for name in sorted(names):
         brief = read(name, root)
@@ -100,7 +116,7 @@ def write(app, for_whom, flourishing, person, root=None):
         projects.revise_blueprint(app, blueprint, context["source_context_hash"],
                                   provenance={"tool": "brief", "person": person})
         return "BRIEF-SAVED: %s" % app
-    plain = _plain_dir(root, app)
+    plain = app_folder(root, app)
     if plain:
         target = plain / "brief.json"
         if target.is_symlink():

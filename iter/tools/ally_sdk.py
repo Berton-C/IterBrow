@@ -62,7 +62,7 @@ def run(app):
     app = str(app or "").strip()
     root = soul_briefs.iter_root()
     project = soul_briefs._project_dir(root, app)
-    plain = None if project else soul_briefs._plain_dir(root, app)
+    plain = None if project else soul_briefs.app_folder(root, app)
     if not project and not plain:
         return "ERROR: no app named %r" % app
     brief = soul_briefs.read(app)

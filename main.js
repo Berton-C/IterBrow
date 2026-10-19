@@ -156,6 +156,13 @@ function registeredAppForUrl(url) {
     String(url || '').startsWith(pathToFileURL(path.join(ITER_DIR, '.runtime', 'app_revisions', 'apps', appId, 'bundles') + path.sep).toString())
   ));
   if (revisioned) return revisioned;
+  // M14-A4: any URL inside <vault>/<id>/ maps back to the vault app (session restore keeps its scope).
+  const vault = vaultDir();
+  if (vault && String(url || '').startsWith(pathToFileURL(vault + path.sep).toString())) {
+    const rest = String(url).slice(pathToFileURL(vault + path.sep).toString().length);
+    const vaultId = decodeURIComponent(rest.split('/')[0] || '');
+    if (vaultAppDir(vaultId)) return vaultId;
+  }
   // M10-C3: a plain app (a top-level folder of ITER_DIR with an index.html, e.g. mapstation) keeps
   // its app scope across a restart: any URL inside its folder maps back to its id.
   const value = String(url || '');
@@ -177,6 +184,79 @@ function plainAppDir(id) {
   }
   if (fs.existsSync(path.join(ITER_DIR, 'apps', id, 'app.json'))) return null;
   return dir;
+}
+
+// ---- The vault: the folder the person chose for their apps (M14-A4) --------------------------------
+// settings.vault (a real path), read on every call; mirrors iterbrow_runtime/vault.py. No vault → null.
+function vaultDir() {
+  const raw = loadSettings().vault;
+  if (typeof raw !== 'string' || !raw.trim() || !path.isAbsolute(raw)) return null;
+  try {
+    if (fs.lstatSync(raw).isSymbolicLink() || !fs.statSync(raw).isDirectory()) return null;
+    return fs.realpathSync(raw);
+  } catch (_) {
+    return null;
+  }
+}
+
+// A vault app: <vault>/<id>/index.html, a real folder (no symlink), never .iter, never a Foundry project's
+// id. Mirrors vault.app_dir.
+function vaultAppDir(id) {
+  if (!/^[a-z][a-z0-9-]{0,62}$/.test(id || '')) return null;
+  const vault = vaultDir();
+  if (!vault) return null;
+  const dir = path.join(vault, id);
+  try {
+    if (fs.lstatSync(dir).isSymbolicLink() || !fs.statSync(dir).isDirectory()) return null;
+    const entry = path.join(dir, 'index.html');
+    if (fs.lstatSync(entry).isSymbolicLink() || !fs.statSync(entry).isFile()) return null;
+  } catch (_) {
+    return null;
+  }
+  if (fs.existsSync(path.join(ITER_DIR, 'apps', id, 'app.json'))) return null;
+  return dir;
+}
+
+// Run `python3 -m iterbrow_runtime.vault <args>` and return its JSON (null on any failure).
+function runVaultCli(args) {
+  return new Promise((resolve) => {
+    execFile(pythonBin(), ['-m', 'iterbrow_runtime.vault', ...args], { cwd: ITER_DIR, env: { ...process.env, ITER_DIR }, timeout: 30000 },
+      (error, stdout, stderr) => {
+        if (error) { pushLog('[vault] ' + args[0] + ' failed: ' + String(stderr || error.message).trim().slice(0, 300)); resolve(null); return; }
+        try { resolve(JSON.parse(String(stdout).trim().split('\n').pop())); } catch (_) { resolve(null); }
+      });
+  });
+}
+
+// Make `chosen` the vault: save it (the previous one joins recentVaults), copy the examples in once.
+async function useVault(chosen) {
+  const { nextRecent } = require('./bridge/vault_menu');
+  let real;
+  try {
+    if (fs.lstatSync(chosen).isSymbolicLink() || !fs.statSync(chosen).isDirectory()) throw new Error('not a folder');
+    real = fs.realpathSync(chosen);
+  } catch (error) {
+    pushLog('[vault] cannot use ' + chosen + ': ' + error.message);
+    return { error: error.message };
+  }
+  const settings = loadSettings();
+  saveSettings({ ...settings, vault: real, recentVaults: nextRecent(settings.vault, settings.recentVaults, real) });
+  const copied = await runVaultCli(['copy-examples']);
+  pushLog(`[vault] ${real} ` + (copied && copied.length ? `(copied: ${copied.join(', ')})` : '(nothing to copy)'));
+  return { vault: real, copied: copied || [] };
+}
+
+async function chooseVault() {
+  if (!win) return { error: 'no window' };
+  const current = vaultDir();
+  const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+    title: 'Choose a folder for your apps',
+    buttonLabel: 'Use this folder',
+    defaultPath: current || app.getPath('documents'),
+    properties: ['openDirectory', 'createDirectory'],
+  });
+  if (canceled || !filePaths || !filePaths[0]) return { canceled: true };
+  return useVault(filePaths[0]);
 }
 
 let win = null;
@@ -428,6 +508,12 @@ async function openRegisteredApp(appId) {
   if (open) return { appId, tabId: tabs.focusTab(open.id), focused: true };
   // M10-C3: a plain app (mapstation, nodequest ...) opens as an app tab: app scope, the app
   // preload and the margin, straight from its folder (no revision manager, no contract).
+  // M14-A4: the person's own app in their vault comes first, the same way (app tab from its folder).
+  const mine = vaultAppDir(appId);
+  if (mine) {
+    const tabId = tabs.createTab(pathToFileURL(path.join(mine, 'index.html')).toString(), appTabOptions(appId));
+    return { appId, tabId, kind: 'vault' };
+  }
   const plain = plainAppDir(appId);
   if (plain) {
     const tabId = tabs.createTab(pathToFileURL(path.join(plain, 'index.html')).toString(), appTabOptions(appId));
@@ -2950,10 +3036,18 @@ ipcMain.handle('iter:recentLog', () => iterLog.slice(-200));
 ipcMain.handle('settings:load', () => {
   let lastModelUsage = null;
   try { lastModelUsage = JSON.parse(fs.readFileSync(path.join(ITER_DIR, '.runtime', 'last_model_usage.json'), 'utf8')); } catch (_) {}
-  return { ...loadSettings(), openaiCatalog: OPENAI_CATALOG, lastModelUsage };
+  const settings = loadSettings();
+  // M14-A5: the vault as it is now (null when unset or the folder is gone) and the recent ones.
+  return { ...settings, vault: vaultDir(), recentVaults: settings.recentVaults || [], openaiCatalog: OPENAI_CATALOG, lastModelUsage };
 });
 ipcMain.handle('settings:save', (_e, settings) => {
-  saveSettings(settings);
+  // M14-A5: the chooser is the only writer of the vault; a settings form never changes or drops it.
+  const stored = loadSettings();
+  const { vault: _ignoredVault, recentVaults: _ignoredRecent, ...rest } = settings || {};
+  const keep = {};
+  if (stored.vault) keep.vault = stored.vault;
+  if (Array.isArray(stored.recentVaults)) keep.recentVaults = stored.recentVaults;
+  saveSettings({ ...rest, ...keep });
   // M11-C2: keepHistory off deletes .runtime/history.jsonl at once and stops recording;
   // on again starts an empty history.
   if (settings && settings.keepHistory === false) deleteHistory();
@@ -3379,14 +3473,24 @@ function appsMenuTemplate(apps, onOpen) {
 
 ipcMain.handle('apps:catalog', () => appsCatalog());
 ipcMain.handle('apps:menu', async () => {
+  // M14-A4: the menu itself is bridge/vault_menu.js (pure); appsMenuTemplate above stays the M10 shape.
+  const { appsMenuTemplate: vaultMenuTemplate } = require('./bridge/vault_menu');
   const apps = await appsCatalog();
-  const items = appsMenuTemplate(apps, (id) => {
-    openRegisteredApp(id).catch((error) => pushLog('[apps] could not open ' + id + ': ' + error.message));
+  const settings = loadSettings();
+  const vault = vaultDir();
+  const open = (id) => openRegisteredApp(id).catch((error) => pushLog('[apps] could not open ' + id + ': ' + error.message));
+  const items = vaultMenuTemplate(apps, { vault, recentVaults: settings.recentVaults || [], undoable: [] }, {
+    open,
+    choose: () => chooseVault().catch((error) => pushLog('[vault] choose failed: ' + error.message)),
+    reveal: () => { if (vault) shell.openPath(vault); },
+    switchTo: (p) => useVault(p).catch((error) => pushLog('[vault] switch failed: ' + error.message)),
+    undo: () => {},
   });
-  const menu = Menu.buildFromTemplate(items.length ? items : [{ label: 'No apps yet', enabled: false }]);
+  const menu = Menu.buildFromTemplate(items);
   menu.popup({ window: win });
-  return { count: apps.length };
+  return { count: apps.length, vault };
 });
+ipcMain.handle('vault:choose', () => chooseVault());
 ipcMain.handle('apps:open', (_event, appId) => openRegisteredApp(appId));
 ipcMain.handle('apps:list', () => runAppRevisionControl('list-apps'));
 

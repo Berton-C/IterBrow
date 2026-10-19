@@ -585,6 +585,15 @@ function syncProviderPanels() {
 providerSel.addEventListener('change', syncProviderPanels);
 
 const settingHistory = document.getElementById('setting-history');
+// M14-A5: the apps folder is shown here and changed only by its chooser (never by Save settings).
+const settingVault = document.getElementById('setting-vault');
+const chooseVaultButton = document.getElementById('btn-choose-vault');
+if (chooseVaultButton) {
+  chooseVaultButton.addEventListener('click', async () => {
+    const result = await window.iterApi.chooseVault();
+    if (result && result.vault && settingVault) settingVault.value = result.vault;
+  });
+}
 
 async function saveSettingsFromForm() {
   // Merge onto the current settings rather than replacing the whole file --
@@ -628,6 +637,7 @@ window.iterApi.loadSettings().then((settings) => {
   lmEndpoint.value = settings.lmstudio.endpoint;
   lmModel.value = settings.lmstudio.model;
   if (settingHistory) settingHistory.checked = settings.keepHistory !== false;
+  if (settingVault) settingVault.value = settings.vault || '';
   syncProviderPanels();
 });
 

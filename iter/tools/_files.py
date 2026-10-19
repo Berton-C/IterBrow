@@ -7,6 +7,10 @@
 # unless absolute, `..` is fine while the real path stays inside the root, and every check is made on the
 # real path, so a symlink that leads out is refused. Writes are also refused under .git/, node_modules/ and
 # iter/.venv/. A refusal is the tool's own scope rule, reported as REFUSED: and scored as a refusal.
+#
+# M14-A3: the person's vault (the apps folder they chose; iterbrow_runtime/vault.py) is a second root.
+# `vault/<rel>` means <vault>/<rel>, and vault files are printed back as `vault/<rel>`. With no vault chosen,
+# `vault/...` is refused with the way to choose one. <vault>/.iter (snapshots) is never written.
 import os
 import re
 import sys
@@ -18,7 +22,7 @@ if os.path.dirname(TOOLS_DIR) not in sys.path:
 from iterbrow_runtime.tool_results import ToolOutput  # noqa: E402
 
 MAX_WRITE_BYTES = 2 * 1024 * 1024
-SKIP_DIRS = {".git", "node_modules", ".venv", "__pycache__"}
+SKIP_DIRS = {".git", "node_modules", ".venv", "__pycache__", ".iter"}
 NO_WRITE_PARTS = {".git", "node_modules"}
 
 
@@ -35,16 +39,56 @@ def repo_root():
     return here.parent if (here.parent / "main.js").is_file() else here
 
 
+NO_VAULT = "REFUSED: no apps folder chosen yet (Apps ▸ Choose apps folder…)"
+
+
+def vault_dir():
+    """The person's vault (real path) or None. Read from settings on every call."""
+    try:
+        from iterbrow_runtime import vault
+    except Exception:
+        return None
+    return vault.path(iter_dir() / ".runtime" / "settings.json")
+
+
+def roots():
+    """Where the file tools reach: the repository, and the vault when one is chosen."""
+    vault = vault_dir()
+    return [Path(os.path.realpath(repo_root()))] + ([vault] if vault else [])
+
+
+def _inside(real, root):
+    return real == root or root in real.parents
+
+
+def in_vault(real):
+    """The vault when `real` is inside it, else None."""
+    vault = vault_dir()
+    return vault if vault and _inside(Path(real), vault) else None
+
+
 def resolve(path, *, write=False):
-    """The real absolute path for `path`, or FileScopeError when it leaves the repository."""
+    """The real absolute path for `path`, or FileScopeError when it leaves the repository and the vault."""
     raw = str(path if path is not None else "").strip() or "."
-    candidate = Path(os.path.expanduser(raw))
-    if not candidate.is_absolute():
-        candidate = iter_dir() / candidate
+    if raw == "vault" or raw.startswith("vault/"):
+        vault = vault_dir()
+        if vault is None:
+            raise FileScopeError(NO_VAULT)
+        candidate = vault / raw[len("vault/"):] if raw != "vault" else vault
+    else:
+        candidate = Path(os.path.expanduser(raw))
+        if not candidate.is_absolute():
+            candidate = iter_dir() / candidate
     real = Path(os.path.realpath(candidate))
     root = Path(os.path.realpath(repo_root()))
-    if real != root and root not in real.parents:
-        raise FileScopeError("REFUSED: %s is outside the repository (%s)" % (raw, root))
+    vault = vault_dir()
+    if vault and _inside(real, vault):
+        if write and (OWN_PART in real.relative_to(vault).parts[:1]):
+            raise FileScopeError("REFUSED: %s is under vault/.iter, which holds IterBrow's snapshots and is never written" % raw)
+        return real
+    if not _inside(real, root):
+        where = "the repository (%s)" % root + (" and the apps folder (%s)" % vault if vault else "")
+        raise FileScopeError("REFUSED: %s is outside %s" % (raw, where))
     if write:
         parts = real.relative_to(root).parts
         venv = iter_dir() / ".venv"
@@ -53,9 +97,22 @@ def resolve(path, *, write=False):
     return real
 
 
+OWN_PART = ".iter"
+
+
 def shown(real):
-    """How a path is printed back: relative to ITER_DIR (`../main.js` for the repo's own files)."""
+    """How a path is printed back: `vault/<rel>` for the vault's files, else relative to ITER_DIR
+    (`../main.js` for the repo's own files)."""
+    vault = in_vault(real)
+    if vault:
+        rel = os.path.relpath(str(real), str(vault)).replace(os.sep, "/")
+        return "vault" if rel == "." else "vault/" + rel
     return os.path.relpath(str(real), str(iter_dir())).replace(os.sep, "/")
+
+
+def label(path, real):
+    """The name a tool's result line uses: vault files always as `vault/<rel>`, others as the caller wrote them."""
+    return shown(real) if in_vault(real) else str(path)
 
 
 def refused(message):
@@ -123,7 +180,8 @@ def glob_regex(pattern):
 
 def walk(base, *, recursive):
     """(relative path, absolute Path, is_dir) under `base`, skipping SKIP_DIRS and symlinks that leave."""
-    root = Path(os.path.realpath(repo_root()))
+    scope = roots()
+    root = next((r for r in scope if _inside(Path(os.path.realpath(base)), r)), scope[0])
     if not recursive:
         for entry in sorted(base.iterdir(), key=lambda p: p.name):
             if entry.name in SKIP_DIRS:

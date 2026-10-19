@@ -19,6 +19,7 @@ def run(path, offset="1", limit="200"):
         real = _files.resolve(path)
     except _files.FileScopeError as error:
         return _files.refused(error)
+    path = _files.label(path, real)  # M14-A3: vault files are always named vault/<rel>
     if not real.exists():
         return _files.input_error("ERROR: no file at %s" % path)
     if real.is_dir():

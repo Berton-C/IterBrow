@@ -1,4 +1,7 @@
-"""Every local app, in one catalog (docs/milestones/M10_ally_sdk.md C1).
+"""Every local app, in one catalog (docs/milestones/M10_ally_sdk.md C1; the vault: M14-A2).
+
+Vault apps (<vault>/<id>/index.html, iterbrow_runtime/vault.py) come first, kind "vault"; a vault id hides
+a same-named plain app of ITER_DIR, never a Foundry project (the project keeps its id).
 
 A Foundry project is a directory under apps/ holding app.json; a plain app is a top-level directory
 of ITER_DIR holding an index.html (crm, mapstation, nodequest ...). Never symlinks, never apps/
@@ -35,7 +38,7 @@ def _brief(raw):
 
 
 def list_apps(root=None):
-    """[{id, kind, path, entry, brief}] sorted by id."""
+    """[{id, kind, path, entry, brief}]: vault apps sorted by id, then the rest sorted by id."""
     root = Path(root) if root else iter_root()
     apps = {}
     projects = root / "apps"
@@ -59,7 +62,12 @@ def list_apps(root=None):
             continue
         apps[name] = {"id": name, "kind": "plain", "path": str(path), "entry": "index.html",
                       "brief": _brief(_json(path / "brief.json"))}
-    return [apps[name] for name in sorted(apps)]
+    from iterbrow_runtime import vault as vault_store
+    vault = [dict(app, kind="vault") for app in vault_store.apps(vault_store.path(vault_store.settings_file(root)))
+             if not (apps.get(app["id"]) or {}).get("kind") == "foundry"]
+    for app in vault:
+        apps.pop(app["id"], None)
+    return vault + [apps[name] for name in sorted(apps)]
 
 
 def entry_url(app):
