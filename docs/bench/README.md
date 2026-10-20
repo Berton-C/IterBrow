@@ -17,7 +17,8 @@ itself on the real page, the same way every time. Spec: `docs/milestones/M14_vau
    `--app todo` runs one brief; `--no-iterate` skips the second phase; `--model NAME` labels the run;
    `--baseline` tags it as the "before" run of a change you want to compare.
 
-Each brief gets up to 20 minutes for the build and 20 for the iteration. Leave IterBrow alone while it runs.
+The bench moves on only after 10 minutes with no new reply from Iter (an hour at most per phase), so a build in
+progress is never cut off by the next ask. Leave IterBrow alone while it runs.
 Results land in `docs/bench/<date>-<model>.json` and a table is printed.
 
 ## What the numbers mean

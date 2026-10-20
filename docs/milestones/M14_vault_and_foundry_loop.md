@@ -432,12 +432,25 @@ tracker each commit once per tool call.
 
 ## J. The first five-app run (2026-10-19, gpt-6-luna, by hand): four built, one scaffolded and abandoned
 
-Berton asked for the five briefs in the chat (the bench script was not yet run). todo, pomodoro, notes and
-kanban were built, edited (7, 2, 1 and 3 snapshots) and probed (kanban's probe: 4 assertions, pomodoro's 6;
-notes' only 1). **convert** was `new_app`'d and never touched again: 1,323 bytes, zero snapshots, the
-scaffold's own one-line probe — which *passed*, because the scaffold's probe only checked the title. After
-kanban, with nothing new from Berton, Iter sent "Kanban is complete" **seven times** in a row, each cycle
-answering the loop's `[NO ADDITIONAL USER INPUT. CONTINUE THE CURRENT USER TASK.]`.
+`bench.py` ran (20:57–22:40 local). What `docs/bench/2026-10-19-openai_gpt-6-luna.json` recorded was wrong in
+one way and right in two. Wrong: every app "unreported" after 20 minutes — the script watched the outbox,
+which the sidebar empties into `messages.jsonl` within a second, so it never saw a report, and sent the next
+ask on a fixed clock. Iter said so each time ("I'm switching to your newer request; the earlier Pomodoro
+check is paused", "the earlier converter request is superseded"): **convert** was pulled off the job by the
+benchmark, not abandoned — it stayed the bare scaffold (1,323 bytes, zero snapshots) whose one-line probe
+*passed*, because it only checked the title. Right: the real build times, from `messages.jsonl` — todo 15
+min (6 progress notes before the report), pomodoro 5, notes 11, **kanban 57** — and after kanban, with
+nothing new from Berton, **22 "Kanban is complete" messages over 80 minutes**, each cycle answering the
+loop's `[NO ADDITIONAL USER INPUT. CONTINUE THE CURRENT USER TASK.]`. No fork card appeared anywhere (the
+briefs say exactly what to build, so the loop text allows skipping it; worth watching with an open ask).
+Probes at the end of the run: pomodoro passed; todo's probe hung (clicking `#add` inside `#todo-form`
+submits the form — the app's handler, not the probe); notes answered 3 notes for 1 and no preview (the
+app saves on input, not on Save, and renders the preview on a different event); convert and kanban were
+not built when probed.
+
+- **G2 fixed — the bench reads `messages.jsonl`** (plus any outbox file not yet moved) and waits on
+  *activity*: it moves on only after 10 minutes with no new reply (an hour at most per phase), so a build
+  in progress is never superseded.
 
 - **J1 — after a reply with nothing new, the loop says so.** When the newest assistant turn called only
   `send` and no input has arrived (`_last_turn_was_only_send`, `sends_since_input`), the cycle's line is

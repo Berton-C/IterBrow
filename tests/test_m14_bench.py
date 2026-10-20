@@ -66,9 +66,27 @@ class ScoreTests(unittest.TestCase):
         self.assertTrue(any(line.startswith("kanban") and "no" in line for line in lines), table)
         self.assertIn("gpt-6-luna", table)
 
+    def test_replies_are_read_from_the_durable_log(self):
+        """M14-G2 (2026-10-19 run: every app 'unreported' for 20 min because the outbox is emptied by the sidebar)."""
+        import tempfile, time, os
+        bench = bench_module()
+        root = Path(tempfile.mkdtemp(prefix="m14-benchlog-"))
+        self.addCleanup(lambda: __import__("shutil").rmtree(root, ignore_errors=True))
+        ui = root / ".runtime" / "electron_ui"
+        ui.mkdir(parents=True)
+        now = time.time()
+        (ui / "messages.jsonl").write_text("\n".join(json.dumps(r) for r in [
+            {"role": "user", "content": "Build me a todo app", "at": int((now - 100) * 1000)},
+            {"role": "iter", "content": "old reply", "at": int((now - 50) * 1000)},
+            {"role": "iter", "content": "Todo is built; the probe passed 4/4", "at": int((now + 5) * 1000)}]) + "\n", encoding="utf-8")
+        it = bench.Iter(root, socket_path="/nonexistent")
+        self.assertEqual(it.replies_since(now), ["Todo is built; the probe passed 4/4"])
+        self.assertEqual(it.wait_report("todo", now, timeout=1), "Todo is built; the probe passed 4/4")
+        self.assertIsNone(it.wait_report("kanban", now, timeout=1))
+
     def test_bench_shape(self):
         src = (BENCH / "bench.py").read_text(encoding="utf-8")
-        for word in ("--app", "--baseline", "ITER_DIR", "inbox", "probe", "experience.json", "docs/bench/", "iteration_kept_working", "20 * 60"):
+        for word in ("--app", "--baseline", "ITER_DIR", "inbox", "probe", "experience.json", "docs/bench/", "iteration_kept_working", "IDLE_TIMEOUT"):
             self.assertIn(word, src, word)
         self.assertIn("def score(", src)
         self.assertIn("def table(", src)

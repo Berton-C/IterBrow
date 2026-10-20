@@ -24,7 +24,8 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
-REPORT_TIMEOUT = 20 * 60  # seconds Iter gets to report a build (and again for the iteration)
+REPORT_TIMEOUT = 60 * 60  # the most Iter gets to report a build (and again for the iteration)
+IDLE_TIMEOUT = 10 * 60    # … and the longest silence before the bench moves on
 
 
 # ---- pure ------------------------------------------------------------------------------------------------
@@ -99,24 +100,45 @@ class Iter:
         os.replace(staging, inbox / ("%d-bench.txt" % time.time_ns()))
 
     def replies_since(self, since):
+        """Iter's replies after `since` (epoch seconds): the sidebar moves outbox files into messages.jsonl
+        within a second, so the durable log is read, and the outbox too for anything not yet moved."""
         out = []
+        log = self.ui / "messages.jsonl"
+        if log.is_file():
+            for line in log.read_text(encoding="utf-8", errors="replace").splitlines():
+                try:
+                    row = json.loads(line)
+                except ValueError:
+                    continue
+                if row.get("role") == "iter" and float(row.get("at") or 0) / 1000 >= since:
+                    out.append(str(row.get("content", "")))
         for path in sorted((self.ui / "outbox").glob("*.json")) if (self.ui / "outbox").is_dir() else []:
-            if path.stat().st_mtime < since:
-                continue
             try:
-                out.append(str(json.loads(path.read_text(encoding="utf-8")).get("content", "")))
+                row = json.loads(path.read_text(encoding="utf-8"))
+                if float(row.get("at") or 0) / 1000 >= since:
+                    out.append(str(row.get("content", "")))
             except (OSError, ValueError):
                 continue
         return out
 
-    def wait_report(self, app_id, since, timeout=REPORT_TIMEOUT):
-        """The first reply after `since` that names the app and says what the probe found, or None."""
-        deadline = time.time() + timeout
-        while time.time() < deadline:
-            for reply in self.replies_since(since):
+    def wait_report(self, app_id, since, timeout=REPORT_TIMEOUT, idle=IDLE_TIMEOUT):
+        """The first reply after `since` that names the app and says what the probe found, or None.
+
+        Gives up only after `idle` seconds with no new reply at all, or `timeout` seconds in total — so a
+        build still in progress is never superseded by the next ask (the 2026-10-19 run did that)."""
+        started = time.time()
+        last_activity = started
+        seen = 0
+        while time.time() < started + timeout:
+            replies = self.replies_since(since)
+            if len(replies) > seen:
+                seen, last_activity = len(replies), time.time()
+            for reply in replies:
                 lower = reply.lower()
                 if app_id in lower and ("probe" in lower or "works" in lower or "built" in lower):
                     return reply
+            if time.time() - last_activity > idle:
+                return None
             time.sleep(5)
         return None
 
