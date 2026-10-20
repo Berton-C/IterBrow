@@ -226,8 +226,10 @@ Files: `iter/tools/new_app.py` (new), `iter/tools/app_probe.py`, `iter/iterbrow_
   `EXISTS: vault/todo`; bad id → input error; no vault → refused. The scaffold `index.html`: `<!doctype
   html>`, `<title>`, `<body data-iter-ready="false">`, an `<h1 id="title">`, a `<main id="app">`, a `<script>`
   that sets `document.body.dataset.iterReady = 'true'` after init and keeps state in `localStorage` under
-  `iter:<id>:`; no external resources by default (the contract allows them). `probe.json` is `{"steps":
-  [], "assertions": [{"kind": "text", "selector": "#title", "expected": "<title>"}]}`.
+  `iter:<id>:`; no external resources by default (the contract allows them). `#app` holds a
+  `<p id="placeholder">` and `probe.json` asserts the title *and* `count #placeholder == 0`, so the bare
+  scaffold fails its own probe until it is built (after the 2026-10-19 run: the converter was scaffolded,
+  never built, and its scaffold probe passed).
 - **C2 — the app contract** (`docs/APP_CONTRACT.md`, ≤ 60 lines, linked from AGENTS.md): one folder,
   `index.html` entry, relative asset paths, `data-iter-ready` true once usable, a `probe.json` that passes
   on the fresh app and is kept current with every feature (steps that exercise the main action, assertions
@@ -427,6 +429,33 @@ tracker each commit once per tool call.
   from ~3.5 s each to well under a second; the remaining cost is the isolated query worker
   (`metta_reasoning` and the courier's cross-check each rebuild a space from the snapshot in a subprocess)
   — a later item if it still bites.
+
+## J. The first five-app run (2026-10-19, gpt-6-luna, by hand): four built, one scaffolded and abandoned
+
+Berton asked for the five briefs in the chat (the bench script was not yet run). todo, pomodoro, notes and
+kanban were built, edited (7, 2, 1 and 3 snapshots) and probed (kanban's probe: 4 assertions, pomodoro's 6;
+notes' only 1). **convert** was `new_app`'d and never touched again: 1,323 bytes, zero snapshots, the
+scaffold's own one-line probe — which *passed*, because the scaffold's probe only checked the title. After
+kanban, with nothing new from Berton, Iter sent "Kanban is complete" **seven times** in a row, each cycle
+answering the loop's `[NO ADDITIONAL USER INPUT. CONTINUE THE CURRENT USER TASK.]`.
+
+- **J1 — after a reply with nothing new, the loop says so.** When the newest assistant turn called only
+  `send` and no input has arrived (`_last_turn_was_only_send`, `sends_since_input`), the cycle's line is
+  *NO NEW USER INPUT since your reply (n sent since they last spoke). They have your report. If work
+  remains, do it; otherwise wait with nop(wait_seconds=0). Do not send the same report again.* — instead
+  of "continue". New input resets the count. Not a gate: the model may still send.
+- **J2 — `send` says when it is repeating itself.** The electron_ui channel records when the person last
+  spoke (`.runtime/electron_ui/.last_input_at`, written by `receive`); `send`'s result becomes
+  `SUCCESS — n messages sent since the person last spoke; they have your report. Wait for them (nop
+  wait_seconds=0) or do unfinished work; do not send it again.` from the second reply on. The tool result
+  is what the model reads next.
+- **C1 amended — the scaffold's probe fails until the app is built**: `#app` holds `<p id="placeholder">`
+  and `probe.json` asserts `count #placeholder == 0` beside the title. A bare scaffold now answers
+  `✗ count #placeholder: expected 0 got 1`; "probe passed" means something was built.
+
+Still open after this run (M15 candidates, from evidence rather than guesses): the isolated query worker
+(`metta_reasoning` 1.0 s per cycle, the courier's cross-check); probes that never grow past one assertion
+(notes); whether the fork card appeared (Berton's screenshots show reports, not cards).
 
 ## Commit plan
 

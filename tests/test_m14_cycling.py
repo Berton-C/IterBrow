@@ -218,5 +218,46 @@ class EngineCostTests(unittest.TestCase):
         self.assertLess(per_commit, 0.75, "a one-atom commit over 20k atoms took %.2fs" % per_commit)
 
 
+class IdleReannouncementTests(unittest.TestCase):
+    """M14-J1/J2 (2026-10-19 run: 'Kanban is complete' sent seven times with nothing new from the person)."""
+
+    def test_loop_tells_the_truth_after_a_reply(self):
+        require_m14()
+        src = (REPO / "iter" / "iter.py").read_text(encoding="utf-8")
+        self.assertIn("def _last_turn_was_only_send(", src)
+        self.assertIn("sends_since_input", src)
+        self.assertIn("Do not send the same report again.", src)
+        self.assertIn("nop(wait_seconds=0)", src)
+        # The function, lifted out and run on its own.
+        start = src.index("def _last_turn_was_only_send(")
+        end = src.index("\ncycle_number = 0", start)
+        namespace = {}
+        exec(src[start:end], namespace)  # noqa: S102 — our own source
+        last = namespace["_last_turn_was_only_send"]
+        self.assertTrue(last([user("build"), assistant(calls=[("1", "send", {})]), tool_result("1", "SUCCESS")]))
+        self.assertFalse(last([user("build"), assistant(calls=[("1", "send", {}), ("2", "nop", {})])]), "send plus other work is not idle")
+        self.assertFalse(last([assistant(calls=[("1", "send", {})]), user("thanks")]), "the person spoke after it")
+        self.assertFalse(last([user("build"), assistant(calls=[("1", "edit_file", {})])]))
+
+    def test_send_result_counts_replies_since_the_person_spoke(self):
+        r = vault_root("m14sendcount")
+        self.addCleanup(r.close)
+        ui = r.root / ".runtime" / "electron_ui"
+        (ui / "inbox").mkdir(parents=True)
+        (ui / "outbox").mkdir(parents=True)
+        (ui / ".last_input_at").write_text("%f" % (time.time() - 60), encoding="utf-8")
+        first = r.text("send", channel="electron_ui", content="report one")
+        self.assertEqual(first, "SUCCESS", "the first reply is plain")
+        second = r.text("send", channel="electron_ui", content="report again")
+        self.assertTrue(second.startswith("SUCCESS — 2 messages sent since the person last spoke"), second)
+        self.assertIn("nop wait_seconds=0", second)
+        (ui / ".last_input_at").write_text("%f" % (time.time() + 1), encoding="utf-8")  # they spoke
+        self.assertEqual(r.text("send", channel="electron_ui", content="fresh"), "SUCCESS")
+        channel = (REPO / "iter" / "channels" / "electron_ui.py").read_text(encoding="utf-8")
+        self.assertIn(".last_input_at", channel)
+        manifest = json.loads((REPO / "iter" / "state_manifest.json").read_text(encoding="utf-8"))
+        self.assertIn(".runtime/electron_ui/.last_input_at", [e["path"] for e in manifest["entries"]])
+
+
 if __name__ == "__main__":
     unittest.main()

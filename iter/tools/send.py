@@ -24,4 +24,30 @@ def run(channel, content):
     if not hasattr(module, "send"):
         return f"Channel {channel} cannot send"
     module.send(content)
-    return "SUCCESS"
+    # M14-J2: the result says how many replies went out since the person last spoke, so a model reading
+    # its own tool results sees a repeat before it sends one. Counted from the channel's inbox/outbox when
+    # the channel keeps them (electron_ui); never a refusal.
+    return "SUCCESS" + _since_input_note(path.parent, channel)
+
+
+def _since_input_note(channels_dir, channel):
+    if channel != "electron_ui":
+        return ""
+    try:
+        import json
+        import os
+        root = Path(os.environ.get("ITER_DIR") or Path(__file__).resolve().parents[1]) / ".runtime" / "electron_ui"
+        outbox = sorted(root.glob("outbox/*.json"), key=lambda p: p.stat().st_mtime)
+        last_in = max((p.stat().st_mtime for p in (root / "inbox").glob("*")), default=0.0)
+        marker = root / ".last_input_at"
+        try:
+            last_in = max(last_in, float(marker.read_text().strip() or 0))
+        except (OSError, ValueError):
+            pass
+        count = sum(1 for p in outbox if p.stat().st_mtime > last_in)
+    except Exception:
+        return ""
+    if count <= 1:
+        return ""
+    return (" — %d messages sent since the person last spoke; they have your report. Wait for them (nop wait_seconds=0) "
+            "or do unfinished work; do not send it again." % count)

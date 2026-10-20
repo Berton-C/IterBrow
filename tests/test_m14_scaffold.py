@@ -36,7 +36,9 @@ class NewAppTests(unittest.TestCase):
         self.assertIn("iter:todo:", html)
         self.assertNotRegex(html, r"https?://", "no external resources by default")
         probe = json.loads((folder / "probe.json").read_text(encoding="utf-8"))
-        self.assertEqual(probe, {"steps": [], "assertions": [{"kind": "text", "selector": "#title", "expected": "Todo"}]})
+        self.assertEqual(probe, {"steps": [], "assertions": [{"kind": "text", "selector": "#title", "expected": "Todo"},
+                                                             {"kind": "count", "selector": "#placeholder", "expected": 0}]})
+        self.assertIn('id="placeholder"', html, "the bare scaffold fails its own probe until it is built (the converter, 2026-10-19)")
         self.assertIn("Todo", (folder / "README.md").read_text(encoding="utf-8"))
         self.assertEqual(r.snapshots("todo"), [], "scaffolding takes no snapshot")
         res = r.tool("new_app", id="todo", title="Again")

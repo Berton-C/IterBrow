@@ -29,8 +29,9 @@ safely, and keeps working. `new_app` creates a folder that already meets it. Spe
 
 - `probe.json` is `{"steps": [...], "assertions": [...]}` in `app_probe`'s grammar:
   steps `{kind: click|fill, selector, value?}`, assertions `{kind: text|value|count|visible, selector, expected}`.
-- It passes on the fresh app, and it grows with every feature: steps that exercise the main action, assertions
-  that would fail if that action broke.
+- The scaffold's probe fails on purpose until `#placeholder` is replaced by the app; then it grows with every
+  feature: steps that exercise the main action, assertions that would fail if that action broke. An app whose
+  probe never grew past the scaffold's is not proven.
 - Run `app_probe(<id>)` (no assertions → probe.json) after every change and before saying the app works.
   Report what it checked.
 - Selectors are stable ids (`#add`, `#list li`), not layout paths.

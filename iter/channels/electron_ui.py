@@ -46,6 +46,13 @@ def receive():
             path.unlink()
         except FileNotFoundError:
             pass
+    if messages:
+        # M14-J2: when the person last spoke (the inbox file is gone now); send's result counts replies since.
+        try:
+            marker = RUNTIME / ".last_input_at"
+            marker.write_text("%f" % time.time(), encoding="utf-8")
+        except OSError:
+            pass
     return "\n".join(messages)
 
 

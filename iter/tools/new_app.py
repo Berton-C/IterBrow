@@ -15,7 +15,7 @@ import _files  # noqa: E402
 
 DESCRIPTION = (
     "Start a new app in the person's apps folder: creates vault/<id>/ with index.html, probe.json and README.md "
-    "following docs/APP_CONTRACT.md (data-iter-ready, state in localStorage under iter:<id>:, a probe that passes). "
+    "following docs/APP_CONTRACT.md (data-iter-ready, state in localStorage under iter:<id>:, a probe that fails until the placeholder is replaced by the app). "
     "id: lowercase letters, digits, dashes. from_example: copy an existing app instead (e.g. mapstation). Then "
     "edit vault/<id>/… with write_file/edit_file, keep probe.json current, and open it with browser_open_app(<id>)."
 )
@@ -36,7 +36,7 @@ PAGE = """<!doctype html>
 </head>
 <body data-iter-ready="false">
   <header><h1 id="title">{title}</h1></header>
-  <main id="app"></main>
+  <main id="app"><p id="placeholder">Nothing here yet — this app is still being built.</p></main>
   <script>
     // App contract (docs/APP_CONTRACT.md): state lives in localStorage under this prefix.
     const STORE = 'iter:{id}:';
@@ -44,7 +44,7 @@ PAGE = """<!doctype html>
     const save = (key, value) => {{ try {{ localStorage.setItem(STORE + key, JSON.stringify(value)); }} catch (_) {{}} }};
 
     function init() {{
-      // Build the app here.
+      // Build the app here, replacing the placeholder (the probe insists it is gone).
       document.body.dataset.iterReady = 'true';
     }}
     init();
@@ -66,7 +66,10 @@ An app in the person's IterBrow apps folder (`vault/{id}/`). Follows docs/APP_CO
 
 
 def _probe(title):
-    return {"steps": [], "assertions": [{"kind": "text", "selector": "#title", "expected": title}]}
+    # The second assertion fails on the bare scaffold on purpose: a probe that passes before anything is
+    # built would let an empty app be reported as working (the converter, 2026-10-19).
+    return {"steps": [], "assertions": [{"kind": "text", "selector": "#title", "expected": title},
+                                        {"kind": "count", "selector": "#placeholder", "expected": 0}]}
 
 
 def _example_probe():

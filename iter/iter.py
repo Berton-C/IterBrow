@@ -743,7 +743,19 @@ Path("memory").mkdir(exist_ok=True)
 Path("transformations").mkdir(exist_ok=True)
 post_task_mode, autonomous_steps, new_burst, pending_event_append = False, 0, True, ""
 silent_streak = 0  # work cycles without send(); deliberate nop-only waiting is not silent work
+sends_since_input = 0  # M14-J1: replies since the person last spoke (reset on new input); the loop's own count
 HARD_SEND_STREAK = 3  # retain prompt check-ins during actual work, not repeated idle pings
+
+
+def _last_turn_was_only_send(history):
+    """M14-J1: the newest assistant turn in `history` called send and nothing else."""
+    for message in reversed(history):
+        if isinstance(message, dict) and message.get("role") == "assistant":
+            names = {(c.get("function") or {}).get("name") for c in message.get("tool_calls") or [] if isinstance(c, dict)}
+            return names == {"send"}
+        if isinstance(message, dict) and message.get("role") == "user":
+            return False  # the person (or an alarm) spoke after that reply
+    return False
 cycle_number = 0
 timed_wait_ended = False  # the last cycle ended in a timed nop wait that ran out
 while True:
@@ -809,6 +821,7 @@ while True:
             acknowledge_alarms("memory/alarms", alarm_ids)  # only after the save succeeded
         if event_append:
             autonomous_steps, new_burst, post_task_mode = 0, False, False
+            sends_since_input = 0
             pending_event_append = ""
             base_temporary_message = []
         elif new_burst:
@@ -818,6 +831,11 @@ while True:
             base_temporary_message = [{"role": "user", "content": "Step " + get_current_time() + ": [NO NEW USER INPUT. A restart or idle wait does not mark the current task complete. Resume unfinished user work from the actual request and saved context. If the user asked you to wait, keep waiting. Only when no user work remains may you choose autonomous work within standing instructions. Do not repeat an already delivered reply.]"}]
         elif post_task_mode:
             base_temporary_message = [{"role": "user", "content": "Step " + get_current_time() + ": [NO NEW USER INPUT. Continue unfinished user work; honor requests to wait. When no user work remains, autonomous work within standing instructions is available. Do not repeat the previous response; use send for new information or needed user input.]"}]
+        elif sends_since_input >= 1 and _last_turn_was_only_send(experience):
+            # M14-J1: the last thing Iter did was reply, and nothing new has come. "Continue" here produced
+            # the same report again and again (seven "Kanban is complete" messages on 2026-10-19). Say what
+            # is true instead: the person has it; wait, or do unfinished work; never repeat a delivered reply.
+            base_temporary_message = [{"role": "user", "content": "Step " + get_current_time() + ": [NO NEW USER INPUT since your reply (" + str(sends_since_input) + " sent since they last spoke). They have your report. If work remains, do it; otherwise wait with nop(wait_seconds=0). Do not send the same report again.]"}]
         else:
             base_temporary_message = [{"role": "user", "content": "Step " + get_current_time() + ": [NO ADDITIONAL USER INPUT. CONTINUE THE CURRENT USER TASK.]"}]
         if silent_streak >= HARD_SEND_STREAK:
@@ -1004,6 +1022,7 @@ while True:
         called_tools = {call.function.name for call in message.tool_calls}
         if "send" in called_tools:
             silent_streak = 0
+            sends_since_input += 1
         elif called_tools - {"nop"}:
             silent_streak += 1
         experience += [{key: value for key, value in message.model_dump(exclude_none=True).items() if KEEP_REASONING_IN_EPISODE or key not in ("reasoning", "reasoning_details", "reasoning_content")}]

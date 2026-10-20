@@ -267,6 +267,14 @@
       "owner": "core.chat_bridge"
     },
     {
+      "path": ".runtime/electron_ui/.last_input_at",
+      "role": "cache",
+      "format": "text",
+      "portable": false,
+      "reset": true,
+      "owner": "core.chat_bridge"
+    },
+    {
       "path": ".runtime/electron_ui/staging",
       "role": "cache",
       "format": "file_queue",
