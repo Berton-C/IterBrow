@@ -6,8 +6,10 @@ itself on the real page, the same way every time. Spec: `docs/milestones/M14_vau
 
 ## Running it
 
-1. Start IterBrow, choose an apps folder (Apps ▸ Choose apps folder…), pick the model in Settings, start Iter.
-2. Remove any earlier `todo`, `pomodoro`, `notes`, `convert`, `kanban` folders from the apps folder.
+1. Start IterBrow, choose an apps folder (Apps ▸ Choose apps folder…), pick the model in Settings, and press
+   **Start** so Iter is cycling (the bench checks its heartbeat and refuses to start otherwise).
+2. Remove any earlier `todo`, `pomodoro`, `notes`, `convert`, `kanban` folders from the apps folder (the bench
+   refuses to start while they exist) and make sure nothing is waiting in Iter's inbox.
 3. From the repo:
 
    ```
@@ -23,6 +25,8 @@ Results land in `docs/bench/<date>-<model>.json` and a table is printed.
 
 ## What the numbers mean
 
+- A **report** is evidence, not words: a passing `app_probe` of the app in Iter's own record, followed by a
+  reply. A progress note that merely mentions the probe is not a report.
 - **built**: the brief's own probe passed on the first check after Iter reported (the app's storage is
   cleared first, only its `iter:<id>:` keys).
 - **kept**: after the iteration ask (a dark-mode toggle), the same probe still passes. `-` = not run.

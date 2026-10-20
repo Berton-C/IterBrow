@@ -13,6 +13,7 @@ table on stdout.
 score(record) and table(records) are pure (tests/test_m14_bench.py).
 """
 import argparse
+import re
 import datetime as dt
 import hashlib
 import json
@@ -121,11 +122,10 @@ class Iter:
                 continue
         return out
 
-    def wait_report(self, app_id, since, timeout=REPORT_TIMEOUT, idle=IDLE_TIMEOUT):
-        """The first reply after `since` that names the app and says what the probe found, or None.
-
-        Gives up only after `idle` seconds with no new reply at all, or `timeout` seconds in total — so a
-        build still in progress is never superseded by the next ask (the 2026-10-19 run did that)."""
+    def wait_report(self, app_id, since, timeout=REPORT_TIMEOUT, idle=IDLE_TIMEOUT, since_count=0):
+        """The report, or None. A report is a passing app_probe of the app in Iter's record followed by a reply
+        (the reply text is returned); gives up after `idle` seconds with no new reply at all, or `timeout`
+        seconds in total, so a build in progress is never superseded by the next ask."""
         started = time.time()
         last_activity = started
         seen = 0
@@ -133,14 +133,53 @@ class Iter:
             replies = self.replies_since(since)
             if len(replies) > seen:
                 seen, last_activity = len(replies), time.time()
-            for reply in replies:
-                lower = reply.lower()
-                if app_id in lower and ("probe" in lower or "works" in lower or "built" in lower):
-                    return reply
+            if self.probe_passed_then_reported(since_count, app_id):
+                return replies[-1] if replies else "(reported)"
             if time.time() - last_activity > idle:
                 return None
             time.sleep(5)
         return None
+
+    def preflight(self):
+        """Why the bench must not start, or None: Iter not running (its heartbeat is stale), asks already
+        waiting in the inbox (they would arrive as one batch), or an app folder already present."""
+        heartbeat = self.root / ".runtime" / "recovery" / "iter_heartbeat.json"
+        try:
+            age = time.time() - float(json.loads(heartbeat.read_text(encoding="utf-8")).get("at") or 0)
+        except (OSError, ValueError):
+            return "Iter has no heartbeat; press Start in IterBrow first"
+        if age > 120:
+            return "Iter's last heartbeat was %d s ago; press Start in IterBrow first" % age
+        waiting = [p.name for p in (self.ui / "inbox").glob("*")] if (self.ui / "inbox").is_dir() else []
+        if waiting:
+            return "%d message(s) already waiting in the inbox; let Iter take them (or clear the inbox) first" % len(waiting)
+        try:
+            vault = json.loads((self.root / ".runtime" / "settings.json").read_text(encoding="utf-8")).get("vault")
+        except (OSError, ValueError):
+            vault = None
+        if not vault:
+            return "no apps folder chosen (Apps ▸ Choose apps folder…)"
+        present = [b["id"] for b in json.loads((HERE / "briefs.json").read_text(encoding="utf-8")) if (Path(vault) / b["id"]).exists()]
+        if present:
+            return "already in the apps folder: %s — delete them for a fresh run" % ", ".join(present)
+        return None
+
+    def probe_passed_then_reported(self, since_count, app_id):
+        """True once Iter's own record shows a passing app_probe of `app_id` followed by a reply — the report
+        is evidence, not words (a progress note that mentions the probe is not a report)."""
+        names = {}
+        passed_at = None
+        for index, message in enumerate(self.experience_since(since_count)):
+            if message.get("role") == "assistant":
+                for call in message.get("tool_calls") or []:
+                    names[call.get("id")] = (call.get("function") or {}).get("name", "")
+                if passed_at is not None and any((c.get("function") or {}).get("name") == "send" for c in message.get("tool_calls") or []):
+                    return True
+            elif message.get("role") == "tool" and names.get(message.get("tool_call_id")) == "app_probe":
+                text = str(message.get("content", ""))
+                if re.search(r"PROBE %s\b[^\n]*: \d+ passed, 0 failed" % re.escape(app_id), text):
+                    passed_at = index
+        return False
 
     def experience_since(self, since_count):
         try:
@@ -199,7 +238,7 @@ def run_brief(it, brief, model, baseline, iterate=True):
     record = {"app": brief["id"], "model": model, "baseline": baseline, "at": dt.datetime.now().isoformat(timespec="seconds")}
     start, before = time.time(), it.experience_count()
     it.say(brief["ask"])
-    report = it.wait_report(brief["id"], start)
+    report = it.wait_report(brief["id"], start, since_count=before)
     record["elapsed_s"] = round(time.time() - start, 1)
     record["reported"] = report is not None
     record.update(count_loop(it.experience_since(before)))
@@ -210,9 +249,9 @@ def run_brief(it, brief, model, baseline, iterate=True):
         record["probe_passed"], record["probe"] = False, {"error": str(error)}
     record["iteration_kept_working"] = None
     if iterate and record["reported"]:
-        since = time.time()
+        since, before_iteration = time.time(), it.experience_count()
         it.say(brief["iterate"])
-        record["iteration_reported"] = it.wait_report(brief["id"], since) is not None
+        record["iteration_reported"] = it.wait_report(brief["id"], since, since_count=before_iteration) is not None
         try:
             record["iteration_kept_working"], record["iteration_probe"] = it.probe(brief)
         except Exception as error:
@@ -237,6 +276,10 @@ def main(argv=None):
         if not briefs:
             parser.error("no brief named %s" % args.app)
     it = Iter(iter_dir, args.socket)
+    problem = it.preflight()
+    if problem:
+        print("[bench] not starting: " + problem)
+        return 2
     model = args.model or model_name(iter_dir)
     records = []
     for brief in briefs:

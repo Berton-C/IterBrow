@@ -451,6 +451,11 @@ not built when probed.
 - **G2 fixed — the bench reads `messages.jsonl`** (plus any outbox file not yet moved) and waits on
   *activity*: it moves on only after 10 minutes with no new reply (an hour at most per phase), so a build
   in progress is never superseded.
+- **G2 fixed again (2026-10-20 run):** started before Iter was, the bench left five asks in the inbox that
+  arrived as one batch when Start was pressed, and a word match ("probe" in a progress note) took reports
+  within seconds — and its probe ran on the todo app while Iter was still building it. Now: a preflight
+  refuses to start unless Iter's heartbeat is fresh, the inbox is empty and the five folders are absent; a
+  report is *evidence* — a passing `app_probe` of the app in `experience.json` followed by a reply.
 
 - **J1 — after a reply with nothing new, the loop says so.** When the newest assistant turn called only
   `send` and no input has arrived (`_last_turn_was_only_send`, `sends_since_input`), the cycle's line is

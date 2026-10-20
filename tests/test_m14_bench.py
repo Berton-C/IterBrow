@@ -81,8 +81,34 @@ class ScoreTests(unittest.TestCase):
             {"role": "iter", "content": "Todo is built; the probe passed 4/4", "at": int((now + 5) * 1000)}]) + "\n", encoding="utf-8")
         it = bench.Iter(root, socket_path="/nonexistent")
         self.assertEqual(it.replies_since(now), ["Todo is built; the probe passed 4/4"])
-        self.assertEqual(it.wait_report("todo", now, timeout=1), "Todo is built; the probe passed 4/4")
-        self.assertIsNone(it.wait_report("kanban", now, timeout=1))
+        # A report is evidence in Iter's own record (a passing probe, then a reply), not words in a message.
+        self.assertIsNone(it.wait_report("todo", now, timeout=1, idle=1), "words alone are not a report (2026-10-20 run)")
+        call = lambda i, n, a: {"role": "assistant", "tool_calls": [{"id": i, "function": {"name": n, "arguments": json.dumps(a)}}]}  # noqa: E731
+        res = lambda i, t: {"role": "tool", "tool_call_id": i, "content": t}  # noqa: E731
+        (root / "experience.json").write_text(json.dumps([
+            {"role": "user", "content": "Build me a todo app"},
+            call("1", "app_probe", {"app": "todo"}), res("1", "PROBE todo (probe.json): 2 passed, 1 failed"),
+            call("2", "send", {"content": "adding the workflow probe"}), res("2", "SUCCESS"),
+            call("3", "app_probe", {"app": "todo"}), res("3", "Step 12:00: [NACE advisory] PROBE todo (probe.json): 3 passed, 0 failed"),
+            call("4", "send", {"content": "Todo is built; the probe passed 4/4"}), res("4", "SUCCESS")]), encoding="utf-8")
+        self.assertEqual(it.wait_report("todo", now, timeout=1, idle=1), "Todo is built; the probe passed 4/4")
+        self.assertFalse(it.probe_passed_then_reported(0, "kanban"))
+        self.assertFalse(it.probe_passed_then_reported(7, "todo"), "the passing probe must come after the ask")
+        # Preflight refuses to start without a live Iter, with asks waiting, or with the app folders present.
+        self.assertIn("heartbeat", it.preflight())
+        (root / ".runtime" / "recovery").mkdir(parents=True)
+        (root / ".runtime" / "recovery" / "iter_heartbeat.json").write_text(json.dumps({"at": now}), encoding="utf-8")
+        (ui / "inbox").mkdir()
+        (ui / "inbox" / "1.txt").write_text("hi", encoding="utf-8")
+        self.assertIn("inbox", it.preflight())
+        (ui / "inbox" / "1.txt").unlink()
+        self.assertIn("apps folder", it.preflight())
+        vault = root / "vault"
+        (vault / "todo").mkdir(parents=True)
+        (root / ".runtime" / "settings.json").write_text(json.dumps({"vault": str(vault)}), encoding="utf-8")
+        self.assertIn("todo", it.preflight())
+        (vault / "todo").rmdir()
+        self.assertIsNone(it.preflight())
 
     def test_bench_shape(self):
         src = (BENCH / "bench.py").read_text(encoding="utf-8")
