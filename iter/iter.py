@@ -52,7 +52,10 @@ def is_rejected_model_request(error):
 # 0. Configuration:
 # --------------------------------------------------------------------
 MAX_MEMORY_CHARS = 20000 #When memory turns into an index (raised from 3000: that cap was tuned for the old browser/WASM build and was tripping constantly on real desktop usage, flooding the agent with "FIX THIS FIRST" directives that starved out chat replies)
-LLM_TIMEOUT = 600
+# M14-K1: a model request that has not answered in two minutes is a hang (normal answers take 5–10 s; the
+# 2026-10-20 run lost ten minutes per cycle to 600 s). A timeout is a transient provider error: the loop
+# retries the same cycle. LLM_TIMEOUT in the environment overrides it (seconds).
+LLM_TIMEOUT = max(30, int(os.getenv("LLM_TIMEOUT") or 120))
 KEEP_REASONING_IN_EPISODE = True
 PRINT_CALLS = False
 MAX_TOOL_CALLS = 10

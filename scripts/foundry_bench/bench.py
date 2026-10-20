@@ -26,7 +26,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
 REPORT_TIMEOUT = 60 * 60  # the most Iter gets to report a build (and again for the iteration)
-IDLE_TIMEOUT = 10 * 60    # … and the longest silence before the bench moves on
+IDLE_TIMEOUT = 15 * 60    # … and the longest silence before the bench moves on
 
 
 # ---- pure ------------------------------------------------------------------------------------------------
@@ -122,7 +122,7 @@ class Iter:
                 continue
         return out
 
-    def wait_report(self, app_id, since, timeout=REPORT_TIMEOUT, idle=IDLE_TIMEOUT, since_count=0):
+    def wait_report(self, app_id, since, timeout=REPORT_TIMEOUT, idle=IDLE_TIMEOUT, since_count=None):
         """The report, or None. A report is a passing app_probe of the app in Iter's record followed by a reply
         (the reply text is returned); gives up after `idle` seconds with no new reply at all, or `timeout`
         seconds in total, so a build in progress is never superseded by the next ask."""
@@ -181,15 +181,44 @@ class Iter:
                     passed_at = index
         return False
 
-    def experience_since(self, since_count):
+    def experience_since(self, mark):
+        """The loop's messages added after `mark` (from experience_mark()). The loop rotates experience.json,
+        so position is useless: a message is new when its tool-call ids were not there at the mark."""
         try:
             data = json.loads((self.root / "experience.json").read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return []
-        return data[since_count:] if isinstance(data, list) else []
+        if not isinstance(data, list):
+            return []
+        seen = set(mark or [])
+        out = []
+        for message in data:
+            ids = self._ids(message)
+            if ids and ids <= seen:
+                continue
+            if not ids and not out:
+                continue  # a user line before the first new turn is the ask itself or older
+            out.append(message)
+        return out
 
-    def experience_count(self):
-        return len(self.experience_since(0))
+    @staticmethod
+    def _ids(message):
+        if message.get("role") == "assistant":
+            return {c.get("id") for c in message.get("tool_calls") or [] if isinstance(c, dict) and c.get("id")}
+        if message.get("role") == "tool" and message.get("tool_call_id"):
+            return {message["tool_call_id"]}
+        return set()
+
+    def experience_mark(self):
+        """Every tool-call id in experience.json now (see experience_since)."""
+        try:
+            data = json.loads((self.root / "experience.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return set()
+        ids = set()
+        for message in data if isinstance(data, list) else []:
+            ids |= self._ids(message)
+        return ids
 
     def bridge(self, method, timeout=40, **params):
         connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -236,7 +265,7 @@ def model_name(iter_dir):
 
 def run_brief(it, brief, model, baseline, iterate=True):
     record = {"app": brief["id"], "model": model, "baseline": baseline, "at": dt.datetime.now().isoformat(timespec="seconds")}
-    start, before = time.time(), it.experience_count()
+    start, before = time.time(), it.experience_mark()
     it.say(brief["ask"])
     report = it.wait_report(brief["id"], start, since_count=before)
     record["elapsed_s"] = round(time.time() - start, 1)
@@ -249,7 +278,7 @@ def run_brief(it, brief, model, baseline, iterate=True):
         record["probe_passed"], record["probe"] = False, {"error": str(error)}
     record["iteration_kept_working"] = None
     if iterate and record["reported"]:
-        since, before_iteration = time.time(), it.experience_count()
+        since, before_iteration = time.time(), it.experience_mark()
         it.say(brief["iterate"])
         record["iteration_reported"] = it.wait_report(brief["id"], since, since_count=before_iteration) is not None
         try:

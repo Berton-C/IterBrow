@@ -92,8 +92,18 @@ class ScoreTests(unittest.TestCase):
             call("3", "app_probe", {"app": "todo"}), res("3", "Step 12:00: [NACE advisory] PROBE todo (probe.json): 3 passed, 0 failed"),
             call("4", "send", {"content": "Todo is built; the probe passed 4/4"}), res("4", "SUCCESS")]), encoding="utf-8")
         self.assertEqual(it.wait_report("todo", now, timeout=1, idle=1), "Todo is built; the probe passed 4/4")
-        self.assertFalse(it.probe_passed_then_reported(0, "kanban"))
-        self.assertFalse(it.probe_passed_then_reported(7, "todo"), "the passing probe must come after the ask")
+        self.assertFalse(it.probe_passed_then_reported(set(), "kanban"))
+        self.assertFalse(it.probe_passed_then_reported({"1", "2", "3", "4"}, "todo"), "the passing probe must come after the ask")
+        # Counting by tool-call ids survives the loop rotating experience.json (2026-10-20: "0 cycles").
+        mark = it.experience_mark()
+        self.assertEqual(mark, {"1", "2", "3", "4"})
+        rotated = [call("3", "app_probe", {"app": "todo"}), res("3", "PROBE todo (probe.json): 3 passed, 0 failed"),
+                   call("4", "send", {"content": "x"}), res("4", "SUCCESS"),
+                   call("5", "edit_file", {"path": "vault/todo/index.html"}), res("5", "EDITED vault/todo/index.html (+1 −1 lines)"),
+                   call("6", "send", {"content": "y"}), res("6", "SUCCESS")]
+        (root / "experience.json").write_text(json.dumps(rotated), encoding="utf-8")
+        self.assertEqual([m.get("tool_call_id") or m["tool_calls"][0]["id"] for m in it.experience_since(mark)], ["5", "5", "6", "6"])
+        self.assertEqual(bench.count_loop(it.experience_since(mark))["cycles"], 2)
         # Preflight refuses to start without a live Iter, with asks waiting, or with the app folders present.
         self.assertIn("heartbeat", it.preflight())
         (root / ".runtime" / "recovery").mkdir(parents=True)

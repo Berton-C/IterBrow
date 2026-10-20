@@ -475,6 +475,22 @@ Still open after this run (M15 candidates, from evidence rather than guesses): t
 (`metta_reasoning` 1.0 s per cycle, the courier's cross-check); probes that never grow past one assertion
 (notes); whether the fork card appeared (Berton's screenshots show reports, not cards).
 
+## K. The 2026-10-20 bench run: the model request that hangs
+
+The first bench run with real detection (todo built; notes built and kept; pomodoro, convert, kanban "not
+built" with 0, 0 and 7 cycles) was shaped by one thing the activity log shows plainly: `APITimeoutError:
+Request timed out.` before the retry on cycle after cycle — Iter's replies landing at 14:36, 14:47, 14:58,
+15:09, 15:19. The OpenAI client had `timeout=600, max_retries=0`: a hung request cost ten minutes, a normal
+one answers in 5–10 s. pomodoro and convert were each finished the minute the next ask arrived, because the
+bench's 10-minute silence rule fired exactly as a 10-minute hang ended. And the bench counted cycles by
+position in `experience.json`, which the loop rotates ("0 cycles" for apps with plenty of work).
+
+- **K1 — `LLM_TIMEOUT` is 120 s** (environment-overridable, never under 30). A timeout is an
+  `APIConnectionError` to the SDK, which the loop already treats as transient: the same cycle is retried
+  after a second. A hang now costs two minutes, not ten.
+- **G2, third fix — the bench counts by tool-call id** (`experience_mark`/`experience_since`), so rotation
+  cannot hide work, and allows 15 minutes of silence before moving on.
+
 ## Commit plan
 
 A `M14-A: the vault`, B `M14-B: snapshots and rollback`, C `M14-C: new_app, the contract, build_watch`,

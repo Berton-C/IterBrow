@@ -259,5 +259,16 @@ class IdleReannouncementTests(unittest.TestCase):
         self.assertIn(".runtime/electron_ui/.last_input_at", [e["path"] for e in manifest["entries"]])
 
 
+class ModelTimeoutTests(unittest.TestCase):
+    """M14-K1: a model request that has not answered in two minutes is a hang, not a wait."""
+
+    def test_timeout_is_two_minutes_and_overridable(self):
+        src = (REPO / "iter" / "iter.py").read_text(encoding="utf-8")
+        self.assertRegex(src, r'LLM_TIMEOUT = max\(30, int\(os\.getenv\("LLM_TIMEOUT"\) or 120\)\)')
+        self.assertIn("timeout=LLM_TIMEOUT, max_retries=0", src)
+        import openai
+        self.assertTrue(issubclass(openai.APITimeoutError, openai.APIConnectionError), "a timeout is transient for the loop (retried, not a component failure)")
+
+
 if __name__ == "__main__":
     unittest.main()
