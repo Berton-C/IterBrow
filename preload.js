@@ -74,6 +74,9 @@ contextBridge.exposeInMainWorld('iterApi', {
   readerOpen: (tabId) => ipcRenderer.invoke('reader:open', tabId),
   onReaderNotice: (cb) => ipcRenderer.on('reader:notice', (_e, notice) => cb(notice)),
   saveSettings: (settings) => ipcRenderer.invoke('settings:save', settings),
+  // M16-B2: run in main with the stored key when none is typed; keys never come back here.
+  fetchModels: (args) => ipcRenderer.invoke('settings:fetchModels', args),
+  testConnection: (args) => ipcRenderer.invoke('settings:test', args),
 
   permissionsStatus: () => ipcRenderer.invoke('permissions:status'),
   requestPermission: (kind) => ipcRenderer.invoke('permissions:request', kind),

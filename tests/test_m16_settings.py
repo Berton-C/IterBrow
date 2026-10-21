@@ -13,18 +13,18 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from m16_support import pending, require_m16, settings_node, source  # noqa: E402
 
-MODELS = json.dumps({"GET /v1/models": {"status": 200, "json": {"data": [
+# Keyed by URL suffix: "/api/v1/…" is OpenRouter's; api.anthropic.com/v1/models has no fake (HTTP 404).
+MODELS = json.dumps({"GET /api/v1/models": {"status": 200, "json": {"data": [
     {"id": "z-ai/glm-5.3", "pricing": {"prompt": "0.0000005", "completion": "0.000002"}},
     {"id": "deepseek/deepseek-v4.1-flash", "pricing": {"prompt": "0.0000001", "completion": "0.0000004"}},
     {"id": "anthropic/claude-sonnet-5.5"}]}},
-    "POST /v1/chat/completions": {"status": 200, "json": {"choices": [{"message": {"role": "assistant", "content": "Hello from the model."}}],
+    "POST /api/v1/chat/completions": {"status": 200, "json": {"choices": [{"message": {"role": "assistant", "content": "Hello from the model."}}],
                                                           "usage": {"prompt_tokens": 12, "completion_tokens": 5}}}})
 
 
 class ProviderTests(unittest.TestCase):
     """M16-B1"""
 
-    @pending("M16-B1")
     def test_presets_and_the_environment_iter_gets(self):
         out = settings_node("""
 out.ids = Object.keys(S.PROVIDERS);
@@ -58,7 +58,6 @@ try { S.envFor({ ...settings, provider: 'openai', openai: { model: 'gpt-6-luna',
         self.assertIn("API key", out["noKey"]); self.assertIn("Settings", out["noKey"])
         self.assertIn("OpenAI API key", out["noOaKey"])
 
-    @pending("M16-B1")
     def test_main_js_uses_env_for_and_keeps_the_embedding_key(self):
         require_m16()
         main = source("main.js")
@@ -71,7 +70,6 @@ try { S.envFor({ ...settings, provider: 'openai', openai: { model: 'gpt-6-luna',
 class FetchAndTestTests(unittest.TestCase):
     """M16-B2"""
 
-    @pending("M16-B2")
     def test_fetch_models_lists_ids_and_keeps_openrouter_pricing(self):
         out = settings_node("""
 out.ok = await S.fetchModels('https://openrouter.ai/api/v1', 'sk-or-1', fakeFetch);
@@ -89,7 +87,6 @@ out.noFetch = await S.fetchModels('https://x.example/v1', '', null);
         self.assertFalse(out["notUrl"]["ok"]); self.assertIn("http(s)", out["notUrl"]["error"])
         self.assertFalse(out["noFetch"]["ok"])
 
-    @pending("M16-B2")
     def test_test_connection_pings_the_model_and_drops_what_it_refuses(self):
         out = settings_node("""
 out.full = await S.testConnection({ endpoint: 'https://openrouter.ai/api/v1', key: 'sk', model: 'deepseek/deepseek-v4.1-flash', reasoning: 'off' }, fakeFetch);
@@ -118,7 +115,6 @@ out.posts = calls.filter((c) => c.method === 'POST').map((c) => Object.keys(c.bo
         out = settings_node("""out.r = await S.testConnection({ endpoint: 'https://openrouter.ai/api/v1', key: 'bad', model: 'x' }, fakeFetch);""", down)
         self.assertFalse(out["r"]["ok"]); self.assertIn("401", out["r"]["text"])
 
-    @pending("M16-B2")
     def test_main_js_exposes_fetch_and_test(self):
         require_m16()
         main = source("main.js")
@@ -131,7 +127,6 @@ out.posts = calls.filter((c) => c.method === 'POST').map((c) => Object.keys(c.bo
 class PanelTests(unittest.TestCase):
     """M16-B3"""
 
-    @pending("M16-B3")
     def test_one_panel_for_every_provider(self):
         require_m16()
         html = source("renderer/index.html")
@@ -146,19 +141,18 @@ class PanelTests(unittest.TestCase):
         self.assertRegex(js, r"settings-model-select[^\n]*change|modelSelect\.addEventListener\('change'", "click one → it is the model")
         self.assertIn("Save & apply", html)
 
-    @pending("M16-B3")
     def test_apply_restarts_a_running_iter(self):
         require_m16()
         main = source("main.js")
         block = main[main.index("ipcMain.handle('settings:save'"):main.index("ipcMain.handle('settings:save'") + 2500]
-        self.assertRegex(block, r"stopIterProcess\(\)[\s\S]*startIterProcess\(\)", "running Iter restarts with the new route")
-        self.assertRegex(block, r"if \(iterProcess\)|iterProcess &&", "a stopped Iter is left stopped")
+        # main.js's stop/start are stopIter()/startIterWithAtomspace() (there is no stopIterProcess).
+        self.assertRegex(block, r"stopIter\w*\(\)[\s\S]*startIter\w*\(\)", "running Iter restarts with the new route")
+        self.assertRegex(block, r"if \(iterProcess\b|iterProcess &&", "a stopped Iter is left stopped")
 
 
 class KeysStayHomeTests(unittest.TestCase):
     """M16-B4"""
 
-    @pending("M16-B4")
     def test_panel_state_carries_no_key_and_apply_provider_keeps_it(self):
         out = settings_node("""
 const stored = { provider: 'openrouter', openrouter: { endpoint: 'https://openrouter.ai/api/v1', model: 'a', apiKey: 'sk-or-1', models: ['a', 'b'], pricing: { a: { input: 1, output: 2 } } },
@@ -183,7 +177,6 @@ out.fresh = S.applyProvider({}, { provider: 'ollama', ollama: { model: 'llama4' 
         self.assertEqual(out["replaced"]["openrouter"]["apiKey"], "sk-or-1", "the other provider's route is kept")
         self.assertEqual(out["fresh"]["ollama"]["endpoint"], "http://localhost:11434/v1")
 
-    @pending("M16-B4")
     def test_main_js_never_sends_or_logs_a_key(self):
         require_m16()
         main = source("main.js")

@@ -1,4 +1,4 @@
-const { app, BaseWindow, WebContentsView, ipcMain, dialog, Menu, powerMonitor, systemPreferences, shell, session, screen } = require('electron');
+const { app, BaseWindow, WebContentsView, ipcMain, dialog, Menu, powerMonitor, systemPreferences, shell, session, screen, net: electronNet } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -26,6 +26,7 @@ const reader = require('./bridge/reader');
 const { makeChatBridge } = require('./bridge/chat_bridge');
 const { retirePreviousIter } = require('./bridge/iter_process_owner');
 const OPENAI_CATALOG = require('./iter/iterbrow_runtime/openai_models.json');
+const modelSettings = require('./bridge/model_settings'); // M16-B: presets, fetch/test, the route Iter gets
 
 const DEFAULT_SIDEBAR_WIDTH = 420;
 const MIN_SIDEBAR_WIDTH = 260;
@@ -679,33 +680,19 @@ async function recoverRevisionBeforeStart() {
   return result;
 }
 
-function modelConfig(settings) {
-  const directOpenAI = settings.provider === 'openai';
-  const cfg = directOpenAI
-    ? { ...settings.openai, endpoint: 'https://api.openai.com/v1' }
-    : settings.provider === 'lmstudio' ? settings.lmstudio : settings.openrouter;
-  if (directOpenAI) {
-    if (typeof cfg.apiKey !== 'string' || !cfg.apiKey.trim()) throw new Error('Add your OpenAI API key in Settings before starting Iter.');
-    if (!OPENAI_CATALOG.models.some((model) => model.id === cfg.model)
-      || !['low', 'medium', 'high'].includes(cfg.reasoning)) {
-      throw new Error('Choose an available OpenAI model and reasoning effort in Settings.');
-    }
-  }
-  return cfg;
+// M16-B1: the route Iter gets for the chosen provider (bridge/model_settings.js envFor); throws the message the
+// Start button shows when a key or model is missing.
+function iterRoute(settings) {
+  return modelSettings.envFor(settings, { openaiModels: OPENAI_CATALOG.models.map((model) => model.id) });
 }
 
 function startIterProcess() {
   if (iterProcess) return { already: true };
   const settings = loadSettings();
-  const cfg = modelConfig(settings);
-  const directOpenAI = settings.provider === 'openai';
+  const route = iterRoute(settings); // M16-B1: BASE_URL, LLM_MODEL, LLM_PROVIDER, LLM_REASONING_EFFORT, AI_API_KEY
   const env = {
     ...process.env,
-    BASE_URL: cfg.endpoint,
-    LLM_MODEL: cfg.model,
-    LLM_PROVIDER: settings.provider,
-    LLM_REASONING_EFFORT: directOpenAI ? cfg.reasoning : '',
-    AI_API_KEY: settings.provider === 'lmstudio' ? 'lm-studio' : cfg.apiKey || 'dummy',
+    ...route,
     // Long-term-memory embeddings (tools/_petta_db.py, used by chroma_query) always need a real
     // OpenRouter key regardless of chat provider -- local LM Studio models don't do embeddings.
     // That key already lives in settings.openrouter.apiKey (the single "OpenRouter API Key" field
@@ -728,7 +715,7 @@ function startIterProcess() {
   iterProcess = spawn(pythonBin(), ['iter.py'], { cwd: ITER_DIR, env });
   iterStartedThisSession = true;
   iterStartedAt = Date.now() / 1000;
-  pushLog(`[iter] started (pid ${iterProcess.pid}) provider=${settings.provider} model=${cfg.model} base_url=${cfg.endpoint}`);
+  pushLog(`[iter] started (pid ${iterProcess.pid}) provider=${route.LLM_PROVIDER} model=${route.LLM_MODEL} base_url=${route.BASE_URL}`);
   iterProcess.stdout.on('data', (d) => pushLog(d.toString()));
   iterProcess.stderr.on('data', (d) => pushLog('[stderr] ' + d.toString()));
   iterProcess.on('exit', (code) => {
@@ -744,7 +731,7 @@ function startIterProcess() {
 async function startIter() {
   if (appQuitting || iterStopPromise) return { error: 'Iter is stopping' };
   // Missing credentials must not turn a stopped app into a recovery restart loop.
-  if (!iterProcess) modelConfig(loadSettings());
+  if (!iterProcess) iterRoute(loadSettings());
   iterDesiredRunning = true;
   persistIterDesiredRunning(true);
   if (iterProcess) return { already: true };
@@ -3131,21 +3118,52 @@ ipcMain.handle('settings:load', () => {
   let lastModelUsage = null;
   try { lastModelUsage = JSON.parse(fs.readFileSync(path.join(ITER_DIR, '.runtime', 'last_model_usage.json'), 'utf8')); } catch (_) {}
   const settings = loadSettings();
+  // M16-B4: the renderer sees every setting but the provider routes, and each route without its key (hasKey).
   // M14-A5: the vault as it is now (null when unset or the folder is gone) and the recent ones.
-  return { ...settings, vault: vaultDir(), recentVaults: settings.recentVaults || [], openaiCatalog: OPENAI_CATALOG, lastModelUsage };
+  return { ...modelSettings.panelState(settings), vault: vaultDir(), recentVaults: settings.recentVaults || [],
+    openaiCatalog: OPENAI_CATALOG, lastModelUsage, presets: modelSettings.PROVIDERS };
 });
-ipcMain.handle('settings:save', (_e, settings) => {
-  // M14-A5: the chooser is the only writer of the vault; a settings form never changes or drops it.
+// M16-B2: Fetch models / Test connection run here, with the stored key when the form sent none (keys never go to
+// the renderer). A successful fetch keeps the list (and OpenRouter's prices) for that provider.
+ipcMain.handle('settings:fetchModels', async (_e, { provider, endpoint, key } = {}) => {
   const stored = loadSettings();
-  const { vault: _ignoredVault, recentVaults: _ignoredRecent, ...rest } = settings || {};
-  const keep = {};
-  if (stored.vault) keep.vault = stored.vault;
-  if (Array.isArray(stored.recentVaults)) keep.recentVaults = stored.recentVaults;
-  saveSettings({ ...rest, ...keep });
+  const result = await modelSettings.fetchModels(endpoint, modelSettings.resolveKey(stored, provider, key), electronNet.fetch);
+  if (result.ok && modelSettings.PROVIDER_IDS.includes(provider)) {
+    saveSettings(modelSettings.applyProvider(stored, { [provider]: { models: result.models, ...(result.pricing ? { pricing: result.pricing } : {}) } }));
+  }
+  pushLog(`[settings] fetch models from ${endpoint}: ${result.ok ? `${result.models.length} listed` : result.error}`);
+  return result;
+});
+ipcMain.handle('settings:test', async (_e, { provider, endpoint, key, model, reasoning } = {}) => {
+  const stored = loadSettings();
+  const result = await modelSettings.testConnection({ endpoint, key: modelSettings.resolveKey(stored, provider, key), model, reasoning }, electronNet.fetch);
+  pushLog(`[settings] test connection ${provider || ''} ${model || ''}: ${result.text}`);
+  return { ok: result.ok, text: result.text, reply: result.reply, ms: result.ms, dropped: result.dropped,
+    models: result.models.ok ? result.models.models : [], pricing: result.models.pricing };
+});
+ipcMain.handle('settings:save', async (_e, change) => {
+  // M14-A5: the chooser is the only writer of the vault; a settings form never changes or drops it.
+  // M16-B4: the change is merged onto what is stored (a route with an empty key keeps its key); the renderer's
+  // copy of the panel state (providers, presets, catalog) never becomes a setting.
+  const stored = loadSettings();
+  const { vault: _v, recentVaults: _r, providers: _p, presets: _ps, openaiCatalog: _c, lastModelUsage: _u, apply, ...rest } = change || {};
+  const plain = {};
+  for (const [name, value] of Object.entries(rest)) if (!modelSettings.PROVIDER_IDS.includes(name) && name !== 'provider') plain[name] = value;
+  const next = modelSettings.applyProvider({ ...stored, ...plain }, rest);
+  if (stored.vault) next.vault = stored.vault;
+  if (Array.isArray(stored.recentVaults)) next.recentVaults = stored.recentVaults;
+  saveSettings(next);
   // M11-C2: keepHistory off deletes .runtime/history.jsonl at once and stops recording;
   // on again starts an empty history.
-  if (settings && settings.keepHistory === false) deleteHistory();
-  return { saved: true };
+  if (change && change.keepHistory === false) deleteHistory();
+  // M16-B3: Save & apply restarts a running Iter on the new route; a stopped Iter stays stopped.
+  let restarted = false;
+  if (iterProcess && apply) {
+    await stopIter();
+    await startIterWithAtomspace();
+    restarted = true;
+  }
+  return { saved: true, restarted };
 });
 // Soul settings live in their own file (never merged into settings.json).
 ipcMain.handle('soul:load', () => loadSoulSettings());

@@ -541,25 +541,45 @@ window.iterApi.onIterLog((line) => {
 // ---------------------------------------------------------------------
 // Settings
 // ---------------------------------------------------------------------
+// M16-B3: one panel for every provider. The main process keeps the keys; this page only knows hasKey.
 const providerSel = document.getElementById('provider');
-const orEndpoint = document.getElementById('or-endpoint');
-const orModel = document.getElementById('or-model');
-const orKey = document.getElementById('or-key');
-const lmEndpoint = document.getElementById('lm-endpoint');
-const lmModel = document.getElementById('lm-model');
-const panelOR = document.getElementById('panel-openrouter');
-const panelLM = document.getElementById('panel-lmstudio');
-const panelOA = document.getElementById('panel-openai');
-const oaModel = document.getElementById('oa-model');
-const oaKey = document.getElementById('oa-key');
+const settingEndpoint = document.getElementById('settings-endpoint');
+const modelSelect = document.getElementById('settings-model-select');
+const settingModel = document.getElementById('settings-model');
+const settingKey = document.getElementById('settings-key');
 const oaReasoning = document.getElementById('oa-reasoning');
+const testResult = document.getElementById('settings-test-result');
 let openaiCatalog = { models: [] };
+let panel = { provider: 'openrouter', providers: {} };
+const drafts = {}; // provider -> what the form holds for it (switching providers loses nothing)
+
+function route(provider) {
+  if (!drafts[provider]) {
+    const p = panel.providers[provider] || {};
+    drafts[provider] = { endpoint: p.endpoint || '', model: p.model || '', reasoning: p.reasoning || 'low', key: '',
+      models: (p.models || []).slice(), pricing: p.pricing || null };
+  }
+  return drafts[provider];
+}
+
+function chosenModel() {
+  return settingModel.value.trim() || modelSelect.value;
+}
+
+function paintModelPrice() {
+  const provider = providerSel.value;
+  const d = route(provider);
+  const target = document.getElementById('settings-model-price');
+  const price = d.pricing && d.pricing[chosenModel()];
+  target.textContent = price ? `USD per 1M tokens: input $${price.input} · output $${price.output} (from the provider's model list).` : '';
+  if (provider === 'openai') paintOpenAIPrice();
+}
 
 function paintOpenAIPrice() {
-  const rate = openaiCatalog.models.find((model) => model.id === oaModel.value);
-  document.getElementById('oa-price').textContent = rate
+  const rate = openaiCatalog.models.find((model) => model.id === chosenModel());
+  document.getElementById('oa-price').textContent = providerSel.value !== 'openai' ? '' : rate
     ? `USD per 1M tokens: input $${rate.input.toFixed(2)} · cached input $${rate.cachedInput.toFixed(2)} · cache writes $${rate.cacheWrite.toFixed(3)} · output $${rate.output.toFixed(2)}. Reasoning tokens count as output. Standard short-context rates checked ${openaiCatalog.verifiedOn}; rates can change. Example without caching: 30k input + 2k output ≈ $${(rate.input * 0.03 + rate.output * 0.002).toFixed(3)}, excluding surcharges.`
-    : 'Select an OpenAI model to see its token prices.';
+    : 'Choose one of the OpenAI models IterBrow knows the prices of.';
 }
 
 function paintOpenAIUsage(usage) {
@@ -572,17 +592,97 @@ function paintOpenAIUsage(usage) {
   const cost = Number.isFinite(usage.estimated_usd) ? `$${usage.estimated_usd.toFixed(5)}` : 'unavailable';
   target.textContent = `Last OpenAI request: ${usage.model}, ${new Date(usage.at * 1000).toLocaleString()}, ${usage.seconds}s. Input ${tokens.input_tokens ?? '?'} · output ${tokens.output_tokens ?? '?'} (reasoning ${(tokens.output_tokens_details || {}).reasoning_tokens ?? '?'}). Estimated text-token cost ${cost}. ${usage.note || ''} This is one request, not your account balance or whole-task cost.`;
 }
-oaModel.addEventListener('change', paintOpenAIPrice);
 document.getElementById('btn-oa-usage').addEventListener('click', async () => {
   paintOpenAIUsage((await window.iterApi.loadSettings()).lastModelUsage);
 });
 
-function syncProviderPanels() {
-  panelOR.style.display = providerSel.value === 'openrouter' ? 'flex' : 'none';
-  panelLM.style.display = providerSel.value === 'lmstudio' ? 'flex' : 'none';
-  panelOA.style.display = providerSel.value === 'openai' ? 'flex' : 'none';
+function fillModelList(models, selected) {
+  const options = [new Option(models.length ? '— choose a model —' : '— Fetch models, or type one below —', '')];
+  for (const id of models) options.push(new Option(id, id));
+  modelSelect.replaceChildren(...options);
+  modelSelect.value = models.includes(selected) ? selected : '';
 }
-providerSel.addEventListener('change', syncProviderPanels);
+
+function keepDraft() {
+  const d = route(providerSel.dataset.shown || providerSel.value);
+  d.endpoint = settingEndpoint.value.trim();
+  d.model = chosenModel();
+  d.reasoning = oaReasoning.value;
+  d.key = settingKey.value;
+}
+
+function showProvider() {
+  const provider = providerSel.value;
+  const p = panel.providers[provider] || {};
+  const d = route(provider);
+  providerSel.dataset.shown = provider;
+  document.getElementById('settings-note').textContent = p.note || '';
+  settingEndpoint.value = d.endpoint;
+  settingEndpoint.readOnly = provider === 'openai';
+  const known = provider === 'openai' ? openaiCatalog.models.map((m) => m.id) : d.models;
+  fillModelList(known, d.model);
+  settingModel.value = known.includes(d.model) ? '' : d.model;
+  oaReasoning.value = d.reasoning || 'low';
+  document.getElementById('settings-reasoning-field').style.display = provider === 'openai' ? '' : 'none';
+  document.getElementById('settings-openai-usage').style.display = provider === 'openai' ? '' : 'none';
+  document.getElementById('settings-key-field').style.display = p.needsKey || provider === 'custom' ? '' : 'none';
+  settingKey.value = d.key;
+  settingKey.placeholder = p.hasKey ? 'stored — leave empty to keep it' : (p.needsKey ? 'paste your API key' : 'only if your server asks for one');
+  testResult.textContent = '';
+  paintModelPrice();
+}
+
+providerSel.addEventListener('change', () => { keepDraft(); showProvider(); });
+// Click a model in the list and it is the model (the typed field is cleared so the click wins).
+modelSelect.addEventListener('change', () => { settingModel.value = ''; route(providerSel.value).model = modelSelect.value; paintModelPrice(); });
+settingModel.addEventListener('input', paintModelPrice);
+
+function formRoute() {
+  keepDraft();
+  const provider = providerSel.value;
+  const d = route(provider);
+  return { provider, endpoint: d.endpoint, model: d.model, reasoning: provider === 'openai' ? d.reasoning : undefined, key: d.key.trim() };
+}
+
+document.getElementById('btn-settings-fetch').addEventListener('click', async () => {
+  const r = formRoute();
+  testResult.textContent = 'Asking for the model list…';
+  const result = await window.iterApi.fetchModels({ provider: r.provider, endpoint: r.endpoint, key: r.key });
+  if (!result.ok) { testResult.textContent = 'Fetch models: ' + result.error; return; }
+  const d = route(r.provider);
+  d.models = result.models;
+  if (result.pricing) d.pricing = result.pricing;
+  fillModelList(result.models, d.model);
+  testResult.textContent = `${result.models.length} models listed${result.pricing ? ' (with prices)' : ''} — click one, then Test connection.`;
+});
+
+document.getElementById('btn-settings-test').addEventListener('click', async () => {
+  const r = formRoute();
+  testResult.textContent = r.model ? `Testing ${r.model}…` : 'Testing the model list…';
+  const result = await window.iterApi.testConnection(r);
+  testResult.textContent = result.text;
+  testResult.style.color = result.ok ? '#4caf7d' : '#ff6b6b';
+});
+
+function panelChange() {
+  const r = formRoute();
+  const entry = { endpoint: r.endpoint, model: r.model, apiKey: r.key };
+  if (r.provider === 'openai') entry.reasoning = r.reasoning;
+  const d = route(r.provider);
+  if (d.models.length) entry.models = d.models;
+  if (d.pricing) entry.pricing = d.pricing;
+  return { provider: r.provider, [r.provider]: entry };
+}
+
+document.getElementById('btn-settings-apply').addEventListener('click', async () => {
+  const result = await window.iterApi.saveSettings({ ...panelChange(), apply: true });
+  route(providerSel.value).key = '';
+  settingKey.value = '';
+  await reloadPanel();
+  addMessage('sys', result && result.restarted
+    ? `Saved. Iter restarted on ${providerSel.value} · ${chosenModel()}.`
+    : `Saved: ${providerSel.value} · ${chosenModel()}. Press Start when you are ready.`);
+});
 
 const settingHistory = document.getElementById('setting-history');
 // M14-A5: the apps folder is shown here and changed only by its chooser (never by Save settings).
@@ -595,51 +695,31 @@ if (chooseVaultButton) {
   });
 }
 
+// Start and "Save settings" save the form as it is (main merges it onto what is stored; an empty key keeps the
+// stored one; nothing restarts).
 async function saveSettingsFromForm() {
-  // Merge onto the current settings rather than replacing the whole file --
-  // saveSettings() is a straight overwrite (see main.js), so building a
-  // fresh object with only these 3 keys would silently wipe sidebarWidth
-  // and the dock tab order/last-open state (added 2026-09-17) every time
-  // this runs, which includes every "Start" click, not just "Save settings".
-  const current = await window.iterApi.loadSettings();
-  const settings = {
-    ...current,
-    provider: providerSel.value,
-    openrouter: { ...current.openrouter, endpoint: orEndpoint.value, model: orModel.value, apiKey: orKey.value },
-    openai: { ...current.openai, model: oaModel.value, apiKey: oaKey.value.trim(), reasoning: oaReasoning.value },
-    lmstudio: { ...current.lmstudio, endpoint: lmEndpoint.value, model: lmModel.value },
+  await window.iterApi.saveSettings({
+    ...panelChange(),
     // M11-C2: unchecked deletes the history file at once (main.js settings:save).
-    keepHistory: settingHistory ? settingHistory.checked : current.keepHistory !== false,
-  };
-  await window.iterApi.saveSettings(settings);
+    keepHistory: settingHistory ? settingHistory.checked : panel.keepHistory !== false,
+  });
 }
 document.getElementById('btn-save-settings').addEventListener('click', () => {
-  saveSettingsFromForm().then(() => addMessage('sys', 'Settings saved. Restart Iter (Stop, then Start) for changes to take effect.'));
+  saveSettingsFromForm().then(() => addMessage('sys', 'Settings saved. Restart Iter (Stop, then Start), or use Save & apply, for a new model to take effect.'));
 });
 
-window.iterApi.loadSettings().then((settings) => {
-  providerSel.value = settings.provider || 'openrouter';
-  orEndpoint.value = settings.openrouter.endpoint;
-  orModel.value = settings.openrouter.model;
-  orKey.value = settings.openrouter.apiKey || '';
-  openaiCatalog = settings.openaiCatalog || { models: [] };
-  oaModel.replaceChildren(...openaiCatalog.models.map((model) => {
-    const option = document.createElement('option');
-    option.value = model.id;
-    option.textContent = model.label;
-    return option;
-  }));
-  oaModel.value = (settings.openai || {}).model || 'gpt-6-sol';
-  oaKey.value = (settings.openai || {}).apiKey || '';
-  oaReasoning.value = (settings.openai || {}).reasoning || 'low';
-  paintOpenAIPrice();
-  paintOpenAIUsage(settings.lastModelUsage);
-  lmEndpoint.value = settings.lmstudio.endpoint;
-  lmModel.value = settings.lmstudio.model;
-  if (settingHistory) settingHistory.checked = settings.keepHistory !== false;
-  if (settingVault) settingVault.value = settings.vault || '';
-  syncProviderPanels();
-});
+async function reloadPanel() {
+  panel = await window.iterApi.loadSettings();
+  openaiCatalog = panel.openaiCatalog || { models: [] };
+  for (const id of Object.keys(drafts)) delete drafts[id];
+  providerSel.replaceChildren(...Object.entries(panel.providers || {}).map(([id, p]) => new Option(p.label, id)));
+  providerSel.value = panel.provider || 'openrouter';
+  showProvider();
+  paintOpenAIUsage(panel.lastModelUsage);
+  if (settingHistory) settingHistory.checked = panel.keepHistory !== false;
+  if (settingVault) settingVault.value = panel.vault || '';
+}
+reloadPanel();
 
 // ---------------------------------------------------------------------
 // Permissions -- Camera & Microphone

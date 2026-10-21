@@ -39,37 +39,36 @@
 
 <div id="settings" class="dock-panel" hidden>
   <div class="settings-body">
+    <!-- M16-B3: one panel for every provider: fetch its models, click one, test it, Save & apply. -->
     <div class="field">
-      <label>Provider</label>
-      <select id="provider">
-        <option value="openrouter">OpenRouter (cloud)</option>
-        <option value="openai">OpenAI GPT (direct API)</option>
-        <option value="lmstudio">LM Studio (local — works offline)</option>
-      </select>
+      <label for="provider">Provider</label>
+      <select id="provider"></select>
     </div>
-    <div id="panel-openrouter" class="settings-body" style="padding:0">
-      <div class="field"><label>Endpoint</label><input id="or-endpoint" value="https://openrouter.ai/api/v1"></div>
-      <div class="field"><label>Model</label><input id="or-model" value="z-ai/glm-5.3"></div>
-      <div class="field"><label>API key</label><input id="or-key" type="password"></div>
+    <div id="settings-note" style="font-size:11px;color:var(--muted)"></div>
+    <div class="field"><label for="settings-endpoint">Endpoint</label><input id="settings-endpoint" spellcheck="false"></div>
+    <div class="field"><label for="settings-model-select">Model</label>
+      <div class="row"><select id="settings-model-select"><option value="">— Fetch models, or type one below —</option></select>
+        <button id="btn-settings-fetch" title="Ask the provider for its models (with your stored key)">Fetch models</button></div>
+      <input id="settings-model" spellcheck="false" placeholder="model id (a typed name wins over the list)"></div>
+    <div id="settings-model-price" style="font-size:11px;color:var(--muted)"></div>
+    <div id="settings-reasoning-field" class="field"><label for="oa-reasoning">Reasoning effort</label><select id="oa-reasoning">
+      <option value="low">Low — quicker, lower token use (start here)</option>
+      <option value="medium">Medium — more deliberation</option>
+      <option value="high">High — difficult work, higher latency and cost</option>
+    </select></div>
+    <div id="oa-price" style="font-size:11px;color:var(--muted)"></div>
+    <div id="settings-key-field" class="field"><label for="settings-key">API key</label>
+      <input id="settings-key" type="password" autocomplete="off" spellcheck="false"></div>
+    <div class="row">
+      <button id="btn-settings-test" title="List the models and send the model one short message">Test connection</button>
+      <button id="btn-settings-apply" title="Save this provider and model; a running Iter restarts on it">Save &amp; apply</button>
     </div>
-    <div id="panel-openai" class="settings-body" style="padding:0;display:none">
-      <div class="field"><label for="oa-model">OpenAI model</label><select id="oa-model"></select></div>
-      <div id="oa-price" style="font-size:11px;color:var(--muted)"></div>
-      <div class="field"><label for="oa-reasoning">Reasoning effort</label><select id="oa-reasoning">
-        <option value="low">Low — quicker, lower token use (start here)</option>
-        <option value="medium">Medium — more deliberation</option>
-        <option value="high">High — difficult work, higher latency and cost</option>
-      </select></div>
-      <div class="field"><label for="oa-key">OpenAI API key</label><input id="oa-key" type="password" autocomplete="off" placeholder="Enter your OpenAI API key"></div>
-      <div style="font-size:11px;color:var(--muted)">Direct connection to api.openai.com. ChatGPT subscriptions do not supply API credit. Keys are saved locally with your existing provider settings. Changing chat providers preserves memory; embeddings still use your existing OpenRouter key.</div>
+    <div id="settings-test-result" style="font-size:11px;color:var(--muted)"></div>
+    <div id="settings-openai-usage">
       <div id="oa-usage" style="font-size:11px;color:var(--muted)">No direct OpenAI request recorded yet.</div>
       <button id="btn-oa-usage">Refresh last request cost</button>
     </div>
-    <div id="panel-lmstudio" class="settings-body" style="padding:0">
-      <div class="field"><label>Endpoint (use 127.0.0.1, not a LAN IP, for offline use)</label><input id="lm-endpoint" value="http://127.0.0.1:1234/v1"></div>
-      <div class="field"><label>Model (must match LM Studio's Developer panel exactly)</label><input id="lm-model" value="qwen/qwen3.8-27b"></div>
-      <div style="font-size:10px;color:var(--muted)">Requires: LM Studio server running, "Enable CORS" is not needed here (Electron talks to it directly, not via a web page's fetch), context length ≥ 32768, and tool_choice="required" support (llama.cpp engine).</div>
-    </div>
+    <div style="font-size:11px;color:var(--muted)">Keys stay on this Mac, in IterBrow's settings; the panel only learns whether one is stored. Long-term-memory embeddings use the OpenRouter key whatever the chat provider is.</div>
     <!-- M14-A5: where the person's apps live (only the chooser changes it). -->
     <div class="field"><label for="setting-vault">Apps folder</label>
       <div class="row"><input id="setting-vault" readonly placeholder="No apps folder chosen yet"><button id="btn-choose-vault">Choose…</button></div></div>
