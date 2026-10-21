@@ -17,8 +17,8 @@ blocked) already serves as the "before"; one "after" run with the same model fil
 - Calibration: Berton's four logged gpt-6-luna pairs give a median provider/estimate ratio of **0.5559**, so a
   request the old estimator called 47,224 tokens is now ~26k against the 45k target. 1.0 until three answered
   requests exist for a provider+model (`.runtime/model_usage_calibration.jsonl`).
-- Tool schemas: all 84 tools **17,255 → 13,978** estimated tokens (uncalibrated); the build view (39 tools)
-  is under 7k; every DESCRIPTION ≤ 280 characters.
+- Tool schemas: all 84 tools **17,255 → 13,893** estimated tokens (uncalibrated); the build view (42 tools)
+  is ≈ 7.06k; every DESCRIPTION ≤ 280 characters.
 - A ledger observation (facts + MeTTa conclusions through the one-shot worker + one transaction) takes
   ≈ 0.45 s; it runs only on `browser_open_app` and `app_probe` of a vault app. build_mode reads atoms each
   cycle (no MeTTa).
@@ -30,6 +30,11 @@ blocked) already serves as the "before"; one "after" run with the same model fil
   untouched; a plan that still does not fit blocks with the notice.
 - A3: one notice per block, and again only after a new message from the person (a "Hello?" to a blocked Iter
   is answered with the reason instead of silence). The heartbeat and retry-on-change are as before.
+- B1 (audit): the build view also carries `episodes`, `record_episode` and `reminder` — the Recap Request and
+  nop's own text ask for them mid-build, and a tool the prompt names but the request lacks costs cycles. That
+  puts the build view at ≈ 7.06k, so the test bound is 7.2k.
+- C1 (audit): the bridge reloads the app after the check whenever a submit button was clicked, not only when
+  storage changed — a handler that adds an empty item to in-memory state leaves no trace either.
 - B1: the chat view hides the five build-only tools even though they are in `PROTECTED_TOOL_NAMES` (the test
   and B1 require it); `PROTECTED_TOOL_NAMES` still governs the load cap and A2's degrade.
 - B2: 70 descriptions were rewritten, not twelve: the ≤ 14k all-tools estimate needs an average near 175

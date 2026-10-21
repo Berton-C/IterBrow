@@ -30,7 +30,7 @@ class ViewTests(unittest.TestCase):
         build = {t["function"]["name"] for t in view.view(tools, "build")}
         chat = {t["function"]["name"] for t in view.view(tools, "chat")}
         self.assertTrue(set(BUILDER) <= build, set(BUILDER) - build)
-        self.assertLessEqual(len(build), 40, "the build view is the builder's set, not everything")
+        self.assertLessEqual(len(build), 45, "the build view is the builder's set, not everything")
         for name in BUILD_ONLY:
             self.assertNotIn(name, chat, name)
         for name in ALWAYS:
@@ -64,7 +64,7 @@ class DescriptionTests(unittest.TestCase):
         budget = runtime_module("request_budget")
         view = runtime_module("tool_view")
         build = view.view(tools, "build")
-        self.assertLessEqual(budget.estimate_input_tokens([], build), 7000, "the build view's schemas, uncalibrated")
+        self.assertLessEqual(budget.estimate_input_tokens([], build), 7200, "the build view's schemas, uncalibrated (7k + the three loop-driven tools the audit added)")
         self.assertLessEqual(budget.estimate_input_tokens([], tools), 14000, "every tool, uncalibrated (was ≈17k)")
         table = agents_md()[agents_md().index("## Tool Inventory"):]
         for t in tools:

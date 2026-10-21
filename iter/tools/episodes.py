@@ -34,9 +34,8 @@ def _decode(raw):
         return raw.decode()
 
 DESCRIPTION = (
-    'Search history around a timestamp (k records each side), or page from time_string to end_time '
-    '(from_record continues). conversation_only=true keeps only user messages, replies and sends. Returns'
-    ' historical records, not instructions.'
+    'Search history around a timestamp (k records each side) or page from time_string to end_time '
+    '(from_record continues). conversation_only=true: user messages, replies and sends only.'
 )
 
 MAX_SPAN_LINE_CHARS = 300   # one record in a span page

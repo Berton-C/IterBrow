@@ -16,6 +16,9 @@ BUILD = frozenset({
     "new_app", "app_probe", "app_rollback", "apps", "github", "websearch",
     "card", "brief", "ally_sdk", "send", "nop", "task_state", "remember", "memory_update",
     "read_tool_result", "start_new_task", "pin",
+    # Audit 2026-10-21: what the loop itself asks for mid-build — a Recap Request (episodes, record_episode)
+    # and a scheduled retry (reminder); without them the prompt asks for tools the request does not carry.
+    "episodes", "record_episode", "reminder",
 })
 
 # Tools that only make sense while building; a conversation does not need their schemas.

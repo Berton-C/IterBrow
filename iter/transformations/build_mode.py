@@ -83,13 +83,13 @@ def current_app(messages):
 
 
 def ask_text(messages, app):
-    """What the person asked for this app (M15-C2, read literally): their messages in the window that name it,
-    and the one the build answers (the last before the first call that touched it)."""
-    window = [m for m in messages or [] if isinstance(m, dict)][-WINDOW:]
+    """What the person asked for this app (M15-C2, read literally): their messages that name it — anywhere in
+    the history handed to transformations, since the ask scrolls out of the 16-message window within a few
+    cycles — and the one the build answers (the last before the first call that touched it)."""
     named = re.compile(r"\b%s\b" % re.escape(app))
     texts, last_user = [], None
     touched = False
-    for message in window:
+    for message in [m for m in messages or [] if isinstance(m, dict)]:
         if message.get("role") == "user" and not message.get("_iter_runner"):
             text = _text(message.get("content"))
             last_user = text

@@ -239,6 +239,7 @@ function checkScript(spec) {
       selectors, ready: !!document.body && document.body.dataset.iterReady === 'true',
       storage: { prefixed, other: writes.filter((key) => !key.startsWith(prefix)).sort() },
       scripts: hosts.sort(), forms, placeholder: !!document.querySelector('#placeholder'), title: document.title, restored,
+      clicked: forms.length > 0,
     };
   }.toString()})(${JSON.stringify(spec)})`;
 }

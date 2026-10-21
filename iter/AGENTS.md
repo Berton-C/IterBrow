@@ -408,9 +408,9 @@ were confirmation.
 | `browser_wait_for` | Wait until a selector is visible, the page shows text, and/or the URL contains a string |
 | `browser_open_app` | Open one of the person's apps as they see it (app tab, with its preload) and target it |
 | `app_probe` | Prove an open app works: run steps, then check assertions in its tab. steps: JSON [{kind: click\|fill, selector, value?}]; assertions: JSON [{kind: text\|value\|count\|visible, selector, expected}]; none: its probe.json. First line: PROBE <app>: n passed, m failed. |
-| `new_app` | Start an app in the person's apps folder: vault/<id>/ with index.html, probe.json, README.md per docs/APP_CONTRACT.md; the probe fails until the placeholder is replaced. id: lowercase, digits, dashes. from_example: copy an app instead. Then edit and browser_open_app(<id>). |
+| `new_app` | Start an app in the person's apps folder: vault/<id>/ with index.html, probe.json, README.md per docs/APP_CONTRACT.md (the probe fails until the placeholder is replaced). from_example copies an app instead. Then browser_open_app(<id>). |
 | `app_rollback` | Undo your last change(s) to vault/<app>/ (every write there saved the previous content). steps: how many, newest first (default 1); steps="0" lists the history and changes nothing. Then app_probe again. |
-| `github` | Read GitHub (read-only). action=search: query -> repos by stars. action=tree: repo=owner/name -> files. action=read: repo + path -> numbered lines. Credit what you adopt in the app's README; respect licenses. 10 searches a minute. |
+| `github` | Read GitHub (read-only). action=search: query -> repos by stars; tree: repo=owner/name -> files; read: repo + path -> numbered lines. Credit what you adopt in the app's README. 10 searches a minute. |
 | `websearch` | Search the web: DuckDuckGo first, then Wikipedia, Hacker News, GitHub, Crossref, Open Library (source=github: repos only). JSON results with title, url, snippet; NO RESULTS: <query> when nothing matched. For repo files use github. |
 | `soul_lock` | Mutation lock (begin → verify → commit/rollback) around the Soul kernel seed and the NACE belief files |
 | `soul_reflect` | Read a situation through the Soul lens: facets of the named patterns, tension vectors, declared pairs. No ruling |

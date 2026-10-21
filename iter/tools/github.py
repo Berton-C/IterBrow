@@ -16,9 +16,9 @@ import _files  # noqa: E402
 from iterbrow_runtime.tool_results import ToolOutput, READ_WIRE_CHARS  # noqa: E402
 
 DESCRIPTION = (
-    'Read GitHub (read-only). action=search: query -> repos by stars. action=tree: repo=owner/name -> '
-    "files. action=read: repo + path -> numbered lines. Credit what you adopt in the app's README; "
-    'respect licenses. 10 searches a minute.'
+    'Read GitHub (read-only). action=search: query -> repos by stars; tree: repo=owner/name -> files; '
+    "read: repo + path -> numbered lines. Credit what you adopt in the app's README. 10 searches a "
+    'minute.'
 )
 
 USER_AGENT = "IterBrow"

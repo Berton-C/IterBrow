@@ -3495,7 +3495,7 @@ ipcMain.handle('crm:open', async () => {
 // One catalog: iterbrow_runtime/local_apps.py (Foundry projects and plain folders).
 function appsCatalog() {
   return new Promise((resolve) => {
-    execFile(pythonBin(), ['-m', 'iterbrow_runtime.local_apps'], { cwd: ITER_DIR, env: { ...process.env, ITER_DIR }, timeout: 15000 },
+    execFile(pythonBin(), ['-m', 'iterbrow_runtime.local_apps'], { cwd: ITER_DIR, env: { ...process.env, ITER_DIR, ITER_METTA_SOCKET }, timeout: 15000 },
       (error, stdout) => {
         if (error) { pushLog('[apps] catalog unavailable: ' + error.message); resolve([]); return; }
         try { resolve(JSON.parse(String(stdout).trim().split('\n').pop())); } catch (_) { resolve([]); }

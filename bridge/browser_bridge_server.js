@@ -70,8 +70,8 @@ function newestFileTime(dir, depth = 0) {
 
 // M15-C1: the contract check in an app tab (see page_scripts.checkScript): the ask's named selectors come from
 // Iter's tool. Never on a locked tab (the check clicks submit buttons); a failure is a missing check (null),
-// never a failed open or probe. When the check's clicks changed storage it was put back and the page is
-// reloaded, so the app's memory matches its storage again.
+// never a failed open or probe. When the check clicked a submit button, storage it changed is put back and the
+// page is reloaded, so the app shows what it would after a plain open.
 function selectorList(value) {
   return (Array.isArray(value) ? value : []).filter((item) => typeof item === 'string' && item.trim() && item.length <= 200).slice(0, 40);
 }
@@ -88,7 +88,9 @@ async function contractCheck(tabs, tab, appId, selectors) {
       ]);
     } finally { clearTimeout(timer); }
     if (!result || typeof result !== 'object' || !result.selectors) return null;
-    if (result.restored) {
+    if (result.restored || result.clicked) {
+      // Audit 2026-10-21: a submit handler may have changed in-memory state (an empty item in the list) without
+      // touching storage; only a reload makes the page what a person would see after opening it.
       await tabs.awaitLoad(tab.id, (contents) => contents.reload());
       await tab.view.webContents.executeJavaScript(ledgerWritesScript(appId, true), true);
     }

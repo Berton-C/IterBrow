@@ -34,9 +34,9 @@ def _mkdirs(path):
             pass
 
 DESCRIPTION = (
-    'Register the current task (memory/tasks/current_tasks.txt). By default updates existing work; '
-    'new_work=true only for a genuinely separate goal, not a clarification or repair. Required: person, '
-    'requestchannel, taskcontent, completionsendcriterium, originalUserMessage.'
+    'Register the current task (memory/tasks/current_tasks.txt); by default updates existing work. '
+    'new_work=true only for a separate goal, never a clarification or repair. All five fields are '
+    'required.'
 )
 
 ARCHIVE_KEEP = 200

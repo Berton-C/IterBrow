@@ -15,8 +15,8 @@ import _files  # noqa: E402
 
 DESCRIPTION = (
     "Start an app in the person's apps folder: vault/<id>/ with index.html, probe.json, README.md per "
-    'docs/APP_CONTRACT.md; the probe fails until the placeholder is replaced. id: lowercase, digits, '
-    'dashes. from_example: copy an app instead. Then edit and browser_open_app(<id>).'
+    'docs/APP_CONTRACT.md (the probe fails until the placeholder is replaced). from_example copies an app'
+    ' instead. Then browser_open_app(<id>).'
 )
 
 PAGE = """<!doctype html>
