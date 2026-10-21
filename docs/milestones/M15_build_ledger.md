@@ -1,7 +1,7 @@
 # Milestone 15 — The build ledger: a loop that never wedges, and an atom space that remembers the build
 
 Status: **scoped 2026-10-21, not implemented.** Base: M6–M14. Tests: `tests/test_m15_*.py` and
-`tests/e2e/test_m15_loop.py` (written with the go); helpers in `tests/m15_support.py`. How to build it:
+`tests/e2e/test_m15_loop.py` (28 `@pending`); helpers in `tests/m15_support.py`; fixtures in `tests/fixtures/m15/`. How to build it:
 `CLAUDE.md`; check a section with `scripts/check_section.sh M15-A`. `M15_IMPLEMENTED` is keyed on
 `iter/iterbrow_runtime/build_ledger.py` (C1). Implement A→E, one commit each.
 
@@ -81,6 +81,14 @@ expected), `scripts/foundry_bench/bench.py`.
   `request_blocked`, and `wait_report` ends the app early with `reason: "request_blocked"` when the
   heartbeat enters that phase, instead of waiting out the silence.
 
+Build notes: `calibration` and `degrade` are pure functions in `request_budget.py` (the tests call them with
+synthetic numbers); `project_request` gains a keyword `calibration_ratio=1.0` and its report dict (the third
+return value) gains `calibration` and `calibrated_input_tokens`. The loop writes one `{"estimated", "actual",
+"provider", "model"}` line per answered request. `blocked_notice(error)` is a module-level pure function in
+`iter.py` that parses the `RequestBudgetExceeded` text (the test runs its source on its own); keep a
+module-level flag so one block is announced once. The e2e pads the system prompt with a fake transformation
+(`ITER_E2E_PAD` characters): 45,000 chars must degrade and still send; 400,000 must block and announce once.
+
 Tests: `tests/test_m15_budget.py` (calibration from synthetic records; degrade order; the notice text;
 an e2e in `tests/e2e/test_m15_loop.py` with a fake model whose tool list is padded until the estimate
 crosses the target: the request still goes out, degraded, and no notice; then padded past any degrade:
@@ -101,6 +109,11 @@ Files: `iter/iterbrow_runtime/tool_view.py` (new), `iter/transformations/dynamic
 - **B2 — descriptions fit.** Every `DESCRIPTION` ≤ 280 characters (the twelve over 400 today rewritten,
   tables regenerated); `MAX_TOOL_DESCRIPTION_CHARS` = 300. The schema estimate for the build view is ≤
   7k before calibration (asserted by a test that serialises the real tools the way `_estimate_cost` does).
+
+Build notes: `tool_view.view(tools, mode)` keeps order and the dicts (filter, never copy-and-edit); an unknown
+mode returns the list unchanged. Apply it in `dynamic_tool_budget` (it already edits the tools list) using
+`build_mode.active(messages)`. Rewrite the twelve descriptions over 400 characters first; the estimate test
+serialises the real tools with `request_budget.estimate_input_tokens`.
 
 Tests: `tests/test_m15_tools.py`.
 
@@ -146,8 +159,19 @@ Files: `iter/iterbrow_runtime/build_ledger.py` (new), `iter/seeds/build_ledger.m
   says `next: report`) and at each regression, `build_ledger` appends `(pending-revision pattern
   probe_before_report confirmed|disconfirmed)` and `(pending-revision pattern edit_keeps_passing
   confirmed|disconfirmed)` to `nace_pending.metta`, exactly as `idle_cycle_detector` does today; the
-  courier revises them on its normal cycle and the gate's advisory shows them. The two pattern names are
-  seeded in `nace_substrate.metta`'s pattern list if absent. Courier and tracker code untouched.
+  courier revises them on its normal cycle (`queue_pattern(name, outcome)` appends the line) and the
+  gate's advisory shows them; no seed change is needed — the courier creates the belief on first revision,
+  as it does for `prioritize_user`. Courier and tracker code untouched.
+
+Build notes: the extractors return `[(key, atom)]` (a dict is accepted by the tests too). Selector facts use
+the selector string itself (`(app-has todo "#add")`, `(app-has todo ".toggle")`) so the rules compare strings
+and never build them. `conclude(app, run)` composes the `!` lines, calls `run(code) → str(results)` and parses
+into `{missing, unwired, unproven, regressed, contract, probe, next}`; the tests run it through the real
+one-shot worker (`m15_support.run_metta`) with the seed units of `seeds/build_ledger.metta`. Negation in
+MeTTa: `(if (== (collapse (match &self (app-has $app $sel) 1)) ()) $sel (empty))` is the pattern; sequence
+numbers (`app-file-seq`, `probe-run … seq`) decide `unproven`. A ledger failure anywhere is caught and
+logged — never a tool failure. `queue_pattern(name, outcome)` appends to `nace_pending.metta` as
+`idle_cycle_detector` does; the courier and tracker files are pinned unchanged.
 
 Tests: `tests/test_m15_ledger.py` (extractors over the five bench apps' real HTML copied as fixtures and the
 briefs' asks; rules with a fake query over fixed atoms and with the real engine; render; `app_probe` and
@@ -168,6 +192,14 @@ serve mode).
 - **D2 — measured.** With the real Hyperon at 20k atoms: a `current`-view query after one upsert ≤ 0.15 s
   (today ≈ 1 s); `[request preparation]` on the harness shows `metta_reasoning` under 0.2 s. Recorded in
   the implementation notes with the Mac's figures.
+
+Build notes: `metta_query_worker.py --serve <view>` reads JSON lines on stdin (`{"load": {seed_units,
+atoms}}`, `{"apply": {"removed": {key: atom}, "added": {key: atom}}}`, `{"query": code}`) and answers one JSON
+line each; `QueryWorker` in `metta_server.py` owns the process, the applied state hash, and restarts it on
+any disagreement, death or timeout. `transact` feeds every worker the same delta `_rebuild_engine` computes
+(filtered to the view's atoms). `status()` reports `query_workers: {view: pid}` and
+`query_isolation: "warm_process_per_view"`; `shutdown_query_workers()` on quiesce/exit. The one-shot
+`evaluate` path stays as the fallback and for tests.
 
 Tests: `tests/test_m15_worker.py`.
 

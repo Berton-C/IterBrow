@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Todo</title>
+  <style>
+    :root { color-scheme: light dark; --fg: #1d1b22; --bg: #faf9fc; --muted: #6b6578; --accent: #6b4fd8; }
+    @media (prefers-color-scheme: dark) { :root { --fg: #ece9f3; --bg: #17151c; --muted: #9a93a8; } }
+    body { margin: 0; font: 15px/1.5 -apple-system, system-ui, sans-serif; color: var(--fg); background: var(--bg); }
+    header, main { max-width: 720px; margin: 0 auto; padding: 16px; }
+    h1 { margin: 24px 0 8px; font-size: 24px; }
+  </style>
+</head>
+<body data-iter-ready="false">
+  <header><h1 id="title">Todo</h1></header>
+  <main id="app"><p id="placeholder">Nothing here yet — this app is still being built.</p></main>
+  <script>
+    // App contract (docs/APP_CONTRACT.md): state lives in localStorage under this prefix.
+    const STORE = 'iter:todo:';
+    const load = (key, fallback) => { try { const v = localStorage.getItem(STORE + key); return v === null ? fallback : JSON.parse(v); } catch (_) { return fallback; } };
+    const save = (key, value) => { try { localStorage.setItem(STORE + key, JSON.stringify(value)); } catch (_) {} };
+
+    function init() {
+      // Build the app here, replacing the placeholder (the probe insists it is gone).
+      document.body.dataset.iterReady = 'true';
+    }
+    init();
+  </script>
+</body>
+</html>

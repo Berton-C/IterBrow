@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Todo</title></head>
+<body data-iter-ready="false">
+  <h1 id="title">Todo</h1>
+  <form id="todo-form">
+    <input id="new-todo" placeholder="What needs doing?">
+    <button id="add">Add</button>
+  </form>
+  <ul id="list"></ul>
+  <script src="https://cdn.example.com/lib.js"></script>
+  <script>
+    const items = JSON.parse(localStorage.getItem('todos') || '[]');
+    document.getElementById('todo-form').addEventListener('submit', () => {
+      items.push({ text: document.getElementById('new-todo').value, done: false });
+      localStorage.setItem('todos', JSON.stringify(items));
+      render();
+    });
+    function render() {
+      document.getElementById('list').innerHTML = items.map((item) =>
+        '<li class="' + (item.done ? 'done' : '') + '"><span class="label">' + item.text + '</span>' +
+        '<button class="toggle">Done</button></li>').join('');
+    }
+    render();
+    document.body.dataset.iterReady = 'true';
+  </script>
+</body>
+</html>

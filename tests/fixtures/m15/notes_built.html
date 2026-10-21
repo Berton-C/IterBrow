@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Markdown Notes</title>
+  <style>
+    :root { color-scheme:light; --fg:#24212b; --bg:#f6f4f9; --panel:#fff; --muted:#6f687c; --line:#ddd8e6; --accent:#6747c7; --soft:#eee9fa; }
+    :root[data-theme="dark"] { color-scheme:dark; --fg:#eeeaf4; --bg:#17151c; --panel:#211e28; --muted:#aaa2b6; --line:#393442; --accent:#b6a1ff; --soft:#302a3b; }
+    * { box-sizing:border-box; }
+    body { margin:0; font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; color:var(--fg); background:var(--bg); }
+    header, main { width:min(960px,100%); margin:0 auto; padding:18px 22px; }
+    header { padding-top:26px; display:flex; align-items:center; justify-content:space-between; gap:16px; }
+    h1 { margin:0; font-size:1.75rem; letter-spacing:-.03em; }
+    #theme-toggle { color:var(--fg); background:var(--panel); border:1px solid var(--line); white-space:nowrap; }
+    #theme-toggle:hover { background:var(--soft); }
+    .intro { color:var(--muted); margin:.35rem 0 0; }
+    .workspace { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:18px; align-items:start; }
+    .panel { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:18px; box-shadow:0 5px 18px #10091a0a; }
+    .panel h2 { font-size:1.05rem; margin:0 0 12px; }
+    textarea { display:block; width:100%; min-height:250px; resize:vertical; padding:12px; border:1px solid var(--line); border-radius:9px; background:var(--bg); color:var(--fg); font:14px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace; }
+    textarea:focus, button:focus-visible { outline:3px solid color-mix(in srgb,var(--accent) 45%,transparent); outline-offset:2px; }
+    .actions { display:flex; gap:10px; align-items:center; margin-top:12px; }
+    button { cursor:pointer; border:0; border-radius:8px; padding:9px 14px; font:600 14px inherit; }
+    #save { color:white; background:var(--accent); }
+    #save:hover { filter:brightness(1.08); }
+    #status { color:var(--muted); font-size:13px; min-height:1.4em; }
+    #preview { overflow-wrap:anywhere; min-height:250px; }
+    #preview > :first-child { margin-top:0; }
+    #preview h1,#preview h2,#preview h3,#preview h4,#preview h5,#preview h6 { line-height:1.25; margin:1em 0 .4em; }
+    #preview h1 { font-size:1.65rem; }
+    #preview h2 { font-size:1.4rem; }
+    #preview p { margin:.65em 0; }
+    #preview ul,#preview ol { padding-left:1.5rem; }
+    #preview code { background:var(--soft); border-radius:4px; padding:.12em .3em; font-family:ui-monospace,monospace; }
+    .notes-panel { margin-top:18px; }
+    #notes { list-style:none; margin:0; padding:0; display:grid; gap:9px; }
+    #notes li { display:flex; align-items:center; gap:10px; min-width:0; padding:10px 12px; background:var(--bg); border:1px solid var(--line); border-radius:9px; }
+    .note-open { flex:1; min-width:0; padding:0; text-align:left; color:var(--fg); background:transparent; font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .note-delete { padding:5px 9px; color:var(--muted); background:transparent; }
+    .note-delete:hover { color:#c03952; background:var(--soft); }
+    .empty { color:var(--muted); margin:0; }
+    @media(max-width:680px) { .workspace { grid-template-columns:1fr; } header,main { padding-left:15px; padding-right:15px; } }
+  </style>
+</head>
+<body data-iter-ready="false">
+  <header>
+    <div><h1 id="title">Markdown Notes</h1>
+    <p class="intro">Write in Markdown, see it rendered, and keep notes in this browser.</p></div>
+    <button id="theme-toggle" type="button" aria-pressed="false">Dark mode</button>
+  </header>
+  <main id="app">
+    <div class="workspace">
+      <section class="panel" aria-labelledby="write-heading">
+        <h2 id="write-heading">Write</h2>
+        <label for="note-body" class="sr-only">Note in Markdown</label>
+        <textarea id="note-body" placeholder="# A new note&#10;&#10;Write **bold**, *italic*, or a list…" spellcheck="false"></textarea>
+        <div class="actions"><button id="save" type="button">Save note</button><span id="status" role="status" aria-live="polite"></span></div>
+      </section>
+      <section class="panel" aria-labelledby="preview-heading">
+        <h2 id="preview-heading">Live preview</h2>
+        <div id="preview" aria-live="polite"><p class="empty">Your formatted note will appear here as you write.</p></div>
+      </section>
+    </div>
+    <section class="panel notes-panel" aria-labelledby="saved-heading">
+      <h2 id="saved-heading">Saved notes</h2>
+      <ul id="notes"></ul>
+      <p id="empty-notes" class="empty">No notes saved yet.</p>
+    </section>
+  </main>
+  <script>
+    'use strict';
+    const STORE = 'iter:notes:';
+    const load = (key, fallback) => { try { const v = localStorage.getItem(STORE + key); return v === null ? fallback : JSON.parse(v); } catch (_) { return fallback; } };
+    const save = (key, value) => { try { localStorage.setItem(STORE + key, JSON.stringify(value)); return true; } catch (_) { return false; } };
+    const body = document.querySelector('#note-body');
+    const preview = document.querySelector('#preview');
+    const notesNode = document.querySelector('#notes');
+    const statusNode = document.querySelector('#status');
+    let notes = load('saved-notes', []);
+    if (!Array.isArray(notes)) notes = [];
+
+    function escapeHtml(text) {
+      return text.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+    function inlineMarkdown(text) {
+      let out = escapeHtml(text);
+      out = out.replace(/`([^`]+)`/g, '<code>$1</code>');
+      out = out.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/__([^_]+)__/g, '<strong>$1</strong>');
+      out = out.replace(/\*([^*]+)\*/g, '<em>$1</em>').replace(/_([^_]+)_/g, '<em>$1</em>');
+      return out;
+    }
+    function renderMarkdown(markdown) {
+      const lines = markdown.replace(/\r\n?/g, '\n').split('\n');
+      const html = [];
+      let list = '';
+      let paragraph = [];
+      const closeList = () => { if (list) { html.push(`</${list}>`); list = ''; } };
+      const flushParagraph = () => { if (paragraph.length) { html.push(`<p>${paragraph.map(inlineMarkdown).join(' ')}</p>`); paragraph = []; } };
+      for (const line of lines) {
+        const heading = line.match(/^ {0,3}(#{1,6})\s+(.+?)\s*#*\s*$/);
+        const unordered = line.match(/^\s*[-*+]\s+(.+)$/);
+        const ordered = line.match(/^\s*\d+[.)]\s+(.+)$/);
+        if (heading) {
+          flushParagraph(); closeList(); const level = heading[1].length;
+          html.push(`<h${level}>${inlineMarkdown(heading[2])}</h${level}>`);
+        } else if (unordered || ordered) {
+          flushParagraph(); const wanted = unordered ? 'ul' : 'ol';
+          if (list && list !== wanted) closeList();
+          if (!list) { list = wanted; html.push(`<${list}>`); }
+          html.push(`<li>${inlineMarkdown((unordered || ordered)[1])}</li>`);
+        } else if (!line.trim()) {
+          flushParagraph(); closeList();
+        } else {
+          closeList(); paragraph.push(line.trim());
+        }
+      }
+      flushParagraph(); closeList();
+      return html.join('') || '<p class="empty">Your formatted note will appear here as you write.</p>';
+    }
+    function updatePreview() { preview.innerHTML = renderMarkdown(body.value); }
+    function renderNotes() {
+      notesNode.replaceChildren();
+      for (const note of notes) {
+        const li = document.createElement('li');
+        const open = document.createElement('button'); open.type = 'button'; open.className = 'note-open';
+        open.textContent = (note.text || '').split('\n').find(line => line.trim())?.replace(/^\s*#+\s*/, '') || 'Untitled note';
+        open.title = 'Load note into editor'; open.addEventListener('click', () => { body.value = note.text; updatePreview(); body.focus(); statusNode.textContent = 'Loaded note.'; });
+        const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'note-delete'; remove.textContent = 'Delete'; remove.setAttribute('aria-label', `Delete ${open.textContent}`);
+        remove.addEventListener('click', () => { notes = notes.filter(item => item.id !== note.id); persistNotes(); renderNotes(); statusNode.textContent = 'Note deleted.'; });
+        li.append(open, remove); notesNode.append(li);
+      }
+      document.querySelector('#empty-notes').hidden = notes.length > 0;
+    }
+    function persistNotes() {
+      if (!save('saved-notes', notes)) statusNode.textContent = 'Could not save: browser storage is unavailable.';
+    }
+    document.querySelector('#save').addEventListener('click', () => {
+      const text = body.value.trim();
+      if (!text) { statusNode.textContent = 'Write something before saving.'; body.focus(); return; }
+      notes.unshift({ id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, text });
+      persistNotes(); renderNotes(); statusNode.textContent = 'Saved.';
+    });
+    body.addEventListener('input', updatePreview);
+    try { renderNotes(); updatePreview(); document.body.dataset.iterReady = 'true'; }
+    catch (error) { statusNode.textContent = `Could not load notes: ${error.message}`; }
+  </script>
+</body>
+</html>
