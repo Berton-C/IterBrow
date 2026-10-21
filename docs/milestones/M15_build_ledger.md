@@ -1,9 +1,10 @@
 # Milestone 15 — The build ledger: a loop that never wedges, and an atom space that remembers the build
 
-Status: **scoped 2026-10-21, not implemented.** Base: M6–M14. Tests: `tests/test_m15_*.py` and
-`tests/e2e/test_m15_loop.py` (28 `@pending`); helpers in `tests/m15_support.py`; fixtures in `tests/fixtures/m15/`. How to build it:
+Status: **scoped 2026-10-21, revised the same day (observe-don't-parse; D deferred), not implemented.** Base: M6–M14.
+Tests: `tests/test_m15_{budget,tools,ledger,check}.py` and `tests/e2e/test_m15_loop.py` (29 `@pending`; `test_m15_worker.py` is
+deferred and skipped); helpers in `tests/m15_support.py`; fixtures in `tests/fixtures/m15/`. How to build it:
 `CLAUDE.md`; check a section with `scripts/check_section.sh M15-A`. `M15_IMPLEMENTED` is keyed on
-`iter/iterbrow_runtime/build_ledger.py` (C1). Implement A→E, one commit each.
+`iter/iterbrow_runtime/build_ledger.py` (C2). Implement A→C then E, one commit each (D is deferred).
 
 ## Why — what the three benchmark runs actually said
 
@@ -26,7 +27,7 @@ every failure so far was mechanical, and the one clean case (notes on 2026-10-20
    messages: 500` under the budget. Each cycle the model re-derives what it built, what the last probe
    said and what is left — the source of re-reading files, re-probing, "tracing the handoff", and of
    reporting a scaffold as done (convert, 2026-10-19).
-3. **The last second per cycle is the isolated query worker.** `metta_reasoning` (1.0 s) and the courier's
+3. **The last second per cycle is the isolated query worker** (deferred, see D). `metta_reasoning` (1.0 s) and the courier's
    cross-check each rebuild a Hyperon space from the snapshot in a subprocess. It is also why nobody adds
    per-cycle MeTTa reasoning: each query costs a second.
 4. **Theatre and the fork card are the model's habits, not mechanics** — 2 progress notes per app before
@@ -42,18 +43,18 @@ courier and episodic memory untouched; a feature that is off leaves no trace; no
   reported usage (every request logs `input_tokens`); the 45k target applies to the calibrated estimate.
 - **D6 — tools are projected per request, never removed.** The tool list the model sees is a view (what
   `dynamic_tool_budget` already does for unreliable tools); every tool is back on the next cycle.
-- **D7 — the ledger is derived, never authored by the model.** Atoms come from parsing files, asks and
-  probe results in Python; conclusions come from MeTTa rules; the model only reads the result.
+- **D7 — the ledger is derived, never authored by the model.** Facts come from observing the running app
+  and from what the ask literally names; conclusions come from MeTTa rules; the model only reads the result.
+- **D8 — observe, don't parse; reason when facts change, read when prompting** (section C).
 
 ## Test seams
 
 `iterbrow_runtime/request_budget.py`: `calibration(records) → ratio`, `degrade(components, limit) →
 plan` (pure); `iter.py`: `blocked_notice(error)` (pure text); `iterbrow_runtime/tool_view.py`:
-`view(tools, mode) → tools` (pure); `iterbrow_runtime/build_ledger.py`: `facts_from_html(app, html)`,
-`facts_from_ask(app, text)`, `facts_from_probe(app, result_text)`, `render(conclusions)` (pure);
-`seeds/build_ledger.metta` (rules, queried through the existing `query` method with view `current`);
-`metta_server`: `QueryWorker` with `apply(delta)` (tested with the fake MeTTa from `test_metta_service.py`
-and with the real Hyperon for the timing assertion).
+`view(tools, mode) → tools` (pure); `bridge/page_scripts.js`: `checkScript(spec)` (pure, Playwright-tested); `iterbrow_runtime/build_ledger.py`:
+`facts_from_ask(app, text)`, `facts_from_check(app, check)`, `facts_from_probe(app, result, probe_json, seq)`,
+`conclude(app, run)`, `render(app, conclusions)` (pure); `seeds/build_ledger.metta` (rules, run through the
+existing one-shot worker — `m15_support.run_metta`).
 
 ## A. The request never wedges silently
 
@@ -117,91 +118,93 @@ serialises the real tools with `request_budget.estimate_input_tokens`.
 
 Tests: `tests/test_m15_tools.py`.
 
-## C. The build ledger — the atom space as the working memory of a build
+## C. The build ledger — observed in the running app, reasoned when facts change, read every cycle
 
-Files: `iter/iterbrow_runtime/build_ledger.py` (new), `iter/seeds/build_ledger.metta` (new, declared in
-`state_manifest.json` like the other seeds), `iter/tools/{write_file,edit_file,new_app,app_probe}.py`
-(record), `iter/transformations/build_mode.py` (render), `iter/tools/_files.py`.
+Files: `bridge/page_scripts.js` (`checkScript`, pure), `bridge/browser_bridge_server.js` (`openApp` and
+`probe` run it), `iter/iterbrow_runtime/build_ledger.py` (new), `iter/seeds/build_ledger.metta` (new, declared
+in `state_manifest.json` like the other seeds), `iter/tools/{browser_open_app,app_probe,new_app}.py` (record),
+`iter/tools/{write_file,edit_file}.py` (a one-line reminder, no facts), `iter/transformations/build_mode.py`
+(ask facts, render), `iter/iterbrow_runtime/local_apps.py` (drop facts of apps that are gone).
 
-- **C1 — facts.** Pure extractors, each returning `[(key, atom)]` for the store:
-  `facts_from_ask(app, text)` — ids and classes the ask names (`#add`, `.toggle`), words that imply a
-  requirement (`persist`/`reload` → `(ask-requires app persist)`, `dark mode` → `(ask-requires app
-  "#theme-toggle")` when the ask names the id), as `(ask-requires app "<selector>")`;
-  `facts_from_html(app, html)` — `(app-has-id app "add")`, `(app-has-class app "toggle")`,
-  `(app-listens app "#add" click)` (`addEventListener`/`onclick`/`onsubmit` on an id, best effort),
-  `(app-stores app "iter:app:")` or `(app-stores app other)`, `(app-ready-flag app true|false)`,
-  `(app-form-submit app "#todo-form" unguarded)` when a form has no `preventDefault`, `(app-script app
-  external "<host>")`, `(app-placeholder app present|gone)`;
-  `facts_from_probe(app, text)` — from an `app_probe` result: `(probe-run app <stamp> n m)` and one
-  `(probe-assertion app "<kind sel>" passed|failed)` each. Keys are `state:build:<app>:<fact>` so a new
-  parse replaces the old (upsert) and `app_rollback`/deleting the app removes them.
-- **C2 — recorded where the facts arise.** `write_file`/`edit_file` on `vault/<app>/index.html` (and
-  `new_app`) transact `facts_from_html`; `app_probe` transacts `facts_from_probe`; `build_mode` transacts
-  `facts_from_ask` for the newest person message that starts a build (once per ask, keyed by its hash).
-  Every write is one `transact` through the existing client; a failure is logged and never fails the tool.
-- **C3 — conclusions in MeTTa.** `seeds/build_ledger.metta` rules, evaluated with the existing `query`
-  (view `current`), derive: `(missing app sel)` = asked and no matching id/class; `(unwired app sel)` =
-  present, no listener, the ask names it as an action; `(unproven app)` = no probe run since the newest
-  file fact; `(regressed app assertion)` = failed now, passed in an earlier run; `(contract app storage)`,
-  `(contract app ready)`, `(contract app form-submit "#todo-form")`, `(contract app placeholder)`;
-  `(next app probe|build|report)` = report when nothing is missing/unproven/regressed, probe when unproven,
-  else build. One query per cycle in build mode (≈ 50 ms with D; without D the existing worker).
-- **C4 — the ledger in front of the model.** `render(conclusions)` → at most 8 lines:
+Three decisions (2026-10-21), each removing a family of failure vectors from the first draft:
+
+- **Observe, don't parse.** Facts about the app come from the page running in IterBrow's own browser,
+  never from reading its source: any framework, any file layout, any handler style gives the same exact
+  answer. The first draft's regex extraction of listeners, forms and selectors (best-effort, wrong in
+  known ways) is gone.
+- **Precision over recall on the ask.** The ledger claims only what the ask literally names, and says so.
+  A loose ask yields fewer requirements, never wrong ones.
+- **Reason when facts change; read when prompting.** Conclusions are derived by MeTTa at observation time
+  (a handful of times per build, through the existing one-shot worker) and stored as atoms; each cycle
+  `build_mode` reads atoms (`read_atoms`, milliseconds). No per-cycle query, so no warm worker is needed.
+
+- **C1 — the contract check, in the page.** `page_scripts.checkScript(spec)` with `spec = {appId,
+  selectors: [...]}` evaluates in the app tab and returns `{selectors: {sel: {present, visible}}, ready,
+  storage: {prefixed: n, other: [keys…]}, scripts: [external hosts], forms: [{selector, guarded}],
+  placeholder, title}`. `guarded` is measured, not guessed: a bubbling `submit` listener on `document`,
+  registered by the check (so it runs after the app's own handlers), reads `event.defaultPrevented` when
+  the check clicks each form's submit button, and calls `preventDefault()` itself so the page never
+  navigates; forms without a submit button are skipped. The bridge's `openApp` runs it after the load
+  and `probe` runs it before the steps; both return it as `check`. Tested in Playwright over
+  `tests/fixtures/m15/*.html` served as pages.
+- **C2 — facts.** `build_ledger.facts_from_ask(app, text)` → `(ask-requires app "<selector>")` for every
+  `#id`/`.class` token the ask contains and `(ask-requires app persist)` for "persist"/"reload"/"remember";
+  nothing else, ever. `facts_from_check(app, check)` → `(app-has app "<sel>")`, `(app-visible app
+  "<sel>")`, `(app-ready app true|false)`, `(app-stores app prefixed|other)`, `(app-script app external
+  "<host>")`, `(app-form app "<sel>" guarded|unguarded)`, `(app-placeholder app present|gone)`.
+  `facts_from_probe(app, result, probe_json)` → `(probe-run app <seq> passed failed)`, `(probe-assertion
+  app <seq> "<kind sel>" passed|failed "<got≠expected>")`, and `(probe-covers app "<sel>")` for every
+  selector a step or assertion of `probe.json` touches. `(app-opened app <seq>)` on each open.
+  Keys `state:build:<app>:<family>:<n>`; each observation replaces the app's whole family (`remove` the
+  previous keys, `add` the new ones, one transaction), so nothing is stale and nothing accumulates.
+- **C3 — conclusions, in MeTTa, at observation time.** `seeds/build_ledger.metta` derives, over the
+  app's facts: `(missing app sel)` = asked, not present; `(hidden app sel)` = present, not visible;
+  `(unproven app sel)` = asked, not covered by a passing assertion or step of a probe run since the newest
+  open; `(regressed app assertion)` = failed now, passed in an earlier run; `(contract app ready|storage
+  |placeholder|form "<sel>"|script "<host>")`; `(next app build|probe|report)` = report when nothing is
+  missing, hidden, unproven, regressed or in contract breach, probe when the only gaps are unproven,
+  else build. `build_ledger.conclude(app, run)` composes the `!` lines, runs them through the one-shot
+  worker (`metta_server.query`, view `current`) and stores the result as `(ledger app next …)`,
+  `(ledger-line app "<rendered>")` atoms in the same transaction as the facts. Negation in MeTTa:
+  `(if (== (collapse (match &self (app-has $app $sel) 1)) ()) $sel (empty))`.
+- **C4 — the ledger in front of the model.** `render(app, conclusions)` → at most 8 lines, e.g.
   ```
-  [build ledger todo] missing: .delete, #theme-toggle · unwired: #add · contract: form-submit #todo-form
-  unguarded · probe: 2 passed, 1 failed (count #list li: 2≠3) · next: build]
+  [build ledger todo] missing (from the ask's named ids): .delete · hidden: none · unproven: .toggle ·
+  contract: form "#todo-form" unguarded, storage other · probe: 2 passed, 1 failed (count #list li: 2≠3)
+  · next: build]
   ```
-  `build_mode` appends it to the system prompt (replacing nothing; the loop text stays), and `write_file`
-  /`edit_file`/`new_app` append a one-line `· ledger: …` to their own result for that app. When the ledger
-  says `next: report` and the model sends, the report carries truth; when it says `missing`, a bare
-  scaffold cannot read as done. Never a gate: the model may ignore all of it.
-- **C5 — NACE learns from builds, through the courier's queue.** At each report (a `send` while the ledger
-  says `next: report`) and at each regression, `build_ledger` appends `(pending-revision pattern
-  probe_before_report confirmed|disconfirmed)` and `(pending-revision pattern edit_keeps_passing
-  confirmed|disconfirmed)` to `nace_pending.metta`, exactly as `idle_cycle_detector` does today; the
-  courier revises them on its normal cycle (`queue_pattern(name, outcome)` appends the line) and the
-  gate's advisory shows them; no seed change is needed — the courier creates the belief on first revision,
-  as it does for `prioritize_user`. Courier and tracker code untouched.
+  `browser_open_app` and `app_probe` append `· ledger: …` (the render, one line) to their own result,
+  produced from the observation in hand — so the truth reaches the model even if the store write failed,
+  in which case the line ends `(not recorded)`. `write_file`/`edit_file` on `vault/<app>/` append only
+  `· ledger: changed since last check — browser_open_app(<app>) to re-check`. `build_mode` reads
+  `state:build:<app>:ledger` each cycle and appends the stored line to the prompt; when the newest file
+  write is newer than the newest check it appends `[build ledger <app>: stale — re-check]` instead.
+  Never a gate.
+- **C5 — the catalog drops what is gone.** `local_apps.list_apps()` (run by the Apps menu and the `apps`
+  tool) removes `state:build:<app>:*` for any app no longer in the vault; `new_app` clears them first.
+  `app_rollback` leaves them (the next check replaces them).
+- **C6 — NACE learns from builds, through the courier's queue.** At a report (`send` while the stored
+  ledger says `next: report`) `queue_pattern("probe_before_report", "confirmed")`; at a report while it
+  says otherwise, `disconfirmed`; at a regression, `queue_pattern("edit_keeps_passing", "disconfirmed")`,
+  and `confirmed` when a probe after an edit keeps every earlier pass. Lines go to `nace_pending.metta`
+  exactly as `idle_cycle_detector` writes its own; the courier creates the beliefs on first revision, as
+  for `prioritize_user`. Courier and tracker code untouched (pinned by tests).
 
-Build notes: the extractors return `[(key, atom)]` (a dict is accepted by the tests too). Selector facts use
-the selector string itself (`(app-has todo "#add")`, `(app-has todo ".toggle")`) so the rules compare strings
-and never build them. `conclude(app, run)` composes the `!` lines, calls `run(code) → str(results)` and parses
-into `{missing, unwired, unproven, regressed, contract, probe, next}`; the tests run it through the real
-one-shot worker (`m15_support.run_metta`) with the seed units of `seeds/build_ledger.metta`. Negation in
-MeTTa: `(if (== (collapse (match &self (app-has $app $sel) 1)) ()) $sel (empty))` is the pattern; sequence
-numbers (`app-file-seq`, `probe-run … seq`) decide `unproven`. A ledger failure anywhere is caught and
-logged — never a tool failure. `queue_pattern(name, outcome)` appends to `nace_pending.metta` as
-`idle_cycle_detector` does; the courier and tracker files are pinned unchanged.
+Build notes: `checkScript` is the only new page script; keep it in the shape of `probeScript` (an async
+function serialised with `toString()`, a JSON spec, a bounded settle). The extractors are pure over
+dicts; the rules are tested through `m15_support.run_metta` with the real engine; the one e2e builds the
+unguarded fixture app in the vault under the real AtomSpace with no browser, so it covers ask facts, the
+file-write reminder and the stale line — the check itself is Playwright-tested. A ledger failure anywhere
+is caught and logged, never a tool failure.
 
-Tests: `tests/test_m15_ledger.py` (extractors over the five bench apps' real HTML copied as fixtures and the
-briefs' asks; rules with a fake query over fixed atoms and with the real engine; render; `app_probe` and
-`write_file` results carry the ledger line in a throwaway ITER_DIR with the fake AtomSpace the e2e harness
-provides).
+Tests: `tests/test_m15_ledger.py`, `tests/test_m15_check.py` (Playwright), `tests/e2e/test_m15_loop.py`.
 
-## D. The warm query worker
+## D. The warm query worker — deferred
 
-Files: `iter/metta_server.py` (`QueryWorker`), `iter/metta_query_worker.py` (today's one-shot worker gains a
-serve mode).
-
-- **D1 — one worker per view, kept warm.** `QueryWorker(view)` starts the isolated process once with the
-  view's seeds and atoms, then sends `{"apply": delta}` after every commit (the same delta `_rebuild_engine`
-  computes, filtered to the view) and `{"query": code}` on demand; the worker answers on stdin/stdout
-  JSON lines. The in-process engine, the journal and `query`'s result shape are unchanged; a worker that
-  dies, times out, or whose applied state hash disagrees with the store's `view_hash` is discarded and
-  the next query starts a fresh one (today's path). `status()` reports `query_workers: {view: pid}`.
-- **D2 — measured.** With the real Hyperon at 20k atoms: a `current`-view query after one upsert ≤ 0.15 s
-  (today ≈ 1 s); `[request preparation]` on the harness shows `metta_reasoning` under 0.2 s. Recorded in
-  the implementation notes with the Mac's figures.
-
-Build notes: `metta_query_worker.py --serve <view>` reads JSON lines on stdin (`{"load": {seed_units,
-atoms}}`, `{"apply": {"removed": {key: atom}, "added": {key: atom}}}`, `{"query": code}`) and answers one JSON
-line each; `QueryWorker` in `metta_server.py` owns the process, the applied state hash, and restarts it on
-any disagreement, death or timeout. `transact` feeds every worker the same delta `_rebuild_engine` computes
-(filtered to the view's atoms). `status()` reports `query_workers: {view: pid}` and
-`query_isolation: "warm_process_per_view"`; `shutdown_query_workers()` on quiesce/exit. The one-shot
-`evaluate` path stays as the fallback and for tests.
-
-Tests: `tests/test_m15_worker.py`.
+Not in this milestone. C reasons at observation time, so no per-cycle MeTTa query exists to make cheap;
+the remaining per-cycle cost (`metta_reasoning` ≈ 1 s) is a separate item for a later milestone if it
+still matters once A–C land. `tests/test_m15_worker.py` is kept as a scoped draft and is skipped unless
+`ITERBROW_M15_WORKER=1`.
 
 ## E. The benchmark, run
 

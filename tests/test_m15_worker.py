@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""M15-D1..D2: the warm query worker — one isolated Hyperon process per view, kept current with the store's
+"""M15-D1..D2 (DEFERRED — not in this milestone; runs only with ITERBROW_M15_WORKER=1): the warm query worker — one isolated Hyperon process per view, kept current with the store's
 deltas, so a per-cycle MeTTa query costs milliseconds instead of a rebuild.
 
 Spec: docs/milestones/M15_build_ledger.md section D. Needs the real Hyperon (the worker is a subprocess).
 """
 import json
+import os
 import sys
 import tempfile
 import time
@@ -31,6 +32,7 @@ def _space(temp):
     return metta_server.MettaSpace(), patches
 
 
+@unittest.skipUnless(os.environ.get("ITERBROW_M15_WORKER") == "1", "M15-D deferred (ITERBROW_M15_WORKER=1 to run)")
 @unittest.skipUnless(hyperon_available(), "needs hyperon")
 class WarmWorkerTests(unittest.TestCase):
     """M15-D1"""
@@ -97,6 +99,7 @@ class WarmWorkerTests(unittest.TestCase):
         self.assertIn("def evaluate(", worker, "the one-shot path stays")
 
 
+@unittest.skipUnless(os.environ.get("ITERBROW_M15_WORKER") == "1", "M15-D deferred (ITERBROW_M15_WORKER=1 to run)")
 @unittest.skipUnless(hyperon_available(), "needs hyperon")
 class WorkerCostTests(unittest.TestCase):
     """M15-D2"""

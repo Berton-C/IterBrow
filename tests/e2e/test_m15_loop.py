@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """M15-A (e2e) and M15-C (e2e): through the real loop with a fake model and the real AtomSpace —
 a request over the target is degraded and still sent; one far over is announced once, never silent; and a
-build's facts and ledger flow through the tools and the prompt.
+build's ask facts land and the prompt asks for a check.
 
 Spec: docs/milestones/M15_build_ledger.md.
 """
@@ -75,15 +75,15 @@ class BudgetLoopTests(unittest.TestCase):
 
 
 class LedgerLoopTests(unittest.TestCase):
-    """M15-C2/C4 through the loop (real AtomSpace service, no browser)."""
+    """M15-C2/C4 through the loop (real AtomSpace service, no browser): the ask's facts land, a file write
+    reminds, and the prompt says the ledger is stale until a check."""
 
     @pending("M15-C2")
-    def test_facts_and_ledger_flow_through_tools_and_prompt(self):
+    def test_ask_facts_land_and_the_prompt_asks_for_a_check(self):
         require_m15()
         script = [
             [tool("new_app", id="todo", title="Todo")],
             [tool("write_file", path="vault/todo/index.html", content=fixture("todo_unguarded.html"))],
-            [tool("app_probe", app="todo")],
             [send("M15-LEDGER-DONE")],
         ]
         run = IterRun(script, name="m15ledger")
@@ -97,17 +97,17 @@ class LedgerLoopTests(unittest.TestCase):
             run.stop()
             results = [m["content"] for m in run.experience() if m.get("role") == "tool"]
             written = next(c for c in results if "WROTE vault/todo/index.html" in c)
-            self.assertIn("· ledger:", written)
-            self.assertIn(".delete", written, "the ask named .delete; the file has none")
-            self.assertIn("form-submit", written)
+            self.assertIn("· ledger: changed since last check", written)
+            self.assertNotIn("form", written, "the file tools observe nothing")
             atoms = run.atoms("state:build:todo:")
-            self.assertTrue(any("ask-requires" in str(a) for a in atoms), atoms[:5])
-            self.assertTrue(any("app-form-submit" in str(a) for a in atoms), "file facts in the store")
+            asked = [str(a) for a in atoms if "ask-requires" in str(a)]
+            self.assertEqual(len(asked), 7, asked)
+            self.assertTrue(any('".delete"' in a for a in asked))
+            self.assertFalse(any("app-has" in str(a) or "app-form" in str(a) for a in atoms), "no check ran: no observed facts")
             requests = run.requests()
-            ledgers = [r["system"] for r in requests if "[build ledger todo]" in r["system"]]
-            self.assertTrue(ledgers, "the ledger reached the prompt")
-            self.assertRegex(ledgers[-1], r"missing: [^\n]*\.delete")
-            self.assertRegex(ledgers[-1], r"next: (build|probe)")
+            stale = [r["system"] for r in requests if "[build ledger todo: stale" in r["system"]]
+            self.assertTrue(stale, "after the write, the prompt says the ledger is stale and asks for a check")
+            self.assertFalse(any("[build ledger todo]" in r["system"] for r in requests), "nothing observed, nothing claimed")
 
 
 if __name__ == "__main__":

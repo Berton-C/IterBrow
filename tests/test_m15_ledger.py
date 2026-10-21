@@ -1,24 +1,40 @@
 #!/usr/bin/env python3
-"""M15-C1..C5: the build ledger — facts from asks, files and probes as atoms; conclusions by MeTTa rules in
-the real Hyperon; the ledger rendered into the prompt and the file tools' results; NACE learns through the
-courier's queue.
+"""M15-C2..C6: the build ledger — facts from the ask (literal), the contract check (observed) and probes;
+conclusions by MeTTa rules in the real Hyperon at observation time; the ledger rendered into tool results
+and read from atoms by build_mode; the catalog drops what is gone; NACE learns through the courier's queue.
 
-Spec: docs/milestones/M15_build_ledger.md section C. Fixtures: tests/fixtures/m15/ (notes_built.html is the
-notes app Iter built on 2026-10-20; todo_scaffold.html a bare new_app scaffold; todo_unguarded.html a hand-made
-app with the mistakes the probes found: a form that submits, storage outside iter:<id>:, an external script).
+Spec: docs/milestones/M15_build_ledger.md section C. The check itself (page script) is tested in
+tests/test_m15_check.py; here its results are dicts of the shape it returns.
 """
 import json
-import re
+import subprocess
 import sys
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from m15_support import (pending, require_m15, ledger, seed_units, run_metta, hyperon_available, fixture, briefs,  # noqa: E402
-                         VaultRoot, transformation, assistant, tool_result, user, system, ITER_SRC, SEED)
-from m14_support import fake_bridge  # noqa: E402
+from m15_support import (pending, require_m15, ledger, seed_units, run_metta, hyperon_available, briefs,  # noqa: E402
+                         VaultRoot, ITER_SRC, SEED)
 
 TODO_ASK = next(b["ask"] for b in briefs() if b["id"] == "todo")
+NOTES_ASK = next(b["ask"] for b in briefs() if b["id"] == "notes")
+
+# What checkScript returns for tests/fixtures/m15/todo_unguarded.html with the todo ask's selectors.
+TODO_CHECK = {
+    "selectors": {"#new-todo": {"present": True, "visible": True}, "#add": {"present": True, "visible": True},
+                  "#list": {"present": True, "visible": True}, ".label": {"present": False, "visible": False},
+                  ".toggle": {"present": False, "visible": False}, ".delete": {"present": False, "visible": False}},
+    "ready": True, "storage": {"prefixed": 0, "other": ["todos"]}, "scripts": ["cdn.example.com"],
+    "forms": [{"selector": "#todo-form", "guarded": False}], "placeholder": False, "title": "Todo",
+}
+NOTES_CHECK = {
+    "selectors": {"#note-body": {"present": True, "visible": True}, "#save": {"present": True, "visible": True},
+                  "#notes": {"present": True, "visible": True}, "#preview": {"present": True, "visible": True}},
+    "ready": True, "storage": {"prefixed": 1, "other": []}, "scripts": [], "forms": [], "placeholder": False, "title": "Notes",
+}
+NOTES_PROBE_JSON = {"steps": [{"kind": "fill", "selector": "#note-body", "value": "# Hello\n*text*"}, {"kind": "click", "selector": "#save"}],
+                    "assertions": [{"kind": "count", "selector": "#notes li", "expected": 1},
+                                   {"kind": "text", "selector": "#preview h1", "expected": "Hello"}]}
 
 
 def atoms_of(facts):
@@ -26,117 +42,135 @@ def atoms_of(facts):
     return dict(facts) if not isinstance(facts, dict) else facts
 
 
+def probe_result(passed, failed, observations):
+    return {"passed": passed, "failed": failed, "observations": observations}
+
+
 class AskFactsTests(unittest.TestCase):
-    """M15-C1 (asks)"""
+    """M15-C2 (ask): literal selectors and persist, nothing else."""
 
-    @pending("M15-C1")
-    def test_selectors_and_requirements_from_the_todo_brief(self):
-        atoms = atoms_of(ledger().facts_from_ask("todo", TODO_ASK))
-        values = set(atoms.values())
+    @pending("M15-C2")
+    def test_only_what_the_ask_names(self):
+        facts = atoms_of(ledger().facts_from_ask("todo", TODO_ASK))
+        atoms = set(facts.values())
         for sel in ("#new-todo", "#add", "#list", ".label", ".toggle", ".delete"):
-            self.assertIn('(ask-requires todo "%s")' % sel, values, sel)
-        self.assertIn("(ask-requires todo persist)", values, "'persist across a reload'")
-        self.assertTrue(all(k.startswith("state:build:todo:ask:") for k in atoms), list(atoms)[:3])
-        self.assertEqual(atoms_of(ledger().facts_from_ask("x", "hello there")), {}, "an ask with no selectors is no facts")
-        dark = atoms_of(ledger().facts_from_ask("todo", "Add a dark mode toggle to todo: a #theme-toggle button that switches light/dark and remembers the choice across reloads."))
-        self.assertIn('(ask-requires todo "#theme-toggle")', set(dark.values()))
-        self.assertIn("(ask-requires todo persist)", set(dark.values()))
+            self.assertIn('(ask-requires todo "%s")' % sel, atoms)
+        self.assertIn("(ask-requires todo persist)", atoms)
+        self.assertEqual(len(atoms), 7, "no inferred requirements: %s" % sorted(atoms))
+        self.assertTrue(all(k.startswith("state:build:todo:ask:") for k in facts))
+        loose = atoms_of(ledger().facts_from_ask("x", "Make me something nice that remembers what I typed."))
+        self.assertEqual(set(loose.values()), {"(ask-requires x persist)"}, "a loose ask yields fewer requirements, never wrong ones")
 
 
-class HtmlFactsTests(unittest.TestCase):
-    """M15-C1 (files)"""
+class CheckFactsTests(unittest.TestCase):
+    """M15-C2 (check): the observed page becomes atoms, one family, replaced wholesale."""
 
-    @pending("M15-C1")
-    def test_the_notes_app_iter_built(self):
-        values = set(atoms_of(ledger().facts_from_html("notes", fixture("notes_built.html"))).values())
-        for sel in ("#title", "#theme-toggle", "#note-body", "#save", "#preview", "#notes"):
-            self.assertIn('(app-has notes "%s")' % sel, values, sel)
-        self.assertIn('(app-listens notes "#save" click)', values)
-        self.assertIn('(app-stores notes "iter:notes:")', values)
-        self.assertIn("(app-ready-flag notes true)", values)
-        self.assertIn("(app-placeholder notes gone)", values)
-        self.assertFalse(any("app-form-submit" in v for v in values))
-        self.assertFalse(any("app-script" in v for v in values), "no external scripts")
+    @pending("M15-C2")
+    def test_the_unguarded_todo_and_the_built_notes(self):
+        facts = atoms_of(ledger().facts_from_check("todo", TODO_CHECK))
+        atoms = set(facts.values())
+        self.assertIn('(app-has todo "#add")', atoms)
+        self.assertIn('(app-visible todo "#add")', atoms)
+        self.assertNotIn('(app-has todo ".delete")', atoms)
+        self.assertIn("(app-ready todo true)", atoms)
+        self.assertIn("(app-stores todo other)", atoms)
+        self.assertIn('(app-script todo external "cdn.example.com")', atoms)
+        self.assertIn('(app-form todo "#todo-form" unguarded)', atoms)
+        self.assertIn("(app-placeholder todo gone)", atoms)
+        self.assertTrue(all(k.startswith("state:build:todo:check:") for k in facts))
+        notes = set(atoms_of(ledger().facts_from_check("notes", NOTES_CHECK)).values())
+        self.assertIn("(app-stores notes prefixed)", notes)
+        self.assertFalse(any("app-form" in a or "app-script" in a for a in notes))
 
-    @pending("M15-C1")
-    def test_the_bare_scaffold_and_the_unguarded_app(self):
-        scaffold = set(atoms_of(ledger().facts_from_html("todo", fixture("todo_scaffold.html"))).values())
-        self.assertIn("(app-placeholder todo present)", scaffold)
-        self.assertIn('(app-has todo "#title")', scaffold)
-        self.assertIn("(app-ready-flag todo true)", scaffold, "the scaffold sets the flag in init()")
-        bad = set(atoms_of(ledger().facts_from_html("todo", fixture("todo_unguarded.html"))).values())
-        self.assertIn('(app-form-submit todo "#todo-form" unguarded)', bad)
-        self.assertIn("(app-stores todo other)", bad, "localStorage keys outside iter:todo:")
-        self.assertIn('(app-script todo external "cdn.example.com")', bad)
-        self.assertIn('(app-has todo ".toggle")', bad)
-        self.assertIn('(app-has todo ".label")', bad)
-        self.assertIn('(app-listens todo "#todo-form" submit)', bad)
-        self.assertFalse(any('(app-listens todo "#add"' in v for v in bad), "#add has no listener of its own")
+    @pending("M15-C2")
+    def test_a_hidden_element_is_present_not_visible(self):
+        check = dict(TODO_CHECK, selectors={"#add": {"present": True, "visible": False}})
+        atoms = set(atoms_of(ledger().facts_from_check("todo", check)).values())
+        self.assertIn('(app-has todo "#add")', atoms)
+        self.assertNotIn('(app-visible todo "#add")', atoms)
 
 
 class ProbeFactsTests(unittest.TestCase):
-    """M15-C1 (probes)"""
+    """M15-C2 (probe): runs, assertions and what the probe covers."""
 
-    @pending("M15-C1")
-    def test_probe_result_text_becomes_atoms(self):
-        text = ("Step 12:00: [NACE advisory x] PROBE todo (probe.json): 2 passed, 1 failed\n"
-                "✓ text #title: expected 'Todo' got 'Todo'\n✓ visible #add: expected true got true\n"
-                "✗ count #list li: expected 3 got 2\nready=true")
-        atoms = atoms_of(ledger().facts_from_probe("todo", text, seq=7))
-        values = set(atoms.values())
-        self.assertIn("(probe-run todo 7 2 1)", values)
-        self.assertIn('(probe-assertion todo 7 "count #list li" failed "2≠3")', values)
-        self.assertIn('(probe-assertion todo 7 "text #title" passed)', values)
-        self.assertEqual(atoms_of(ledger().facts_from_probe("todo", "ERROR: no assertions given", seq=8)), {}, "a probe that did not run is no fact")
+    @pending("M15-C2")
+    def test_probe_result_becomes_atoms(self):
+        result = probe_result(2, 1, [{"kind": "count", "selector": "#list li", "actual": 2, "expected": 3, "passed": False},
+                                     {"kind": "text", "selector": "#title", "actual": "Todo", "expected": "Todo", "passed": True},
+                                     {"kind": "value", "selector": "#new-todo", "actual": "", "expected": "", "passed": True}])
+        probe_json = {"steps": [{"kind": "fill", "selector": "#new-todo", "value": "milk"}, {"kind": "click", "selector": "#add"}],
+                      "assertions": [{"kind": "count", "selector": "#list li", "expected": 3}]}
+        facts = atoms_of(ledger().facts_from_probe("todo", result, probe_json, seq=7))
+        atoms = set(facts.values())
+        self.assertIn("(probe-run todo 7 2 1)", atoms)
+        self.assertIn('(probe-assertion todo 7 "count #list li" failed "2≠3")', atoms)
+        self.assertIn('(probe-assertion todo 7 "text #title" passed "")', atoms)
+        for sel in ("#new-todo", "#add", "#list"):
+            self.assertIn('(probe-covers todo 7 "%s")' % sel, atoms, "steps and assertions cover the selectors they touch")
+        self.assertTrue(all(k.startswith("state:build:todo:probe:") for k in facts))
 
 
 @unittest.skipUnless(hyperon_available(), "needs hyperon")
 class RulesTests(unittest.TestCase):
-    """M15-C3: the rules in seeds/build_ledger.metta, in the real engine."""
+    """M15-C3: the rules in seeds/build_ledger.metta, in the real engine, through the one-shot worker."""
 
     def _conclude(self, app, atoms):
-        module = ledger()
-        return module.conclude(app, lambda code: run_metta(seed_units(), atoms, code))
+        return ledger().conclude(app, lambda code: run_metta(seed_units(), atoms, code))
 
     @pending("M15-C3")
-    def test_missing_unwired_unproven_contract_and_next(self):
+    def test_missing_unproven_contract_and_next(self):
         module = ledger()
         atoms = {}
         atoms.update(atoms_of(module.facts_from_ask("todo", TODO_ASK)))
-        atoms.update(atoms_of(module.facts_from_html("todo", fixture("todo_unguarded.html"))))
-        atoms["state:build:todo:seq"] = "(app-file-seq todo 3)"
+        atoms.update(atoms_of(module.facts_from_check("todo", TODO_CHECK)))
+        atoms["state:build:todo:open:1"] = "(app-opened todo 1)"
         c = self._conclude("todo", atoms)
-        self.assertEqual(sorted(c["missing"]), [".delete"], "everything else the ask names is present")
-        self.assertIn("#add", c["unwired"], "named as an action, present, no listener")
-        self.assertTrue(c["unproven"], "no probe since the file")
-        self.assertEqual(sorted(c["contract"]), sorted(["storage", 'form-submit "#todo-form"', 'script "cdn.example.com"']))
+        self.assertEqual(sorted(c["missing"]), [".delete", ".label", ".toggle"], "asked and not present")
+        self.assertEqual(c["hidden"], [])
+        self.assertEqual(sorted(c["unproven"]), ["#add", "#list", "#new-todo"], "present, no probe since the open")
+        self.assertEqual(sorted(c["contract"]), sorted(['form "#todo-form"', "storage", 'script "cdn.example.com"']))
         self.assertEqual(c["next"], "build")
         self.assertEqual(c["regressed"], [])
 
     @pending("M15-C3")
-    def test_probe_then_report(self):
+    def test_hidden_is_its_own_verdict(self):
+        module = ledger()
+        atoms = atoms_of(module.facts_from_ask("todo", "A todo with #add and #list."))
+        check = dict(TODO_CHECK, selectors={"#add": {"present": True, "visible": False}, "#list": {"present": True, "visible": True}},
+                     storage={"prefixed": 1, "other": []}, scripts=[], forms=[])
+        atoms.update(atoms_of(module.facts_from_check("todo", check)))
+        c = self._conclude("todo", atoms)
+        self.assertEqual(c["missing"], [])
+        self.assertEqual(c["hidden"], ["#add"])
+        self.assertEqual(c["next"], "build")
+
+    @pending("M15-C3")
+    def test_probe_then_report_then_regression(self):
         module = ledger()
         atoms = {}
-        atoms.update(atoms_of(module.facts_from_ask("notes", next(b["ask"] for b in briefs() if b["id"] == "notes"))))
-        atoms.update(atoms_of(module.facts_from_html("notes", fixture("notes_built.html"))))
-        atoms["state:build:notes:seq"] = "(app-file-seq notes 2)"
+        atoms.update(atoms_of(module.facts_from_ask("notes", NOTES_ASK)))
+        atoms.update(atoms_of(module.facts_from_check("notes", NOTES_CHECK)))
+        atoms["state:build:notes:open:2"] = "(app-opened notes 2)"
         c = self._conclude("notes", atoms)
         self.assertEqual(c["missing"], [])
         self.assertEqual(c["contract"], [])
         self.assertTrue(c["unproven"])
         self.assertEqual(c["next"], "probe")
-        probe = "PROBE notes (probe.json): 4 passed, 0 failed\n✓ count #notes li: expected 1 got 1\n✓ text #preview h1: expected 'Hello' got 'Hello'\n✓ text #preview em: expected 'text' got 'text'\n✓ count #preview li: expected 2 got 2"
-        atoms.update(atoms_of(module.facts_from_probe("notes", probe, seq=3)))
+        ok = probe_result(2, 0, [{"kind": "count", "selector": "#notes li", "actual": 1, "expected": 1, "passed": True},
+                                 {"kind": "text", "selector": "#preview h1", "actual": "Hello", "expected": "Hello", "passed": True}])
+        atoms.update(atoms_of(module.facts_from_probe("notes", ok, NOTES_PROBE_JSON, seq=3)))
         c = self._conclude("notes", atoms)
-        self.assertFalse(c["unproven"])
-        self.assertEqual(c["probe"], {"passed": 4, "failed": 0, "failures": []})
+        self.assertEqual(c["unproven"], [], "every asked selector is covered by a passing run since the open")
+        self.assertEqual(c["probe"], {"passed": 2, "failed": 0, "failures": []})
         self.assertEqual(c["next"], "report")
-        # An edit after the probe: unproven again; a later probe that fails what passed: regressed.
-        atoms["state:build:notes:seq"] = "(app-file-seq notes 4)"
+        # A re-open after an edit: unproven again (the probe predates it); a later probe failing what passed: regressed.
+        atoms["state:build:notes:open:4"] = "(app-opened notes 4)"
         self.assertTrue(self._conclude("notes", atoms)["unproven"])
-        atoms.update(atoms_of(module.facts_from_probe("notes", "PROBE notes (probe.json): 3 passed, 1 failed\n✗ count #preview li: expected 2 got 0", seq=5)))
+        bad = probe_result(1, 1, [{"kind": "count", "selector": "#notes li", "actual": 1, "expected": 1, "passed": True},
+                                  {"kind": "text", "selector": "#preview h1", "actual": "", "expected": "Hello", "passed": False}])
+        atoms.update(atoms_of(module.facts_from_probe("notes", bad, NOTES_PROBE_JSON, seq=5)))
         c = self._conclude("notes", atoms)
-        self.assertEqual(c["regressed"], ["count #preview li"])
+        self.assertEqual(c["regressed"], ["text #preview h1"])
         self.assertEqual(c["next"], "build")
 
     @pending("M15-C3")
@@ -154,80 +188,83 @@ class RenderTests(unittest.TestCase):
     @pending("M15-C4")
     def test_render_is_short_and_says_next(self):
         render = ledger().render
-        text = render("todo", {"missing": [".delete", "#theme-toggle"], "unwired": ["#add"], "unproven": False,
-                               "regressed": [], "contract": ['form-submit "#todo-form"'],
+        text = render("todo", {"missing": [".delete", ".toggle"], "hidden": ["#add"], "unproven": ["#list"], "regressed": [],
+                               "contract": ['form "#todo-form"', "storage"],
                                "probe": {"passed": 2, "failed": 1, "failures": ["count #list li: 2≠3"]}, "next": "build"})
         self.assertTrue(text.startswith("[build ledger todo]"))
-        self.assertIn("missing: .delete, #theme-toggle", text)
-        self.assertIn("unwired: #add", text)
-        self.assertIn('contract: form-submit "#todo-form"', text)
+        self.assertIn("missing (from the ask's named ids): .delete, .toggle", text)
+        self.assertIn("hidden: #add", text)
+        self.assertIn("unproven: #list", text)
+        self.assertIn('contract: form "#todo-form" unguarded, storage other', text)
         self.assertIn("probe: 2 passed, 1 failed (count #list li: 2≠3)", text)
         self.assertTrue(text.rstrip().endswith("next: build]"))
         self.assertLessEqual(len(text.splitlines()), 8)
-        clean = render("notes", {"missing": [], "unwired": [], "unproven": False, "regressed": [], "contract": [],
+        clean = render("notes", {"missing": [], "hidden": [], "unproven": [], "regressed": [], "contract": [],
                                  "probe": {"passed": 4, "failed": 0, "failures": []}, "next": "report"})
         self.assertIn("probe: 4 passed, 0 failed", clean)
         self.assertIn("next: report", clean)
         self.assertNotIn("missing", clean)
-        self.assertIn("unproven", render("x", {"missing": [], "unwired": [], "unproven": True, "regressed": [], "contract": [], "probe": None, "next": "probe"}))
+        self.assertIn("unproven", render("x", {"missing": [], "hidden": [], "unproven": ["#a"], "regressed": [], "contract": [], "probe": None, "next": "probe"}))
 
 
 class RecordedWhereFactsAriseTests(unittest.TestCase):
-    """M15-C2 / C4: the tools record facts and carry the ledger line; build_mode renders it."""
-
-    @pending("M15-C2")
-    def test_file_tools_and_app_probe_record_and_report(self):
-        require_m15()
-        for name in ("write_file", "edit_file", "new_app", "app_probe"):
-            src = (ITER_SRC / "tools" / (name + ".py")).read_text(encoding="utf-8")
-            self.assertIn("build_ledger", src, name)
-        for name in ("write_file", "edit_file", "new_app"):
-            src = (ITER_SRC / "tools" / (name + ".py")).read_text(encoding="utf-8")
-            self.assertIn("· ledger:", src, name)
-        mode = (ITER_SRC / "transformations" / "build_mode.py").read_text(encoding="utf-8")
-        self.assertIn("build_ledger", mode)
-        self.assertIn("[build ledger", mode)
-        self.assertIn("facts_from_ask", mode)
-        probe = (ITER_SRC / "tools" / "app_probe.py").read_text(encoding="utf-8")
-        self.assertIn("facts_from_probe", probe)
-        for name in ("write_file", "edit_file", "new_app", "app_probe"):
-            src = (ITER_SRC / "tools" / (name + ".py")).read_text(encoding="utf-8")
-            self.assertRegex(src, r"except Exception", "%s: a ledger failure never fails the tool" % name)
+    """M15-C2 / C4 / C5: the observing tools record and carry the ledger; the file tools only remind;
+    build_mode reads atoms; the catalog drops what is gone."""
 
     @pending("M15-C4")
-    def test_write_file_result_carries_the_ledger_line_in_a_vault_app(self):
-        """A write to vault/todo/index.html answers with its ledger (the AtomSpace is the e2e harness's; here a
-        throwaway ITER_DIR with no service: the line says what the extractors alone can say)."""
-        r = VaultRoot("m15ledgerline", with_main_js=True)
+    def test_who_records_who_reminds_who_reads(self):
+        require_m15()
+        tools = ITER_SRC / "tools"
+        for name in ("browser_open_app", "app_probe"):
+            src = (tools / (name + ".py")).read_text(encoding="utf-8")
+            self.assertIn("build_ledger", src, name)
+            self.assertIn("· ledger:", src, name)
+            self.assertIn("not recorded", src, "%s: the line comes from the observation even if the store write fails" % name)
+            self.assertRegex(src, r"except Exception", "%s: a ledger failure never fails the tool" % name)
+        probe = (tools / "app_probe.py").read_text(encoding="utf-8")
+        self.assertIn("facts_from_probe", probe)
+        self.assertIn("facts_from_check", (tools / "browser_open_app.py").read_text(encoding="utf-8"))
+        for name in ("write_file", "edit_file"):
+            src = (tools / (name + ".py")).read_text(encoding="utf-8")
+            self.assertIn("changed since last check", src, name)
+            self.assertNotIn("facts_from", src, "%s: the file tools observe nothing" % name)
+        mode = (ITER_SRC / "transformations" / "build_mode.py").read_text(encoding="utf-8")
+        self.assertIn("facts_from_ask", mode)
+        self.assertIn("[build ledger", mode)
+        self.assertIn("stale", mode)
+        self.assertNotIn("query(", mode, "build_mode reads atoms; it never runs a MeTTa query per cycle")
+        apps = (ITER_SRC / "iterbrow_runtime" / "local_apps.py").read_text(encoding="utf-8")
+        self.assertIn("state:build:", apps, "the catalog drops the facts of apps that are gone")
+        self.assertIn("state:build:", (tools / "new_app.py").read_text(encoding="utf-8"))
+
+    @pending("M15-C4")
+    def test_write_file_in_a_vault_app_reminds_and_nothing_else(self):
+        r = VaultRoot("m15remind", with_main_js=True)
         self.addCleanup(r.close)
         r.app("todo", html="<!doctype html>")
-        out = r.text("write_file", path="vault/todo/index.html", content=fixture("todo_unguarded.html"))
+        out = r.text("write_file", path="vault/todo/index.html", content="<!doctype html><title>Todo</title>")
         self.assertTrue(out.startswith("WROTE vault/todo/index.html ("), out)
-        self.assertIn("· ledger:", out)
-        self.assertIn("form-submit", out)
-        self.assertIn("storage", out)
+        self.assertIn("· ledger: changed since last check", out)
+        self.assertIn("browser_open_app", out)
         plain = r.text("write_file", path="scratch/x.txt", content="x")
         self.assertNotIn("ledger", plain, "outside a vault app, nothing")
 
 
 class NaceLearnsTests(unittest.TestCase):
-    """M15-C5"""
+    """M15-C6"""
 
-    @pending("M15-C5")
+    @pending("M15-C6")
     def test_patterns_queue_through_the_courier_like_idle_cycle_detector(self):
         require_m15()
         src = (ITER_SRC / "iterbrow_runtime" / "build_ledger.py").read_text(encoding="utf-8")
         self.assertIn("nace_pending.metta", src)
         self.assertIn("(pending-revision pattern probe_before_report", src)
         self.assertIn("(pending-revision pattern edit_keeps_passing", src)
+        self.assertIn("def queue_pattern(", src)
         for name in ("nace_courier.py", "tool_reliability_tracker.py"):
-            import subprocess
             diff = subprocess.run(["git", "diff", "--stat", "eea6737", "--", "iter/transformations/" + name],
                                   cwd=str(ITER_SRC.parent), capture_output=True, text=True)
             self.assertEqual(diff.stdout.strip(), "", name + " untouched")
-        # The courier turns a `(pending-revision pattern <name> confirmed|disconfirmed)` line into a
-        # pattern-efficacy belief the way it does for prioritize_user (idle_cycle_detector); nothing else is needed.
-        self.assertIn("def queue_pattern(", src)
 
 
 if __name__ == "__main__":
