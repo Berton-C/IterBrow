@@ -107,7 +107,9 @@ class ScoreTests(unittest.TestCase):
         # Preflight refuses to start without a live Iter, with asks waiting, or with the app folders present.
         self.assertIn("heartbeat", it.preflight())
         (root / ".runtime" / "recovery").mkdir(parents=True)
-        (root / ".runtime" / "recovery" / "iter_heartbeat.json").write_text(json.dumps({"at": now}), encoding="utf-8")
+        (root / ".runtime" / "recovery" / "iter_heartbeat.json").write_text(json.dumps({"at": now, "phase": "request_blocked", "detail": "RequestBudgetExceeded: over"}), encoding="utf-8")
+        self.assertIn("blocked", it.preflight(), "a blocked Iter is not a live Iter (2026-10-21)")
+        (root / ".runtime" / "recovery" / "iter_heartbeat.json").write_text(json.dumps({"at": now, "phase": "idle_wait"}), encoding="utf-8")
         (ui / "inbox").mkdir()
         (ui / "inbox" / "1.txt").write_text("hi", encoding="utf-8")
         self.assertIn("inbox", it.preflight())

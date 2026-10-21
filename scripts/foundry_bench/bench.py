@@ -145,11 +145,14 @@ class Iter:
         waiting in the inbox (they would arrive as one batch), or an app folder already present."""
         heartbeat = self.root / ".runtime" / "recovery" / "iter_heartbeat.json"
         try:
-            age = time.time() - float(json.loads(heartbeat.read_text(encoding="utf-8")).get("at") or 0)
+            beat = json.loads(heartbeat.read_text(encoding="utf-8"))
+            age = time.time() - float(beat.get("at") or 0)
         except (OSError, ValueError):
             return "Iter has no heartbeat; press Start in IterBrow first"
         if age > 120:
             return "Iter's last heartbeat was %d s ago; press Start in IterBrow first" % age
+        if beat.get("phase") == "request_blocked":  # M15-A4 (2026-10-21: 75 minutes against a blocked Iter)
+            return "Iter is blocked and cannot send a request: %s" % str(beat.get("detail", ""))[:300]
         waiting = [p.name for p in (self.ui / "inbox").glob("*")] if (self.ui / "inbox").is_dir() else []
         if waiting:
             return "%d message(s) already waiting in the inbox; let Iter take them (or clear the inbox) first" % len(waiting)
