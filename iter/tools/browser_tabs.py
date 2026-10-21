@@ -3,10 +3,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _browser_bridge import call
 
-DESCRIPTION = (
-    "List open tabs: tabId, whether it is displayed, whether it is your target (where click/type/eval act without "
-    "a tab_id), whether the person locked it, and which app it is (app=- for an ordinary page)."
-)
+DESCRIPTION = 'List open tabs: id, displayed, your target, locked by the person, and which app (app=- for a page).'
 
 
 def run():

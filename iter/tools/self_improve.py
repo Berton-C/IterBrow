@@ -24,12 +24,11 @@ from iterbrow_runtime.revision_fitness import (
     WEIGHTS, fitness_snapshot as _fitness_snapshot, fitness_compare,
 )
 
-DESCRIPTION = ("DGM-style self-improvement: fitness snapshots, experiment ledger, "
-               "champion tracking with backward-compatible key migration, "
-               "and recoverable hot-loading. apply/full_loop repair through the ordinary loop, "
-               "without creating a PWQ card. Supply proposal_id only for work explicitly "
-               "bound to an existing card. stage only prepares. revert restores the "
-               "returned backup. Original Soul lock and memory protections remain.")
+DESCRIPTION = (
+    'Self-improvement with fitness snapshots, an experiment ledger and recoverable hot-loading. '
+    'apply/full_loop repair through the ordinary loop; stage only prepares; revert restores the returned '
+    'backup. proposal_id only for work bound to a PWQ card.'
+)
 
 ITER_ROOT = "."
 CHAMPION_PATH = os.path.join(ITER_ROOT, "memory", "champion.json")

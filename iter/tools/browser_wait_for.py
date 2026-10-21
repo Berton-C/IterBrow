@@ -4,9 +4,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _browser_bridge import call, named
 
 DESCRIPTION = (
-    "Wait until something is true in a tab: a CSS selector matches a visible element, the page shows some text, "
-    "and/or the URL contains a string (every one you give must hold). timeout in seconds (default 10, at most 30). "
-    "Use after a click or load before you check the result. tab_id: optional (default: the target tab)."
+    'Wait until a CSS selector is visible, the page shows text, and/or the URL contains a string (all '
+    'given must hold). timeout: seconds (default 10, max 30). Use after a click or load. tab_id: '
+    'optional.'
 )
 
 

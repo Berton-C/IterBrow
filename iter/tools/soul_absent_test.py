@@ -13,7 +13,11 @@ import time
 import uuid
 from pathlib import Path
 
-DESCRIPTION = """Report a soul-absent walk of an app: 1-8 moments {where, what, pattern} that are technically correct and dead, as the person its brief names would meet them. pattern is one of the nine Soul patterns (soul_reflect lists them); each moment is shown with that pattern's gap signature from the kernel. Changes nothing."""
+DESCRIPTION = (
+    'Report a soul-absent walk of an app: 1-8 moments {where, what, pattern} that are correct and dead, '
+    "as the brief's person would meet them; each is shown with its pattern's gap signature. Changes "
+    'nothing.'
+)
 
 MAX_MOMENTS = 8
 TOOLS_DIR = Path(__file__).resolve().parent

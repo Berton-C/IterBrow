@@ -19,11 +19,9 @@ from iterbrow_runtime.episodic_history import list_episodes
 from iterbrow_runtime.tool_results import ToolOutput
 
 DESCRIPTION = (
-    "Record an episode summary for a span of history (answers a Recap Request). Creates the next "
-    "memory/recap/episode_NNNN.json with the summary, mem_type (optional fact/belief/value/todo/"
-    "preference), start_time/end_time and the history records covered, advances the recap cursor and "
-    "regenerates the tier pyramid. Times default to the pending Recap Request's span. This is the only "
-    "sanctioned way to write episodes."
+    'Record an episode summary for a span of history (answers a Recap Request): writes '
+    'memory/recap/episode_NNNN.json, advances the recap cursor, regenerates tiers. mem_type optional; '
+    "times default to the pending request's span. The only way to write episodes."
 )
 
 MAX_SUMMARY_CHARS = 1200

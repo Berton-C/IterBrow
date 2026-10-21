@@ -6,9 +6,9 @@ import _files  # noqa: E402
 import write_file  # noqa: E402
 
 DESCRIPTION = (
-    "Replace one exact piece of text in a file. old must occur exactly once (copy it from read_file, without "
-    "the line numbers); new replaces it (empty deletes it). Shows the edited lines with two lines of context. "
-    "Nothing changes when old occurs 0 or 2+ times; add surrounding text to make it unique."
+    'Replace one exact piece of text in a file. old must occur exactly once (copy from read_file without '
+    'line numbers); new replaces it (empty deletes). Shows the edited lines. Nothing changes when old '
+    'occurs 0 or 2+ times.'
 )
 
 

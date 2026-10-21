@@ -29,11 +29,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _component_museum as museum
 
 DESCRIPTION = (
-    "Export a component-museum entry (by component_id) or raw html/css/js as a portable, "
-    "standalone component file: framework='vanilla' (single .html file), 'react' (.jsx "
-    "functional component), or 'svelte' (.svelte single-file component). Writes to "
-    ".runtime/exports/ and returns the generated code inline so it can be handed to the user "
-    "for saving into a real project."
+    'Export a museum entry (component_id) or raw html/css/js as a standalone component: framework vanilla'
+    ' (.html), react (.jsx) or svelte (.svelte). Writes .runtime/exports/ and returns the code inline.'
 )
 
 EXPORT_DIR = Path(".runtime/exports")

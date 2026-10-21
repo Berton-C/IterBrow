@@ -6,9 +6,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _files  # noqa: E402
 
 DESCRIPTION = (
-    "Search text files for a Python regex: `path:line: text` per match (paths relative to iter/). Case-sensitive "
-    "unless the pattern starts with (?i). glob filters file names at any depth (e.g. `*.py`); path narrows the "
-    "folder. Skips binary files, .git, node_modules, .venv, __pycache__."
+    'Search text files for a Python regex: path:line: text per match (relative to iter/). (?i) for case-'
+    'insensitive. glob filters names (e.g. *.py); path narrows the folder. Skips binaries, .git, '
+    'node_modules, .venv.'
 )
 
 MAX_LINE = 300

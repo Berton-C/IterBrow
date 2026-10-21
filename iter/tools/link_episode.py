@@ -5,7 +5,10 @@ if TOOLS_DIR not in sys.path:
     sys.path.insert(0, TOOLS_DIR)
 import _petta_db as petta_db
 
-DESCRIPTION = "Link an episode timestamp to a memory item. A link does not count as evidence (use support/contradict for that). The item_id must be a UUID from chroma_query results, and linked_time is a timestamp string (e.g. '2026-08-12 17:25:05')."
+DESCRIPTION = (
+    "Link an episode timestamp (e.g. '2026-08-12 17:25:05') to a memory item (UUID from chroma_query). A "
+    'link is not evidence; use support/contradict.'
+)
 
 def run(item_id, linked_time):
     if not isinstance(item_id, str):

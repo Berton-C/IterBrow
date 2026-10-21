@@ -33,7 +33,11 @@ def _mkdirs(path):
         except OSError:
             pass
 
-DESCRIPTION = "Register the current task in durable memory and memory/tasks/current_tasks.txt. Default updates or continues existing work without moving its history boundary (keeps its start time and original message; the previous file is archived to memory/tasks/archive/). Set new_work=true only for a genuinely separate user goal, not a clarification, repair, restart or continuation. Required fields: person, requestchannel, taskcontent, completionsendcriterium, originalUserMessage."
+DESCRIPTION = (
+    'Register the current task (memory/tasks/current_tasks.txt). By default updates existing work; '
+    'new_work=true only for a genuinely separate goal, not a clarification or repair. Required: person, '
+    'requestchannel, taskcontent, completionsendcriterium, originalUserMessage.'
+)
 
 ARCHIVE_KEEP = 200
 

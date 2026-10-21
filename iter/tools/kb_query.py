@@ -11,7 +11,11 @@ if ROOT not in sys.path:
 from iterbrow_runtime import kb_terms, kb_inference
 from iterbrow_runtime.cognitive_events import _call_atomspace
 
-DESCRIPTION = """Ask the knowledge base: pattern is a statement with $variables, e.g. (--> $1 ([] cancerous)) or (--> anna $what). Returns stored statements that match (truth value + evidence memory ids), then conclusions derived by NAL deduction over stored statements (up to depth steps, max 3), each with its premises. Derived lines are computed now, not stored."""
+DESCRIPTION = (
+    'Ask the knowledge base: a statement with $variables, e.g. (--> $1 ([] cancerous)). Returns matching '
+    'stored statements (truth, evidence ids), then conclusions derived by NAL deduction (depth up to 3), '
+    'not stored.'
+)
 
 
 def run(pattern, depth=2):

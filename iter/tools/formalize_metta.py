@@ -6,7 +6,11 @@ if TOOLS_DIR not in sys.path:
 import _petta_db as petta_db
 from iterbrow_runtime import kb_terms
 
-DESCRIPTION = """Give an LTM item (UUID from chroma_query) a NAL statement; it becomes a knowledge-base atom the engine reasons over. Terms are canonicalized (lowercase_snake) and aliases resolved; no stv (truth comes from the memory). Forms: (--> raven bird), (--> anna ([] smokes)), (==> (--> $1 ([] smokes)) (--> $1 ([] cancerous))). Same statement from several memories = one revised atom. Query with kb_query."""
+DESCRIPTION = (
+    'Give an LTM item (UUID from chroma_query) a NAL statement; it becomes a knowledge-base atom. Terms '
+    'are canonicalized; no stv. Forms: (--> raven bird), (==> (--> $1 ([] smokes)) (--> $1 ([] '
+    'cancerous))). Query with kb_query.'
+)
 
 
 def run(LTM_item, formalization):

@@ -46,11 +46,9 @@ if _this_dir not in _sys.path:
 from _metta_bridge import call as _bridge_call, is_running as _bridge_is_running
 
 DESCRIPTION = (
-    "Evaluate MeTTa read-only against IterBrow's authoritative Hyperon AtomSpace, seeded at "
-    "startup from state_manifest.json plus durable journaled atoms. Evaluation is isolated and "
-    "cannot persist facts; use the atomspace tool for durable add/replace/remove. A single bare "
-    "S-expression is run, e.g. (+ 1 1) returns 2. Multi-line programs keep their syntax, "
-    "including '!' markers that request an answer."
+    'Evaluate MeTTa read-only against the authoritative AtomSpace (isolated; cannot persist; use '
+    'atomspace for durable changes). A bare S-expression is run, e.g. (+ 1 1); multi-line programs keep '
+    'their ! markers.'
 )
 
 

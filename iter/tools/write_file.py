@@ -6,9 +6,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _files  # noqa: E402
 
 DESCRIPTION = (
-    "Write a whole text file (UTF-8), creating folders as needed; atomic, keeps an existing file's mode. "
-    "path is relative to iter/ (a plain app is <id>/index.html; `../` reaches the repo root). For a change of a "
-    "few lines in an existing file, prefer edit_file."
+    'Write a whole text file (UTF-8), creating folders; atomic. path: relative to iter/ (vault/<id>/... '
+    "for the person's apps; ../ is the repo root). For a few lines, prefer edit_file."
 )
 
 

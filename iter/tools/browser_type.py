@@ -4,9 +4,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _browser_bridge import call, refused, named, where
 
 DESCRIPTION = (
-    "Type text into a field. Pass a CSS selector to click the field first (recommended); without one it types into "
-    "the focused element, and fails if nothing editable has focus. Returns the field and its value after typing. "
-    "tab_id: optional (default: the target tab, which must be on screen)."
+    'Type text into a field. With a CSS selector it clicks the field first (recommended); without one it '
+    "types into the focused element. Returns the field's value after typing. tab_id: optional."
 )
 
 

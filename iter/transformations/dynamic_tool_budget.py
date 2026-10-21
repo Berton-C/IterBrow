@@ -33,6 +33,33 @@ PROTECTED_TOOLS = {"send", "nop", "shell", "python", "start_new_task", "read_too
                    "browser_wait_for", "browser_open_app", "app_probe",  # M13: the eyes, never hidden either
                    "new_app", "app_rollback", "github"}  # M14-D4: the foundry loop's own tools
 ISSUE_LOG = RUNTIME_DIR + "/budget_issues.log"
+VIEW_FILE = RUNTIME_DIR + "/tool_view_mode"  # M15-B1: the last view, so a switch is logged once
+
+
+def _apply_view(messages, tools):
+    """M15-B1: project the tool list for this request (build or chat; see iterbrow_runtime/tool_view.py).
+    Every tool is back next cycle; a failure leaves the list unchanged."""
+    try:
+        import build_mode
+        from iterbrow_runtime import tool_view
+        mode = "build" if build_mode.active(messages) else "chat"
+        viewed = tool_view.view(tools, mode)
+        try:
+            previous = open(VIEW_FILE).read().strip()
+        except OSError:
+            previous = ""
+        if previous != mode:
+            print("[tool view] %s: %d of %d tools" % (mode, len(viewed), len(tools)))
+            try:
+                os.makedirs(RUNTIME_DIR, exist_ok=True)
+                with open(VIEW_FILE, "w") as f:
+                    f.write(mode)
+            except OSError:
+                pass
+        return viewed
+    except Exception as error:
+        _log_issue("tool view unavailable: %s: %s" % (type(error).__name__, error))
+        return tools
 
 def _log_issue(detail):
     # Best-effort diagnostic trail for corruption/measurement gaps that would
@@ -208,6 +235,7 @@ def _hide_unreliable(tools, reliability, probe_target=None):
     return kept, hidden
 
 def transform(messages, tools):
+    tools = _apply_view(messages, tools)
     try:
         reliability = _read_json(RELIABILITY_FILE)
         stall = _read_json(STALL_PATH)

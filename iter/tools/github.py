@@ -16,10 +16,9 @@ import _files  # noqa: E402
 from iterbrow_runtime.tool_results import ToolOutput, READ_WIRE_CHARS  # noqa: E402
 
 DESCRIPTION = (
-    "Read GitHub for ideas and patterns (read-only, no account). action=search: query → repositories by stars "
-    "(owner/name ★stars — description (license) url). action=tree: repo=owner/name → its files with sizes. "
-    "action=read: repo + path → the file with numbered lines. Name what you adopted in the app's README and "
-    "respect each project's license. Without a token GitHub allows 10 searches a minute."
+    'Read GitHub (read-only). action=search: query -> repos by stars. action=tree: repo=owner/name -> '
+    "files. action=read: repo + path -> numbered lines. Credit what you adopt in the app's README; "
+    'respect licenses. 10 searches a minute.'
 )
 
 USER_AGENT = "IterBrow"

@@ -4,9 +4,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _browser_bridge import call, refused, named, where
 
 DESCRIPTION = (
-    "Click an element. Pass a CSS selector (preferred, e.g. '#submit' or 'button.primary'), or raw x,y viewport "
-    "coordinates. It scrolls the element into view and clicks only if it is visible and not covered; it says what "
-    "it hit and where the page is now. tab_id: optional (default: the target tab, which must be on screen)."
+    'Click an element by CSS selector (preferred) or x,y viewport coordinates. Scrolls it into view and '
+    'clicks only if visible and uncovered; says what it hit and where the page is now. tab_id: optional '
+    '(the target tab).'
 )
 
 

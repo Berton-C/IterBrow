@@ -13,11 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _component_museum as museum
 import browser_patch_live
 
-DESCRIPTION = (
-    "Recall a saved component-museum entry by id and re-apply its CSS/JS onto the current "
-    "live/attached tab (or a specific tab_id), restoring a previously injected UI patch. Use "
-    "museum_list to find ids."
-)
+DESCRIPTION = "Re-apply a saved museum entry's CSS/JS to the attached tab (or tab_id). Find ids with museum_list."
 
 
 def run(component_id, tab_id=""):

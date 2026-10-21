@@ -6,7 +6,10 @@ if TOOLS_DIR not in sys.path:
 import _petta_db as petta_db
 from iterbrow_runtime import kb_terms
 
-DESCRIPTION = """Fold a duplicate knowledge-base term into another: drop becomes an alias of keep, every statement using drop is rewritten to keep, and statements that become identical are revised into one (their evidence adds up). Both must be registered terms. Safe to repeat."""
+DESCRIPTION = (
+    'Fold a duplicate knowledge-base term into another: drop becomes an alias of keep; statements are '
+    'rewritten and revised. Safe to repeat.'
+)
 
 
 def run(keep, drop):

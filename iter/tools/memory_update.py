@@ -5,7 +5,10 @@ if TOOLS_DIR not in sys.path:
     sys.path.insert(0, TOOLS_DIR)
 import _petta_db as petta_db
 
-DESCRIPTION = "Update the text content and embedding of a specific memory in chroma_db. All metadata (creation time, linked episodes, stv values) is preserved. Item_id must be a UUID from chroma_query results."
+DESCRIPTION = (
+    "Update a memory's text and embedding (item_id: UUID from chroma_query); metadata and truth values "
+    'are kept.'
+)
 
 def run(item_id, text):
     chroma_client = petta_db.PersistentClient()

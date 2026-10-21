@@ -244,7 +244,10 @@ def _test_metadata_static_fixtures():
     return {"test": "metadata_static_fixtures", "pass": all(c["pass"] for c in checks), "checks": checks}
 
 
-DESCRIPTION = "Run regression tests on Iter's tools and transformations. Args: test_name (str, default 'all'). Returns per-check pass/fail and duration. The suite can take up to 180s; partial progress is saved in memory/regression_tests.json. This tests runtime tools, not completion of an app build."
+DESCRIPTION = (
+    "Run Iter's regression checks on its own tools and transformations (test_name, default all; up to 180"
+    ' s). Not a test of an app build.'
+)
 
 
 def run(test_name="all"):

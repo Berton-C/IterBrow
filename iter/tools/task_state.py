@@ -34,7 +34,10 @@ if str(ROOT) not in sys.path:
 
 from iterbrow_runtime.cognitive_events import commit_event, metta_string
 
-DESCRIPTION = "Record or query a task's current phase (planning/building/verifying/complete) -- call this before claiming something is done, run(action='set', label=..., phase=...) or run(action='get'|'list')"
+DESCRIPTION = (
+    "Record or read a task's phase (planning|building|verifying|complete). action=set with label, phase; "
+    'get or list.'
+)
 
 PATH = "task_state.metta"
 _VALID_PHASES = ("planning", "building", "verifying", "complete")

@@ -7,10 +7,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _browser_bridge import call
 
 DESCRIPTION = (
-    "Take a screenshot of the attached browser tab's current viewport and attach it as visual context for the "
-    "next model turn. The tab needs a rendered surface; browser_attach alone does not display it. "
-    "browser_switch_tab displays and targets an existing tab. An unavailable capture is a failure, not visual evidence. "
-    "tab_id: optional (default: the target tab)."
+    "Screenshot the target tab's viewport and attach it for the next turn. The tab must be displayed "
+    '(browser_switch_tab). An unavailable capture is a failure, not evidence. tab_id: optional.'
 )
 
 

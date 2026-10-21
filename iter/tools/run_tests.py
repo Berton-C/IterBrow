@@ -8,9 +8,9 @@ import _files  # noqa: E402
 from iterbrow_runtime.tool_results import ToolOutput  # noqa: E402
 
 DESCRIPTION = (
-    "Run the repository's tests with pytest from the repo root, using Iter's own Python. target: a path such as "
-    "tests/test_x.py (or tests/test_x.py::Case::test_y), or any other text as a -k expression; empty runs tests/. "
-    "fast=true skips tests/e2e. First line is RESULT: <pytest summary>; then the last 60 lines of output."
+    "Run the repository's tests with pytest from the repo root. target: a path (tests/test_x.py or "
+    '::Case::test_y) or a -k expression; empty runs tests/. fast=true skips tests/e2e. First line: '
+    'RESULT: <summary>; then the last 60 lines.'
 )
 
 TIMEOUT = 880  # the loop allows run_tests 900 s

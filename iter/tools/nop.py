@@ -1,4 +1,8 @@
-DESCRIPTION = "Wait without spending model tokens. After reporting completed work, use wait_seconds=0 to wait for new input or an alarm. For unfinished work, a retry, or planned autonomous activity, supply a positive wait_seconds; use reminder for scheduled work. Waiting is not failure or task completion."
+DESCRIPTION = (
+    'Wait without spending tokens. After reporting finished work, wait_seconds=0 waits for new input or '
+    'an alarm. For unfinished work or a retry, a positive wait_seconds. Waiting is not failure or '
+    'completion.'
+)
 
 def run(wait_seconds=0):
     seconds = float(wait_seconds)

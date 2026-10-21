@@ -12,7 +12,11 @@ import os
 import sys
 from pathlib import Path
 
-DESCRIPTION = """Install IterAlly into an app so its own users get the Soul's noticing and returned choice (fork cards, notices, the kernel's lens) without IterBrow: copies the SDK and kernel into the app and adds the include with the app's brief. The app needs a brief first. Idempotent. The SDK has no gate and never phones home."""
+DESCRIPTION = (
+    "Install IterAlly into an app (needs a brief first) so its users get the Soul's noticing and returned"
+    ' choice without IterBrow: copies the SDK and kernel and adds the include. Idempotent; no gate, never'
+    ' phones home.'
+)
 
 INCLUDE = '<script src="iter_ally.js"></script>'
 SDK_FILES = ("iter_ally.js", "soul_kernel.json", "soul_kernel.js")

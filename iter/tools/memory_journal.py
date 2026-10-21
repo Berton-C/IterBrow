@@ -20,11 +20,8 @@ if TOOLS_DIR not in sys.path:
 import _memory_guard as guard
 
 DESCRIPTION = (
-    "Append-only audit journal for memory-management actions. action='log' "
-    "records {actor, action, detail} as a new immutable line (use this "
-    "whenever you trim, regenerate, forget, or vote on memory content so "
-    "there is always an audit trail). action='tail' returns the last n "
-    "entries."
+    'Append-only audit journal for memory management: action=log records {actor, action, detail}; '
+    'action=tail returns the last n entries.'
 )
 
 # The journal is application state: it lives under the canonical ITER_DIR even

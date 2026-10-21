@@ -6,7 +6,10 @@ if TOOLS_DIR not in sys.path:
 import _petta_db as petta_db
 from iterbrow_runtime import kb_terms
 
-DESCRIPTION = """Add or confirm a knowledge-base term (marks it known) with a one-line definition and optional aliases (list or comma-separated). Aliases resolve to the term in every statement. Provisional terms (first used in formalize_metta) become known. To fold an existing duplicate term into this one use merge_terms instead."""
+DESCRIPTION = (
+    'Add or confirm a knowledge-base term with a one-line definition and optional aliases; aliases '
+    'resolve to it everywhere. For a duplicate use merge_terms.'
+)
 
 
 def run(name, definition, aliases=None):

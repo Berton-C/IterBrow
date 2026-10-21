@@ -11,7 +11,10 @@ import sys
 import time
 from pathlib import Path
 
-DESCRIPTION = """Say, in one short paragraph (under 280 characters), what you found interesting or enjoyed in the work just now. It shows in the sidebar in your own voice, with nothing to answer. Use it now and then, when something genuinely caught you; never as a status report."""
+DESCRIPTION = (
+    'Say in one short paragraph (under 280 chars) what you enjoyed in the work just now; it shows in your'
+    ' own voice, nothing to answer. Now and then, never as a status report.'
+)
 
 MAX_CHARS = 280
 TOOLS_DIR = Path(__file__).resolve().parent

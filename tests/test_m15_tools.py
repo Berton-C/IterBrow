@@ -22,7 +22,6 @@ ALWAYS = ["send", "nop", "read_file", "write_file", "edit_file", "shell", "brows
 class ViewTests(unittest.TestCase):
     """M15-B1"""
 
-    @pending("M15-B1")
     def test_build_and_chat_views(self):
         view = runtime_module("tool_view")
         tools = real_tools()
@@ -41,7 +40,6 @@ class ViewTests(unittest.TestCase):
                          [t["function"]["name"] for t in tools if t["function"]["name"] in build], "order kept, dicts untouched")
         self.assertEqual(view.view(tools, "nonsense"), tools, "an unknown mode hides nothing")
 
-    @pending("M15-B1")
     def test_budget_transformation_applies_the_view_and_logs_a_switch(self):
         require_m15()
         src = (ITER_SRC / "transformations" / "dynamic_tool_budget.py").read_text(encoding="utf-8")
@@ -55,7 +53,6 @@ class ViewTests(unittest.TestCase):
 class DescriptionTests(unittest.TestCase):
     """M15-B2"""
 
-    @pending("M15-B2")
     def test_every_description_fits_and_the_build_view_is_small(self):
         require_m15()
         tools = real_tools()

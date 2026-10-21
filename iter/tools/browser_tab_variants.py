@@ -21,12 +21,9 @@ from _browser_bridge import call
 import _component_museum as museum
 
 DESCRIPTION = (
-    "Open N real browser tabs at once, each rendering a different LLM-generated HTML/CSS/JS "
-    "UI variant, for live side-by-side comparison in the actual window (not a sandboxed "
-    "preview). Pass variants as a JSON array of {label, html} objects (each html must be a "
-    "full <html>...</html> document). Every variant is saved to the component museum "
-    "immediately, win or lose. Returns the tab_id opened for each variant plus its museum id "
-    "- use museum_vote afterwards to record which one was kept."
+    'Open N real tabs side by side, one per UI variant. variants: JSON array of {label, html} (full '
+    '<html> documents). Each is saved to the component museum; returns each tab_id and museum id. Record '
+    'the winner with museum_vote.'
 )
 
 SURFACES_DIR = Path(".runtime/surfaces")

@@ -17,11 +17,9 @@ from iterbrow_runtime.app_revision_manager import AppRevisionManager  # noqa: E4
 
 MANAGER = AppRevisionManager(ROOT)
 DESCRIPTION = (
-    "Stage, validate and activate registered app revisions with automatic recovery. "
-    "Ordinary user-requested work needs no PWQ card. If work explicitly uses PWQ, "
-    "supply its proposal_id; its scope and revocation remain binding. "
-    "Electron alone supplies load/context evidence and promotion. Actions: "
-    "status, stage, validate, propose, activate, rollback."
+    'Stage, validate and activate registered app revisions with automatic recovery. Ordinary requests '
+    'need no PWQ card; with PWQ, supply proposal_id. Actions: status, stage, validate, propose, activate,'
+    ' rollback.'
 )
 
 

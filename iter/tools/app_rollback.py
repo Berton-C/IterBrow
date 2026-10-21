@@ -10,10 +10,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _files  # noqa: E402
 
 DESCRIPTION = (
-    "Undo your last change(s) to an app in the person's apps folder (vault/<app>/): every write_file/edit_file "
-    "there saved the previous content first. steps: how many changes to undo, newest first (default 1; a file a "
-    "change created is deleted). steps=\"0\" lists the history (newest first) and changes nothing. Use it when an "
-    "edit broke a working app, then app_probe again."
+    'Undo your last change(s) to vault/<app>/ (every write there saved the previous content). steps: how '
+    'many, newest first (default 1); steps="0" lists the history and changes nothing. Then app_probe '
+    'again.'
 )
 
 HISTORY_LINES = 20

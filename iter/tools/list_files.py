@@ -5,8 +5,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _files  # noqa: E402
 
 DESCRIPTION = (
-    "List files under a folder (relative to iter/): `path  size` for files, `path/` for folders, sorted. glob is a "
-    "pathlib pattern: `*` is this folder only, `**/*.js` searches below it. Skips .git, node_modules, .venv, __pycache__."
+    'List files under a folder (relative to iter/): path size, folders end with /. glob: * this folder, '
+    '**/*.js below. Skips .git, node_modules, .venv.'
 )
 
 

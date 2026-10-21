@@ -5,7 +5,10 @@ if TOOLS_DIR not in sys.path:
     sys.path.insert(0, TOOLS_DIR)
 import _petta_db as petta_db
 
-DESCRIPTION = "Unlink an episode timestamp from a memory item. Evidence already counted from that episode stays counted. The item_id must be a UUID from chroma_query results, and linked_time is the timestamp string to remove."
+DESCRIPTION = (
+    'Unlink an episode timestamp from a memory item (UUID from chroma_query). Evidence already counted '
+    'stays counted.'
+)
 
 def run(item_id, linked_time):
     if not isinstance(item_id, str):

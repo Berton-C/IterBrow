@@ -24,11 +24,9 @@ from _browser_bridge import call, refused
 import _component_museum as museum
 
 DESCRIPTION = (
-    "Inject CSS and/or JS into the REAL attached browser tab (CDP/eval, not a sandboxed "
-    "preview) and screenshot the result so you can see whether the patch looks right. "
-    "Pass patch_id to replace/iterate a previous patch in place instead of stacking "
-    "duplicates; tab_id targets any open tab without switching to it. Every call saves the "
-    "patch (css/js/html snapshot/screenshot) to the component museum."
+    'Inject CSS and/or JS into a real tab and screenshot the result. patch_id replaces a previous patch '
+    'instead of stacking; tab_id targets a tab without switching. Each patch is saved to the component '
+    'museum.'
 )
 
 _INJECT_JS_TEMPLATE = """

@@ -7,7 +7,11 @@ import time
 import uuid
 from pathlib import Path
 
-DESCRIPTION = """Show the person a sidebar card with 1-3 choices; their click returns as "[choice card=<id> pick=<choice> by=<person>] <label>". kind: fork, brief, read, offer, note. choices: labels or {id,label,hint,pattern,museum_id}: pattern = the Soul pattern that pole protects (lets Iter learn the person's leans), museum_id = the variant it picks (the pick casts keep/reject). links: optional [{label,url}]. topic: wonder:<id>, growth or ally:<pair> when the card answers one. Use rarely."""
+DESCRIPTION = (
+    'Show the person a sidebar card with 1-3 choices; their click returns as [choice card=<id> '
+    'pick=<choice>]. kind: fork|brief|read|offer|note. choices: labels or '
+    '{id,label,hint,pattern,museum_id}. links: [{label,url}]. Use rarely.'
+)
 
 KINDS = ("fork", "brief", "read", "offer", "note")
 TOOLS_DIR = Path(__file__).resolve().parent

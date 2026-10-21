@@ -9,7 +9,10 @@ import time
 import uuid
 from pathlib import Path
 
-DESCRIPTION = """The wonder jar: keep a "what if" cut from a build so it can come back later. action add (app, idea under 200 chars), list (optional app), take or let_go (id). Ideas are per person; one is offered back rarely on its own. Not a backlog."""
+DESCRIPTION = (
+    "The wonder jar: keep a 'what if' cut from a build. action add (app, idea under 200 chars), list (app"
+    ' optional), take or let_go (id). Not a backlog.'
+)
 
 MAX_IDEA = 200
 TOOLS_DIR = Path(__file__).resolve().parent

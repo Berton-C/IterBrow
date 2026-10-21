@@ -84,7 +84,7 @@ MAX_TOOLS = 96  # 80 -> 96 on 2026-10-19 (M13): M12/M13's tools took the count t
                 # model correctly reported "send isn't in my available tools" (not a hallucination) and
                 # could not respond to the user despite the silent_streak safety net repeatedly demanding
                 # it call send. See PROTECTED_TOOL_NAMES below for defense-in-depth against a recurrence.
-MAX_TOOL_DESCRIPTION_CHARS = 500
+MAX_TOOL_DESCRIPTION_CHARS = 300  # M15-B2: every DESCRIPTION is ≤ 280; the cap is a backstop
 DYNAMIC_TIMEOUT = 15
 ITER_ROOT = Path(__file__).resolve().parent
 # Direct ``python iter.py`` launches do not pass through Electron's environment.

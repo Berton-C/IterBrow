@@ -5,9 +5,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _files  # noqa: E402
 
 DESCRIPTION = (
-    "Read a text file with numbered lines (`   12| text`). path is relative to iter/ (`../main.js` reaches "
-    "the repo root); offset is the first line (1-based), limit at most 400 lines. Page with offset to read on. "
-    "Use this instead of shell cat; then edit_file to change a few lines."
+    'Read a text file with numbered lines. path: relative to iter/ (../ is the repo root); offset: first '
+    'line (1-based); limit: at most 400. Page with offset. Then edit_file to change a few lines.'
 )
 
 MAX_LINES = 400

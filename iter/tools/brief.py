@@ -6,7 +6,10 @@ import os
 import sys
 from pathlib import Path
 
-DESCRIPTION = """Read or set an app's flourishing brief: two lines, who it is for (for_whom) and what flourishing looks like for them (flourishing). Give both to save (a checkpointed change for Foundry projects; brief.json for folders like crm), neither to read. When a change you're making contradicts a brief, say so once as a brief card (continue / revise / drop); never block."""
+DESCRIPTION = (
+    "Read or set an app's brief: for_whom and flourishing (both to save, neither to read). When a change "
+    'contradicts a brief, say so once as a brief card (continue / revise / drop); never block.'
+)
 
 TOOLS_DIR = Path(__file__).resolve().parent
 ROOT = os.path.realpath(os.environ.get("ITER_DIR") or os.getcwd())

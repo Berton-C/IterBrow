@@ -8,10 +8,9 @@ from _browser_bridge import call, refused
 from iterbrow_runtime.tool_results import ToolOutput
 
 DESCRIPTION = (
-    "Prove an open app works: run steps (JSON list of {kind: click|fill, selector, value?}) then check assertions "
-    "(JSON list of {kind: text|value|count|visible, selector, expected}) in the app's tab. With no assertions, the "
-    "app's own probe.json ({steps, assertions}) is the spec — run it after every change. First line: PROBE <app>: "
-    "<n> passed, <m> failed; then one line per assertion. Open the app first with browser_open_app. timeout: seconds."
+    'Prove an open app works: run steps, then check assertions in its tab. steps: JSON [{kind: '
+    'click|fill, selector, value?}]; assertions: JSON [{kind: text|value|count|visible, selector, '
+    'expected}]; none: its probe.json. First line: PROBE <app>: n passed, m failed.'
 )
 
 

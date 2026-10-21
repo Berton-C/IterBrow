@@ -15,7 +15,10 @@ def _exists(path):
     except OSError:
         return False
 
-DESCRIPTION = "Search the communication transcript (and conversation archived out of experience.json) around a timestamp. Use YYYY-MM-DD HH:MM:SS; returns the nearest record with nearby lines."
+DESCRIPTION = (
+    'Search the communication transcript (and archived conversation) around a timestamp (YYYY-MM-DD '
+    'HH:MM:SS); returns the nearest record with nearby lines.'
+)
 
 TRANSCRIPT_PATH = "transcript.txt"
 CHAT_PATH = "chat.txt"

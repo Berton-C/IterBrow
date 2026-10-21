@@ -11,7 +11,11 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 from iterbrow_runtime import soul_lens
 
-DESCRIPTION = """Read a situation through the Soul lens. Name the patterns you see (e.g. TimeCoherence, WonderPreservation, AgencyBalance) or a pressure (urgency, flattery, authority...): returns each pattern's facets from the kernel atoms, which tension vectors bear on them, and whether two named patterns are a declared paraconsistent pair (both true at once; hand the choice back). It offers a lens, not a ruling."""
+DESCRIPTION = (
+    'Read a situation through the Soul lens: name patterns (e.g. TimeCoherence, AgencyBalance) or a '
+    "pressure (urgency, flattery...); returns each pattern's facets, bearing tensions, and whether two "
+    'form a paraconsistent pair. A lens, not a ruling.'
+)
 
 FACETS = ("description", "flourishing", "captured", "gap", "proxy")
 

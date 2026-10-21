@@ -4,10 +4,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _browser_bridge import call
 
 DESCRIPTION = (
-    "Open one of the person's apps (an id from the apps tool, e.g. mapstation) the way they see it: as an app tab "
-    "with its preload (window.iterApp); if it is already open, focuses it and reloads it when its files changed "
-    "since it loaded (so what you look at is what is on disk). Waits for the load and makes it your target. Use "
-    "this, not browser_new_tab, after every edit and before app_probe or clicking in it."
+    "Open one of the person's apps (id from apps) as they see it: an app tab with window.iterApp. If "
+    'open, focuses it and reloads when its files changed. Waits for the load and makes it your target. '
+    'Use after every edit, before app_probe or clicking.'
 )
 
 

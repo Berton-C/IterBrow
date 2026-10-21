@@ -5,9 +5,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _browser_bridge import call, refused
 
 DESCRIPTION = (
-    "Advanced/raw escape hatch: send an arbitrary Chrome DevTools Protocol command to the attached tab "
-    "(e.g. method='Network.enable' or method='Emulation.setDeviceMetricsOverride'). cdp_params must be a JSON "
-    "object string. Only use this when the simpler browser_* tools do not cover what you need."
+    'Raw Chrome DevTools Protocol command to the attached tab (e.g. method=Network.enable; cdp_params: '
+    'JSON object string), when browser_* tools do not cover it.'
 )
 
 

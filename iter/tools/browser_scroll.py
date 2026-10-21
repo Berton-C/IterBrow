@@ -4,9 +4,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _browser_bridge import call, refused, named
 
 DESCRIPTION = (
-    "Scroll. With a CSS selector, scroll that element into view. Otherwise scroll by (x, y) pixels (positive y is "
-    "down) — the focused scrollable container if there is one, else the page — and report how far it really moved. "
-    "tab_id: optional (default: the target tab, which must be on screen)."
+    'Scroll: with a CSS selector, bring it into view; else by (x, y) pixels (positive y is down) in the '
+    'focused scrollable container or the page, and report how far it moved. tab_id: optional.'
 )
 
 

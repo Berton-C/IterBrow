@@ -5,7 +5,10 @@ if TOOLS_DIR not in sys.path:
     sys.path.insert(0, TOOLS_DIR)
 import _petta_db as petta_db
 
-DESCRIPTION = "Support a memory item by applying NAL truth revision with positive evidence from an episode and linking it. Each episode counts as evidence once (support or contradict, never both, and unlink/link do not reset it). Item_id must be a UUID from chroma_query results."
+DESCRIPTION = (
+    'Apply positive NAL evidence from an episode to a memory item (UUID from chroma_query) and link it. '
+    'Each episode counts once (support or contradict, never both).'
+)
 
 def c2w(c):
     return c / (1.0 - c) if c < 1.0 else 999999.0

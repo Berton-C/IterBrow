@@ -13,11 +13,9 @@ from _metta_bridge import call
 
 
 DESCRIPTION = (
-    "Query or durably mutate IterBrow's authoritative AtomSpace. "
-    "Actions: status; query(code); add(atom, key?); replace/upsert(key, atom); "
-    "remove(key); transact(operations_json, transaction_id?); checkpoint. "
-    "Mutations are journaled, idempotent when transaction_id is reused, and "
-    "survive service restart."
+    'Query or durably change the authoritative AtomSpace. Actions: status; query(code); add(atom, key?); '
+    'replace/upsert(key, atom); remove(key); transact(operations_json, transaction_id?); checkpoint. '
+    'Journaled and idempotent.'
 )
 
 

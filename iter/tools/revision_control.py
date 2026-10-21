@@ -15,12 +15,9 @@ from iterbrow_runtime.hotload_manager import HotloadManager
 
 MANAGER = HotloadManager(ROOT)
 DESCRIPTION = (
-    "Stage and validate complete immutable tool/transformation/channel revisions. "
-    "Stage leaves code inert; activate starts ordinary self-repair without creating "
-    "a PWQ card. When acting on an explicit PWQ item, supply its proposal_id; "
-    "its existing approval and scope are checked. Activation enters externally supervised "
-    "probation; the candidate cannot promote itself. Actions: status, stage, "
-    "validate, activate, rollback_probation."
+    'Stage and validate immutable tool/transformation/channel revisions. stage leaves code inert; '
+    'activate enters supervised probation (the candidate cannot promote itself). proposal_id when acting '
+    'on a PWQ item. Actions: status, stage, validate, activate, rollback_probation.'
 )
 
 

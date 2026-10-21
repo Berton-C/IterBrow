@@ -14,10 +14,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _files  # noqa: E402
 
 DESCRIPTION = (
-    "Start a new app in the person's apps folder: creates vault/<id>/ with index.html, probe.json and README.md "
-    "following docs/APP_CONTRACT.md (data-iter-ready, state in localStorage under iter:<id>:, a probe that fails until the placeholder is replaced by the app). "
-    "id: lowercase letters, digits, dashes. from_example: copy an existing app instead (e.g. mapstation). Then "
-    "edit vault/<id>/… with write_file/edit_file, keep probe.json current, and open it with browser_open_app(<id>)."
+    "Start an app in the person's apps folder: vault/<id>/ with index.html, probe.json, README.md per "
+    'docs/APP_CONTRACT.md; the probe fails until the placeholder is replaced. id: lowercase, digits, '
+    'dashes. from_example: copy an app instead. Then edit and browser_open_app(<id>).'
 )
 
 PAGE = """<!doctype html>

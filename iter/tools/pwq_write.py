@@ -21,12 +21,9 @@ from iterbrow_runtime.pwq_protocol import PWQStore
 STORE = PWQStore(ROOT / ".runtime" / "pwq", ROOT / ".runtime" / "pwq.json")
 
 DESCRIPTION = (
-    "Agent client for the PWQ human-agency protocol: propose, modify/counter-propose, read, "
-    "start approved work with the current dispatch_authorization, append a scope-bound "
-    "Tracking update (progress only, never consent or scope), pause, or complete. "
-    "Approve/reject/reorder are human-only; this tool cannot mint them. command_id makes a "
-    "retry idempotent. The event ledger is authoritative; .runtime/pwq.json is a read-only "
-    "projection."
+    'PWQ human-agency protocol client: propose, modify, read, start approved work (current '
+    'dispatch_authorization), track progress, pause, complete. Approve/reject/reorder are human-only. '
+    'command_id makes a retry idempotent.'
 )
 
 

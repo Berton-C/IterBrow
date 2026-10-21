@@ -24,9 +24,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _browser_bridge import call
 
 DESCRIPTION = (
-    "Render HTML in a real (temporary, off-screen) browser tab and capture a screenshot for "
-    "visual verification. Args: html (str), width (int, default 800), height (int, default 600). "
-    "Returns render status JSON; the screenshot is attached separately as visual context."
+    'Render HTML in a temporary off-screen tab and screenshot it. html; width (800); height (600). '
+    'Returns render status; the screenshot is attached.'
 )
 
 

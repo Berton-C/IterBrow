@@ -12,7 +12,11 @@ Config (all optional until token provided):
 Run: python3 tools/mm_scan.py   (also usable via shell tool each morning)
 Safety: read-only API calls only (GET). Never posts, reacts, or marks read.
 """
-DESCRIPTION = "Scan Mattermost (mattermost.cloud) for mentions/replies-to-her and CEO/COO posts; write candidates into crm/data/captures.json for the morning Briefing. Read-only. Configure private/crm/mm_token.txt + mm_server.txt (+ optional mm_watchers.txt: one username per line, default CEO/COO placeholders)."
+DESCRIPTION = (
+    'Scan Mattermost for mentions and CEO/COO posts; writes candidates to crm/data/captures.json for the '
+    'morning Briefing. Read-only. Config: private/crm/mm_token.txt, mm_server.txt, optional '
+    'mm_watchers.txt.'
+)
 
 import json, os, re, sys, urllib.request
 

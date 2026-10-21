@@ -14,10 +14,11 @@ import urllib.request
 import urllib.parse
 from iterbrow_runtime.tool_results import ToolInputError
 
-DESCRIPTION = ("Search the web. source: auto (default) searches DuckDuckGo first, then Wikipedia, Hacker News, GitHub, "
-               "Crossref and Open Library; github searches GitHub repositories only. Returns JSON results with title, "
-               "url, snippet; NO RESULTS: <query> when the services answered with nothing (try other words). To read a "
-               "repository's files, use the github tool.")
+DESCRIPTION = (
+    'Search the web: DuckDuckGo first, then Wikipedia, Hacker News, GitHub, Crossref, Open Library '
+    '(source=github: repos only). JSON results with title, url, snippet; NO RESULTS: <query> when nothing'
+    ' matched. For repo files use github.'
+)
 
 _UA = "Mozilla/5.0 (IterBrowserElectron)"
 # DuckDuckGo's HTML endpoints answer an ordinary browser (M14-E2).

@@ -33,12 +33,8 @@ from iterbrow_runtime.episodic_history import list_episodes, archive_text, chron
 from iterbrow_runtime.atomspace_store import _atomic_text
 
 DESCRIPTION = (
-    "Regenerate memory/tiers/tier3.txt, tier4.txt, and tier5.txt from "
-    "memory/recap/episode_*.json (the source of truth). This is the ONLY "
-    "sanctioned way to update tier files - direct writes are blocked in the "
-    "python tool (shell checks are best effort). Safe to call any time; always idempotent. "
-    "Call this instead of hand-editing tier files whenever memory/tiers/"
-    ".rollup_needed exists or tiers look stale."
+    'Regenerate memory/tiers/tier3-5.txt from memory/recap/episode_*.json; the only way to update tiers; '
+    'idempotent. Use when memory/tiers/.rollup_needed exists.'
 )
 
 RECAP_DIR = "memory/recap"

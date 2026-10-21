@@ -7,7 +7,10 @@ import os
 import sys
 from pathlib import Path
 
-DESCRIPTION = """Switch the Soul's mode for the person here when they ask for one: open (default), jam (riff freely), quiet (no Soul lines), critique (soul-absent walk), museum (museum night). Returns the new and previous mode."""
+DESCRIPTION = (
+    "Switch the Soul's mode when the person asks: open (default), jam, quiet, critique, museum. Returns "
+    'new and previous mode.'
+)
 
 TOOLS_DIR = Path(__file__).resolve().parent
 ROOT = os.path.realpath(os.environ.get("ITER_DIR") or os.getcwd())

@@ -26,10 +26,8 @@ import contradict
 import memory_journal
 
 DESCRIPTION = (
-    "Record a keep/reject decision on a component-museum entry (id from museum_list). "
-    "vote='keep' applies positive NAL truth-revision evidence (support.py) to the "
-    "component's memory record; vote='reject' applies negative evidence (contradict.py). Every vote is "
-    "journaled."
+    'Record keep/reject on a component-museum entry (id from museum_list): keep adds positive NAL '
+    'evidence, reject negative. Journaled.'
 )
 
 

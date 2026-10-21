@@ -4,8 +4,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _browser_bridge import call
 
 DESCRIPTION = (
-    "Open a new tab at the given URL (defaults to a search page), wait for it to load, and make it the displayed "
-    "tab and your target. To open one of the person's apps as they see it, use browser_open_app instead."
+    "Open a new tab at a URL, wait for the load, and make it displayed and your target. For the person's "
+    'apps use browser_open_app.'
 )
 
 

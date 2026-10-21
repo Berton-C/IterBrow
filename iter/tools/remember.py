@@ -8,11 +8,9 @@ if TOOLS_DIR not in sys.path:
 import _petta_db as petta_db
 
 DESCRIPTION = (
-    "Commit semantic memory and refresh its search projection. If a write is uncertain, "
-    "use status_id alone to read its committed state without embedding or rewriting. "
-    "Retrying the exact same text resumes its original pending identity; do not reword an uncertain write. "
-    "provenance_type: observed/inferred/model_estimated. mem_type: fact/belief/value/todo/preference. "
-    "Non-todo memories require force=True to forget."
+    'Commit a semantic memory. provenance_type: observed|inferred|model_estimated. mem_type: '
+    'fact|belief|value|todo|preference. If a write was uncertain, status_id alone reads its state; retry '
+    'with the exact same text, never reworded.'
 )
 
 VALID_MEM_TYPES = {"fact", "belief", "value", "todo", "preference"}

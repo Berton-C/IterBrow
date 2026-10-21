@@ -3,10 +3,9 @@ import urllib.request
 import urllib.error
 
 DESCRIPTION = (
-    "Side call to LM Studio's local LLM server, independent of your own main model. "
-    "messages: list of {role, content} (or JSON string); model (default 'qwen/qwen3.8-27b'); "
-    "temperature (0.7); max_tokens (1024); stream (False); raw=True returns full JSON instead of "
-    "the reply text. base_url defaults to http://127.0.0.1:1234 (loopback, works offline)."
+    "Side call to LM Studio's local LLM (not your own model). messages: [{role, content}]; model (default"
+    ' qwen/qwen3.8-27b); temperature 0.7; max_tokens 1024; raw=True for full JSON. base_url default '
+    'http://127.0.0.1:1234.'
 )
 
 # NOTE: this is the native-Python rewrite of the browser/WASM version of

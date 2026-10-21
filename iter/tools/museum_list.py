@@ -6,10 +6,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _component_museum as museum
 
-DESCRIPTION = (
-    "List saved component-museum entries (live-DOM patches and tab-variant generations), "
-    "most recent first. Each entry has an id you can pass to museum_recall or museum_vote."
-)
+DESCRIPTION = 'List saved component-museum entries, newest first, with ids for museum_recall or museum_vote.'
 
 
 def run(limit="20"):

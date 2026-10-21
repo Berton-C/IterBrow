@@ -11,7 +11,10 @@ import re
 import sys
 from pathlib import Path
 
-DESCRIPTION = """Museum night: list the component museum's kept, rejected and unvoted variants (newest first), each joined to the fork card that decided it, plus the person's learned leans, so you can walk them through it and say why. app filters on label/url; limit caps the pieces. Reads only."""
+DESCRIPTION = (
+    "List the museum's kept, rejected and unvoted variants with the fork card that decided each and the "
+    "person's leans. app filters; limit caps. Reads only."
+)
 
 TOOLS_DIR = Path(__file__).resolve().parent
 ROOT = os.path.realpath(os.environ.get("ITER_DIR") or os.getcwd())
