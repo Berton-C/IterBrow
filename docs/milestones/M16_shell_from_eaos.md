@@ -1,10 +1,39 @@
 # Milestone 16 — Two shell features ported from the EAOS Foundry: pop-out tabs and the model settings panel
 
-Status: **scoped 2026-10-21, not implemented.** Base: M6–M15. Tests: `tests/test_m16_popout.py`,
-`tests/test_m16_settings.py` (16 `@pending`) and `tests/test_m16_present.py` (guards that already pass: the two
-features Berton also asked for that IterBrow already has); helpers in `tests/m16_support.py`. How to build it:
-`CLAUDE.md`; check a section with `scripts/check_section.sh M16-A`. `M16_IMPLEMENTED` is keyed on
-`bridge/model_settings.js` (B1). Implement A then B, one commit each.
+Status: **implemented 2026-10-21 (A, B).** Base: M6–M15. Tests: `tests/test_m16_popout.py`, `tests/test_m16_settings.py`
+(16 tests, none pending) and `tests/test_m16_present.py` (2 guards); helpers in `tests/m16_support.py`. Commits:
+`M16-A`, `M16-B`, then these notes.
+
+## Implementation notes (2026-10-21)
+
+**What Berton does on the Mac.** Quit and reopen IterBrow (both features live in the browser process). Then:
+- Double-click any tab: it opens in its own window. Double-click its pill (it shows ⧉) or close the window to
+  bring it back; Tabs ▸ "Open in its own window" / "Return to the tab strip" (⌘⇧P) does the same.
+- Settings: pick a provider, **Fetch models**, click one, **Test connection**, **Save & apply**. Your existing
+  OpenRouter, OpenAI and LM Studio entries load as they are; the key fields show "stored — leave empty to keep
+  it". Save & apply restarts Iter if it is running — not during a bench run.
+
+**Deviations and why.**
+- A3: `browser_tabs` adds `window=<id>` only for a popped tab; rows for tabs in the main window are unchanged, so
+  M13's exact listing test (and anything Iter learned to read) still holds.
+- A2: the Tabs menu item's label follows the focused window (the menu is rebuilt when a pop-out gains or loses
+  focus): with a pop-out focused it says "Return to the tab strip" and acts on that tab.
+- B3: "Save settings" (Start uses the same path) saves the form without restarting; only **Save & apply**
+  restarts a running Iter.
+- B4: `settings:load` returns the panel state for every setting but the provider routes, so the dock and sidebar
+  code that read `loadSettings()` keeps working; `settings:save` merges onto the stored file instead of
+  overwriting it (the renderer no longer holds keys to send back).
+- `bridge/model_settings.js` was created with A because `M16_IMPLEMENTED` keys on it.
+
+**Test fixes** (in the commit messages): the restart test named `stopIterProcess()`, which main.js does not have
+(`stopIter()`/`startIterWithAtomspace()`); the fake fetch's "/v1/models" suffix also matched the Anthropic URL the
+test expected to fail; the stub electron's webContents had no `close()` for `closeTab`.
+
+**Checked beyond the tests:** the real `renderer/index.html` in Chromium with a stub API — six providers listed,
+Fetch models → click a model → its price line, Test connection's one-line result, LM Studio hides the key field,
+switching providers keeps each draft, Save & apply sends `{provider, entry, apply: true}` with an empty key.
+Not checked here: the pop-out window itself in Electron (no display in the cloud) — the tab manager's moves are
+tested with a fake window; the first real check is Berton's double-click.
 
 ## Why
 
