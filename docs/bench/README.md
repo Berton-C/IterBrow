@@ -38,3 +38,20 @@ Results land in `docs/bench/<date>-<model>.json` and a table is printed.
 The asks name the element ids the probes use, so a probe written in advance can check whatever Iter builds.
 An app that ignores the ids, or keeps its state outside `iter:<id>:` keys, fails — that is a finding about
 following a brief, not a flaky test.
+
+## What changed (before / after a milestone)
+
+Run the bench once with `--baseline` before the change and once after, same five briefs, same model, and fill
+in this table from the two printed tables (M15-E1). `reason` is `request_blocked` when an app ended because
+Iter could not send a request (M15-A4); a blocked run is a finding, not a slow one.
+
+| | built | kept | theatre / app | median cycles / app | median minutes / app | blocked |
+|---|---|---|---|---|---|---|
+| before (`--baseline`, date, model) | /5 | /5 | | | | |
+| after (date, model) | /5 | /5 | | | | |
+
+The goal M15 sets for the "after" run: five built, five kept, theatre ≤ 1 per app, no silent block, and median
+cycles per app below the baseline. While an app is being built, Iter's prompt and its `browser_open_app` /
+`app_probe` results carry a `[build ledger <app>]` line (what the ask named that the running app lacks, what no
+passing probe covers yet, contract breaches, the last probe, next: build | probe | report); reading it in the
+run's `.runtime/last_prompt.json` explains most rows.

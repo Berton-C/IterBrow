@@ -33,8 +33,8 @@ from _browser_bridge import call
 
 DESCRIPTION = (
     'Photo (camera) or audio (microphone) in a visible tab. action: photo|record|close; duration: seconds'
-    ' for record (default 5, max 30). Returns saved_path (memory/captures/) and tab_id; close the tab '
-    'when done.'
+    " to record (default 5, max 30). Returns saved_path and tab_id; when done, action='close' with that "
+    'tab_id.'
 )
 
 _TOOLS_DIR = Path(__file__).resolve().parent

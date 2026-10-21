@@ -3,8 +3,8 @@ import urllib.request
 import urllib.error
 
 DESCRIPTION = (
-    "Side call to LM Studio's local LLM (not your own model). messages: [{role, content}]; model (default"
-    ' qwen/qwen3.8-27b); temperature 0.7; max_tokens 1024; raw=True for full JSON. base_url default '
+    "Side call to LM Studio's local LLM (not your model). messages: [{role, content}]; model (default "
+    'qwen/qwen3.8-27b); temperature 0.7; max_tokens 1024; raw=True: full JSON. base_url: '
     'http://127.0.0.1:1234.'
 )
 

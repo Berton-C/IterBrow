@@ -24,9 +24,10 @@ class SnapshotTests(unittest.TestCase):
         r = vault_root("m14snap", with_main_js=True)
         self.addCleanup(r.close)
         r.app("todo", html="<!doctype html><title>v1</title>\n")
-        self.assertEqual(r.text("write_file", path="vault/todo/index.html", content="<!doctype html><title>v2</title>\n"),
+        # M15-C4 appends " · ledger: changed since last check — …" to a write in a vault app.
+        self.assertEqual(r.text("write_file", path="vault/todo/index.html", content="<!doctype html><title>v2</title>\n").split(" · ledger:")[0],
                          "WROTE vault/todo/index.html (33 bytes, 1 lines)")
-        self.assertEqual(r.text("edit_file", path="vault/todo/index.html", old="v2", new="v3").splitlines()[0],
+        self.assertEqual(r.text("edit_file", path="vault/todo/index.html", old="v2", new="v3").splitlines()[0].split(" · ledger:")[0],
                          "EDITED vault/todo/index.html (+1 −1 lines)")
         self.assertEqual(r.text("write_file", path="vault/todo/index.html", content="<!doctype html><title>v3</title>\n"),
                          "WROTE vault/todo/index.html (unchanged)")

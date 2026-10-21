@@ -1,10 +1,61 @@
 # Milestone 15 — The build ledger: a loop that never wedges, and an atom space that remembers the build
 
-Status: **scoped 2026-10-21, revised the same day (observe-don't-parse; D deferred), not implemented.** Base: M6–M14.
-Tests: `tests/test_m15_{budget,tools,ledger,check}.py` and `tests/e2e/test_m15_loop.py` (29 `@pending`; `test_m15_worker.py` is
-deferred and skipped); helpers in `tests/m15_support.py`; fixtures in `tests/fixtures/m15/`. How to build it:
-`CLAUDE.md`; check a section with `scripts/check_section.sh M15-A`. `M15_IMPLEMENTED` is keyed on
-`iter/iterbrow_runtime/build_ledger.py` (C2). Implement A→C then E, one commit each (D is deferred).
+Status: **implemented 2026-10-21 (A, B, C; D deferred; E is Berton's two bench runs).** Base: M6–M14.
+Tests: `tests/test_m15_{budget,tools,ledger,check}.py` and `tests/e2e/test_m15_loop.py` (30 tests, none pending;
+`test_m15_worker.py` is deferred and skipped unless `ITERBROW_M15_WORKER=1`); helpers in `tests/m15_support.py`;
+fixtures in `tests/fixtures/m15/`. Commits: `M15-A`, `M15-B`, `M15-C`, then the suite fixes and these notes.
+
+## Implementation notes (2026-10-21)
+
+**What Berton does on the Mac.** Nothing to install. Quit and reopen IterBrow: the contract check lives in the
+browser process, so Stop/Start alone would leave every ledger line at "no check". Then run the bench (E1): the 2026-10-21 deepseek run (0 cycles,
+blocked) already serves as the "before"; one "after" run with the same model fills the table in
+`docs/bench/README.md`. Watch the first build's `.runtime/last_prompt.json`: the system prompt ends with a
+`[build ledger <app>] …` line once Iter has opened the app.
+
+**Numbers.**
+- Calibration: Berton's four logged gpt-6-luna pairs give a median provider/estimate ratio of **0.5559**, so a
+  request the old estimator called 47,224 tokens is now ~26k against the 45k target. 1.0 until three answered
+  requests exist for a provider+model (`.runtime/model_usage_calibration.jsonl`).
+- Tool schemas: all 84 tools **17,255 → 13,978** estimated tokens (uncalibrated); the build view (39 tools)
+  is under 7k; every DESCRIPTION ≤ 280 characters.
+- A ledger observation (facts + MeTTa conclusions through the one-shot worker + one transaction) takes
+  ≈ 0.45 s; it runs only on `browser_open_app` and `app_probe` of a vault app. build_mode reads atoms each
+  cycle (no MeTTa).
+
+**Deviations and why.**
+- A2's third degrade step drops whole exchanges and runner observations older than the third-newest assistant
+  turn from the request copy (the 9k of "runtime observations" in the 2026-10-21 block were parked exchanges
+  the projection creates, so dropping only runner messages would not have shrunk them). Experience is
+  untouched; a plan that still does not fit blocks with the notice.
+- A3: one notice per block, and again only after a new message from the person (a "Hello?" to a blocked Iter
+  is answered with the reason instead of silence). The heartbeat and retry-on-change are as before.
+- B1: the chat view hides the five build-only tools even though they are in `PROTECTED_TOOL_NAMES` (the test
+  and B1 require it); `PROTECTED_TOOL_NAMES` still governs the load cap and A2's degrade.
+- B2: 70 descriptions were rewritten, not twelve: the ≤ 14k all-tools estimate needs an average near 175
+  characters.
+- C3: conclusions are computed by the one-shot worker over exactly the app's merged facts
+  (`build_ledger.worker_run`), not `metta_server.query(view="current")`. The rendered line then never depends
+  on the store having taken the facts, and the rules see only this app. The seed is still declared, so
+  `!(ledger-next todo)` works from Iter's own `metta` tool.
+- C1 storage is attributed, not listed: all file:// apps share one localStorage (mapstation's `iterMapCache`
+  would have been "storage other" for every app). `other` is the keys the page wrote while the check or a
+  probe ran (a recorder the check installs); `prefixed` counts keys under `iter:<app>:`. Storage the check's
+  submit clicks changed is put back and the tab reloaded, so opening an app never leaves an empty item behind.
+  The check runs only for vault apps (never mapstation, crm …) and never on a locked tab.
+- C2: ask facts grow while the app is built (a message that scrolled out of the request still asked for it);
+  `new_app` and an app gone from the vault clear them. A changed mind ("drop the delete button") is not read;
+  that requirement stays until the app is recreated.
+- C6: `edit_keeps_passing` is learned from a probe that follows a re-open after an earlier run (the ledger
+  has no edit facts by design).
+- The ledger only talks to `ITER_METTA_SOCKET` (never the legacy default socket), so a test run on the Mac can
+  never touch the live store.
+
+**Test fixes** (each in its commit message): calibration expected 0.5517, the median is 0.5559; the A2 e2e pad
+is 90,000 chars (45,000 stopped crossing the target once B shrank the schemas); the check tests run in file://
+pages (`run_in_file_page`) and assert attributed storage; the C e2e iterated `read_atoms`' keys instead of its
+atoms; M14 tests that compared a vault write's whole result line compare the part before the new reminder;
+`build_ledger.py` was created with A because `M15_IMPLEMENTED` keys on it.
 
 ## Why — what the three benchmark runs actually said
 

@@ -33,6 +33,7 @@ export PYTHONPYCACHEPREFIX="${TMPDIR:-/tmp}/ib-test-pycache"
 GUARDS=(tests/test_m12_untie.py tests/test_m12_files.py tests/test_m12_guidance.py
         tests/test_m13_reading.py tests/test_m13_actions.py tests/test_m13_targets.py tests/test_m13_guidance.py
         tests/test_m14_vault.py tests/test_m14_scaffold.py tests/test_m14_cycling.py tests/test_m14_loop.py
+        tests/test_m15_budget.py tests/test_m15_tools.py tests/test_m15_ledger.py tests/test_m15_check.py
         tests/test_m10_apps.py tests/test_m7_brief.py tests/test_tool_cap.py tests/test_governance_gate.py)
 
 # An item: M14-B2 (one section) or any M14-<letter><n> (the whole milestone).
