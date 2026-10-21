@@ -49,7 +49,6 @@ def probe_result(passed, failed, observations):
 class AskFactsTests(unittest.TestCase):
     """M15-C2 (ask): literal selectors and persist, nothing else."""
 
-    @pending("M15-C2")
     def test_only_what_the_ask_names(self):
         facts = atoms_of(ledger().facts_from_ask("todo", TODO_ASK))
         atoms = set(facts.values())
@@ -65,7 +64,6 @@ class AskFactsTests(unittest.TestCase):
 class CheckFactsTests(unittest.TestCase):
     """M15-C2 (check): the observed page becomes atoms, one family, replaced wholesale."""
 
-    @pending("M15-C2")
     def test_the_unguarded_todo_and_the_built_notes(self):
         facts = atoms_of(ledger().facts_from_check("todo", TODO_CHECK))
         atoms = set(facts.values())
@@ -82,7 +80,6 @@ class CheckFactsTests(unittest.TestCase):
         self.assertIn("(app-stores notes prefixed)", notes)
         self.assertFalse(any("app-form" in a or "app-script" in a for a in notes))
 
-    @pending("M15-C2")
     def test_a_hidden_element_is_present_not_visible(self):
         check = dict(TODO_CHECK, selectors={"#add": {"present": True, "visible": False}})
         atoms = set(atoms_of(ledger().facts_from_check("todo", check)).values())
@@ -93,7 +90,6 @@ class CheckFactsTests(unittest.TestCase):
 class ProbeFactsTests(unittest.TestCase):
     """M15-C2 (probe): runs, assertions and what the probe covers."""
 
-    @pending("M15-C2")
     def test_probe_result_becomes_atoms(self):
         result = probe_result(2, 1, [{"kind": "count", "selector": "#list li", "actual": 2, "expected": 3, "passed": False},
                                      {"kind": "text", "selector": "#title", "actual": "Todo", "expected": "Todo", "passed": True},
@@ -117,7 +113,6 @@ class RulesTests(unittest.TestCase):
     def _conclude(self, app, atoms):
         return ledger().conclude(app, lambda code: run_metta(seed_units(), atoms, code))
 
-    @pending("M15-C3")
     def test_missing_unproven_contract_and_next(self):
         module = ledger()
         atoms = {}
@@ -132,7 +127,6 @@ class RulesTests(unittest.TestCase):
         self.assertEqual(c["next"], "build")
         self.assertEqual(c["regressed"], [])
 
-    @pending("M15-C3")
     def test_hidden_is_its_own_verdict(self):
         module = ledger()
         atoms = atoms_of(module.facts_from_ask("todo", "A todo with #add and #list."))
@@ -144,7 +138,6 @@ class RulesTests(unittest.TestCase):
         self.assertEqual(c["hidden"], ["#add"])
         self.assertEqual(c["next"], "build")
 
-    @pending("M15-C3")
     def test_probe_then_report_then_regression(self):
         module = ledger()
         atoms = {}
@@ -173,7 +166,6 @@ class RulesTests(unittest.TestCase):
         self.assertEqual(c["regressed"], ["text #preview h1"])
         self.assertEqual(c["next"], "build")
 
-    @pending("M15-C3")
     def test_the_seed_is_declared(self):
         manifest = json.loads((ITER_SRC / "state_manifest.json").read_text(encoding="utf-8"))
         entry = next((e for e in manifest["entries"] if e["path"] == "seeds/build_ledger.metta"), None)
@@ -185,7 +177,6 @@ class RulesTests(unittest.TestCase):
 class RenderTests(unittest.TestCase):
     """M15-C4 (render)"""
 
-    @pending("M15-C4")
     def test_render_is_short_and_says_next(self):
         render = ledger().render
         text = render("todo", {"missing": [".delete", ".toggle"], "hidden": ["#add"], "unproven": ["#list"], "regressed": [],
@@ -211,7 +202,6 @@ class RecordedWhereFactsAriseTests(unittest.TestCase):
     """M15-C2 / C4 / C5: the observing tools record and carry the ledger; the file tools only remind;
     build_mode reads atoms; the catalog drops what is gone."""
 
-    @pending("M15-C4")
     def test_who_records_who_reminds_who_reads(self):
         require_m15()
         tools = ITER_SRC / "tools"
@@ -237,7 +227,6 @@ class RecordedWhereFactsAriseTests(unittest.TestCase):
         self.assertIn("state:build:", apps, "the catalog drops the facts of apps that are gone")
         self.assertIn("state:build:", (tools / "new_app.py").read_text(encoding="utf-8"))
 
-    @pending("M15-C4")
     def test_write_file_in_a_vault_app_reminds_and_nothing_else(self):
         r = VaultRoot("m15remind", with_main_js=True)
         self.addCleanup(r.close)
@@ -253,7 +242,6 @@ class RecordedWhereFactsAriseTests(unittest.TestCase):
 class NaceLearnsTests(unittest.TestCase):
     """M15-C6"""
 
-    @pending("M15-C6")
     def test_patterns_queue_through_the_courier_like_idle_cycle_detector(self):
         require_m15()
         src = (ITER_SRC / "iterbrow_runtime" / "build_ledger.py").read_text(encoding="utf-8")

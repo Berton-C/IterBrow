@@ -77,7 +77,6 @@ class LedgerLoopTests(unittest.TestCase):
     """M15-C2/C4 through the loop (real AtomSpace service, no browser): the ask's facts land, a file write
     reminds, and the prompt says the ledger is stale until a check."""
 
-    @pending("M15-C2")
     def test_ask_facts_land_and_the_prompt_asks_for_a_check(self):
         require_m15()
         script = [
@@ -98,7 +97,7 @@ class LedgerLoopTests(unittest.TestCase):
             written = next(c for c in results if "WROTE vault/todo/index.html" in c)
             self.assertIn("· ledger: changed since last check", written)
             self.assertNotIn("form", written, "the file tools observe nothing")
-            atoms = run.atoms("state:build:todo:")
+            atoms = list(run.atoms("state:build:todo:").values())  # read_atoms answers {key: atom}
             asked = [str(a) for a in atoms if "ask-requires" in str(a)]
             self.assertEqual(len(asked), 7, asked)
             self.assertTrue(any('".delete"' in a for a in asked))

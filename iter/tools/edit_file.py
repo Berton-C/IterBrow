@@ -40,5 +40,7 @@ def run(path, old, new=""):
     end = start + max(_files.line_count(new), 1) - 1
     first, last = max(0, start - 2), min(len(lines) - 1, end + 2)
     header = "EDITED %s (+%d −%d lines)" % (path, _files.line_count(new), _files.line_count(old))
+    # M15-C4: in a vault app, "· ledger: changed since last check — browser_open_app(<app>) to re-check".
+    header += write_file.ledger_reminder(path)
     region = _files.numbered(lines[first:last + 1], first + 1) if lines else []
     return "\n".join([header] + region)

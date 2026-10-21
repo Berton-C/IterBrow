@@ -17,6 +17,20 @@ def _umask():
     return mask
 
 
+import re  # noqa: E402
+
+VAULT_APP = re.compile(r"^vault/([a-z][a-z0-9-]{0,62})/")
+
+
+def ledger_reminder(path):
+    """M15-C4: a write in a vault app leaves its build ledger behind the files; say so (the file tools observe
+    nothing — browser_open_app checks the running app)."""
+    found = VAULT_APP.match(str(path))
+    if not found:
+        return ""
+    return " · ledger: changed since last check — browser_open_app(%s) to re-check" % found.group(1)
+
+
 def run(path, content=""):
     return write(path, content, "write_file")
 
@@ -53,4 +67,4 @@ def write(path, content, reason):
         except OSError:
             pass
         raise
-    return "WROTE %s (%d bytes, %d lines)" % (path, len(data), _files.line_count(text))
+    return "WROTE %s (%d bytes, %d lines)" % (path, len(data), _files.line_count(text)) + ledger_reminder(path)

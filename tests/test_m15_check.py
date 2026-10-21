@@ -10,21 +10,20 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from m15_support import pending, require_m15, fixture  # noqa: E402
-from m13_support import page_script, run_in_page, playwright_available, BRIDGE  # noqa: E402
+from m15_support import pending, require_m15, fixture, run_in_file_page  # noqa: E402
+from m13_support import page_script, playwright_available, BRIDGE  # noqa: E402
 
 TODO_SELECTORS = ["#new-todo", "#add", "#list", ".label", ".toggle", ".delete"]
 
 
 def check(html, selectors, app="todo", setup_js="0"):
-    return run_in_page(html, page_script("checkScript", {"appId": app, "selectors": selectors}), setup_js=setup_js, wait_ms=300)
+    return run_in_file_page(html, page_script("checkScript", {"appId": app, "selectors": selectors}), setup_js=setup_js, wait_ms=300)
 
 
 @unittest.skipUnless(playwright_available(), "needs playwright")
 class CheckScriptTests(unittest.TestCase):
     """M15-C1"""
 
-    @pending("M15-C1")
     def test_the_unguarded_todo(self):
         require_m15()
         result = check(fixture("todo_unguarded.html"), TODO_SELECTORS)
@@ -37,23 +36,24 @@ class CheckScriptTests(unittest.TestCase):
         self.assertEqual(result["forms"], [{"selector": "#todo-form", "guarded": False}])
         self.assertFalse(result["placeholder"])
         self.assertEqual(result["title"], "Todo")
-        self.assertEqual(result["storage"]["prefixed"], 0)
+        self.assertEqual(result["storage"], {"prefixed": 0, "other": ["todos"]}, "the submit the check clicked wrote todos")
 
-    @pending("M15-C1")
     def test_storage_by_prefix_and_a_guarded_form(self):
         require_m15()
         html = """<!doctype html><title>T</title><body data-iter-ready="true">
         <form id="f"><input id="q"><button id="go">Go</button></form><div id="out" style="display:none"></div>
-        <script>document.getElementById('f').addEventListener('submit', (e) => { e.preventDefault(); });</script>"""
-        setup = "localStorage.setItem('iter:todo:items', '[]'); localStorage.setItem('iter:todo:theme', 'dark'); localStorage.setItem('legacy', '1')"
+        <script>document.getElementById('f').addEventListener('submit', (e) => { e.preventDefault(); localStorage.setItem('legacy', '1'); });</script>"""
+        # file:// apps share one localStorage: a key another app left (iterMapCache) is not this app's; a key this
+        # page writes while the check runs (legacy, from its submit handler) is, and the check puts storage back.
+        setup = "localStorage.setItem('iter:todo:items', '[]'); localStorage.setItem('iter:todo:theme', 'dark'); localStorage.setItem('iterMapCache', '{}')"
         result = check(html, ["#q", "#out", "#nope"], setup_js=setup)
         self.assertEqual(result["storage"], {"prefixed": 2, "other": ["legacy"]})
+        self.assertTrue(result["restored"], "the key the click wrote was removed again")
         self.assertEqual(result["forms"], [{"selector": "#f", "guarded": True}])
         self.assertEqual(result["selectors"]["#out"], {"present": True, "visible": False})
         self.assertEqual(result["selectors"]["#nope"], {"present": False, "visible": False})
         self.assertEqual(result["scripts"], [], "inline scripts are not external")
 
-    @pending("M15-C1")
     def test_the_check_never_navigates_and_skips_forms_without_a_submit(self):
         require_m15()
         html = """<!doctype html><title>N</title><body>
@@ -65,10 +65,9 @@ class CheckScriptTests(unittest.TestCase):
         self.assertTrue(result["placeholder"])
         self.assertFalse(result["ready"])
         self.assertEqual(result["title"], "N")
-        still_here = run_in_page(html, "location.href === window.__loc", setup_js="window.__loc = location.href; " + page_script("checkScript", {"appId": "n", "selectors": ["#x"]}), wait_ms=400)
+        still_here = run_in_file_page(html, "location.href === window.__loc", setup_js="window.__loc = location.href; " + page_script("checkScript", {"appId": "n", "selectors": ["#x"]}), wait_ms=400)
         self.assertTrue(still_here, "the check prevented the navigation it triggered")
 
-    @pending("M15-C1")
     def test_the_bridge_runs_it_on_open_and_before_probe(self):
         require_m15()
         src = (BRIDGE / "browser_bridge_server.js").read_text(encoding="utf-8")

@@ -39,6 +39,7 @@ def _brief(raw):
 
 def list_apps(root=None):
     """[{id, kind, path, entry, brief}]: vault apps sorted by id, then the rest sorted by id."""
+    explicit_root = root
     root = Path(root) if root else iter_root()
     apps = {}
     projects = root / "apps"
@@ -67,7 +68,21 @@ def list_apps(root=None):
              if not (apps.get(app["id"]) or {}).get("kind") == "foundry"]
     for app in vault:
         apps.pop(app["id"], None)
+    if explicit_root is None:
+        drop_gone_ledgers([app["id"] for app in vault])
     return vault + [apps[name] for name in sorted(apps)]
+
+
+def drop_gone_ledgers(vault_ids):
+    """M15-C5: the build ledger of an app no longer in the vault goes too (state:build:<app>:* removed). Only
+    for the running install's own catalog (list_apps() without a root); never raises."""
+    try:
+        from iterbrow_runtime import build_ledger
+        gone = build_ledger.built_apps() - set(vault_ids)
+        if gone:
+            build_ledger.forget(sorted(gone))
+    except Exception:
+        pass
 
 
 def entry_url(app):

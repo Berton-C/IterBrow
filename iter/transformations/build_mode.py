@@ -7,6 +7,7 @@ to the system prompt; otherwise nothing. Pure over the message list (no state fi
 never a gate: no tool is removed and nothing is refused.
 """
 import json
+import os
 import re
 
 DESCRIPTION = "While an app is being made, puts the research → propose → build → prove → report loop in the prompt."
@@ -60,6 +61,106 @@ def active(messages):
     return False
 
 
+APP_ARG = {"new_app": "id", "app_probe": "app", "app_rollback": "app", "browser_open_app": "app_id"}
+VAULT_PATH = re.compile(r"^vault/([a-z][a-z0-9-]{0,62})(?:/|$)")
+REPORTED = "transformations/.runtime/build_ledger_reported"  # M15-C6: the last send learned from
+
+
+def current_app(messages):
+    """The app the newest app-tool call or vault file-tool call names in the window, or None."""
+    for message in reversed([m for m in messages or [] if isinstance(m, dict)][-WINDOW:]):
+        for call in reversed(message.get("tool_calls") or [] if message.get("role") == "assistant" else []):
+            if not isinstance(call, dict):
+                continue
+            name = (call.get("function") or {}).get("name", "")
+            args = _arguments(call)
+            if name in APP_ARG and re.match(r"^[a-z][a-z0-9-]{0,62}$", str(args.get(APP_ARG[name], "")).strip()):
+                return str(args[APP_ARG[name]]).strip()
+            found = VAULT_PATH.match(str(args.get("path", "")).strip()) if name in FILE_TOOLS else None
+            if found:
+                return found.group(1)
+    return None
+
+
+def ask_text(messages, app):
+    """What the person asked for this app (M15-C2, read literally): their messages in the window that name it,
+    and the one the build answers (the last before the first call that touched it)."""
+    window = [m for m in messages or [] if isinstance(m, dict)][-WINDOW:]
+    named = re.compile(r"\b%s\b" % re.escape(app))
+    texts, last_user = [], None
+    touched = False
+    for message in window:
+        if message.get("role") == "user" and not message.get("_iter_runner"):
+            text = _text(message.get("content"))
+            last_user = text
+            if named.search(text):
+                texts.append(text)
+        elif message.get("role") == "assistant" and not touched and current_app([message]) == app:
+            touched = True
+            if last_user and last_user not in texts:
+                texts.append(last_user)
+    return "\n".join(texts)
+
+
+def _newest_write_ms(folder):
+    newest = 0.0
+    for base, dirs, files in os.walk(str(folder)):
+        dirs[:] = [d for d in dirs if not d.startswith(".") and d != "node_modules"]
+        for name in files:
+            try:
+                newest = max(newest, os.stat(os.path.join(base, name)).st_mtime)
+            except OSError:
+                pass
+    return newest * 1000
+
+
+def _learn_from_send(messages, app, atoms, ledger):
+    """M15-C6: the newest assistant turn sent a message while building — a report; NACE hears whether the
+    ledger said report. Once per send (its call id is kept)."""
+    newest = next((m for m in reversed(messages or []) if isinstance(m, dict) and m.get("role") == "assistant"), None)
+    sends = [c for c in (newest or {}).get("tool_calls") or [] if isinstance(c, dict) and (c.get("function") or {}).get("name") == "send"]
+    if not sends:
+        return
+    ident = str(sends[-1].get("id") or "")
+    try:
+        if ident and open(REPORTED).read().strip() == ident:
+            return
+    except OSError:
+        pass
+    if ledger.learn_from_report(app, atoms) is not None:
+        try:
+            os.makedirs(os.path.dirname(REPORTED), exist_ok=True)
+            with open(REPORTED, "w") as handle:
+                handle.write(ident)
+        except OSError:
+            pass
+
+
+def ledger_note(messages):
+    """M15-C4: the stored build ledger line for the app being built (atoms read, no MeTTa per cycle), or
+    "[build ledger <app>: stale — re-check]" when its files changed since the last check. Also records what
+    the ask names (facts_from_ask) when it grew. None when there is no app or the store cannot be read."""
+    app = current_app(messages)
+    if not app:
+        return None
+    from iterbrow_runtime import build_ledger, vault
+    folder = vault.app_dir(app)
+    if folder is None:
+        return None
+    atoms = build_ledger.read(app)
+    text = ask_text(messages, app)
+    if text:
+        try:
+            build_ledger.record_ask(app, text, atoms)
+        except Exception as error:
+            print("[build ledger] ask facts not recorded: %s" % error)
+    _learn_from_send(messages, app, atoms, build_ledger)
+    line, checked = build_ledger.stored_line(app, atoms)
+    if line is None or (checked or 0) < _newest_write_ms(folder):
+        return "[build ledger %s: stale — re-check with browser_open_app(%s)]" % (app, app)
+    return line
+
+
 THEATRE = ("[you sent two messages in a row with nothing done between them — do the next step (a tool call), "
            "then say what it showed]")
 
@@ -94,6 +195,11 @@ def transform(messages, tools):
         return messages, tools
     if not on:
         return messages, tools
+    try:
+        ledger = ledger_note(messages)  # M15-C4: the build ledger, never a gate
+    except Exception as error:
+        print("[build ledger] unavailable: %s" % error)
+        ledger = None
     for message in messages:
         if isinstance(message, dict) and message.get("role") == "system":
             content = str(message.get("content") or "")
@@ -101,6 +207,8 @@ def transform(messages, tools):
                 content += "\n\n" + BUILD_LOOP
             if note and note not in content:
                 content += "\n\n" + note
+            if ledger:
+                content += "\n\n" + ledger
             message["content"] = content
             break
     return messages, tools

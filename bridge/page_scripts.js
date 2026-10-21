@@ -166,4 +166,100 @@ function probeScript(spec) {
   }.toString()})(${JSON.stringify(spec)})`;
 }
 
-module.exports = { locateScript, stateScript, waitScript, scrollScript, probeScript };
+// M15-C1: the contract check — what the running app shows, observed in its page, never read from source:
+// the ask's named selectors (present, visible), the ready flag, this app's storage, external scripts, the
+// placeholder, and whether each form's submit is guarded. `guarded` is measured: the check clicks each form's
+// submit button with a listener of its own on the form (registered after the app's, so it runs after them)
+// that reads defaultPrevented and then prevents the submit itself, so the page never navigates. Storage the
+// clicks changed is put back as it was (`restored` says so). Storage is attributed, never guessed: `prefixed`
+// counts keys under iter:<appId>: (file:// apps share one localStorage, so other keys may be another app's);
+// `other` lists keys this page wrote outside the prefix while the check (and, through the recorder it
+// installs, a probe after it) ran.
+function checkScript(spec) {
+  return `(${async function runCheck(input) {
+    const prefix = 'iter:' + input.appId + ':';
+    if (!window.__iterLedgerWrites) {
+      window.__iterLedgerWrites = [];
+      const original = Storage.prototype.setItem;
+      Storage.prototype.setItem = function setItem(key, value) {
+        let mine = false;
+        try { mine = this === window.localStorage; } catch (_) { mine = false; }
+        if (mine && !window.__iterLedgerWrites.includes(String(key))) window.__iterLedgerWrites.push(String(key));
+        return original.call(this, key, value);
+      };
+    }
+    const visible = (element) => {
+      if (!element) return false;
+      const style = getComputedStyle(element);
+      return element.getClientRects().length > 0 && style.visibility !== 'hidden' && style.display !== 'none';
+    };
+    const selectors = {};
+    for (const selector of input.selectors || []) {
+      let element = null;
+      try { element = document.querySelector(selector); } catch (_) { element = null; }
+      selectors[selector] = { present: !!element, visible: visible(element) };
+    }
+    let storage = null;
+    try { storage = window.localStorage; } catch (_) { storage = null; }  // an opaque origin has none
+    const snapshot = {};
+    if (storage) for (let i = 0; i < storage.length; i += 1) { const key = storage.key(i); snapshot[key] = storage.getItem(key); }
+    const forms = [];
+    const all = [...document.querySelectorAll('form')];
+    all.forEach((form, index) => {
+      const button = form.querySelector('button:not([type]), button[type="submit"], input[type="submit"], input[type="image"]');
+      if (!button) return;
+      const selector = form.id ? '#' + form.id : 'form:nth-of-type(' + (index + 1) + ')';
+      let seen = null;
+      const listener = (event) => { seen = event.defaultPrevented; event.preventDefault(); };
+      form.addEventListener('submit', listener);
+      try { button.click(); } catch (_) { /* the app's handler threw; the submit is still measured */ }
+      form.removeEventListener('submit', listener);
+      forms.push({ selector, guarded: seen === true });
+    });
+    if (forms.length) await new Promise((resolve) => setTimeout(resolve, 50));
+    const writes = [...window.__iterLedgerWrites];
+    let restored = false;
+    let prefixed = 0;
+    if (storage) {
+      const now = {};
+      for (let i = 0; i < storage.length; i += 1) { const key = storage.key(i); now[key] = storage.getItem(key); }
+      for (const key of Object.keys(now)) if (!(key in snapshot)) { storage.removeItem(key); restored = true; }
+      for (const [key, value] of Object.entries(snapshot)) if (now[key] !== value) { storage.setItem(key, value); restored = true; }
+      for (let i = 0; i < storage.length; i += 1) if (String(storage.key(i)).startsWith(prefix)) prefixed += 1;
+    }
+    const hosts = [];
+    for (const script of document.scripts) {
+      if (!script.src) continue;
+      try {
+        const url = new URL(script.src, location.href);
+        if ((url.protocol === 'http:' || url.protocol === 'https:') && url.origin !== location.origin && !hosts.includes(url.hostname)) hosts.push(url.hostname);
+      } catch (_) { /* not a URL */ }
+    }
+    return {
+      selectors, ready: !!document.body && document.body.dataset.iterReady === 'true',
+      storage: { prefixed, other: writes.filter((key) => !key.startsWith(prefix)).sort() },
+      scripts: hosts.sort(), forms, placeholder: !!document.querySelector('#placeholder'), title: document.title, restored,
+    };
+  }.toString()})(${JSON.stringify(spec)})`;
+}
+
+// M15-C1: after a probe's steps, the keys the page wrote since the check installed its recorder, and how many
+// keys sit under iter:<appId>: now. Installs the recorder when a reload dropped it (installOnly).
+function ledgerWritesScript(appId, installOnly = false) {
+  return `(${function ledgerWrites(id, install) {
+    if (!window.__iterLedgerWrites) {
+      window.__iterLedgerWrites = [];
+      const original = Storage.prototype.setItem;
+      Storage.prototype.setItem = function setItem(key, value) {
+        if (this === window.localStorage && !window.__iterLedgerWrites.includes(String(key))) window.__iterLedgerWrites.push(String(key));
+        return original.call(this, key, value);
+      };
+    }
+    if (install) return null;
+    let prefixed = 0;
+    try { for (let i = 0; i < localStorage.length; i += 1) if (String(localStorage.key(i)).startsWith('iter:' + id + ':')) prefixed += 1; } catch (_) { /* no storage */ }
+    return { writes: [...window.__iterLedgerWrites], prefixed };
+  }.toString()})(${JSON.stringify(appId)}, ${installOnly ? 'true' : 'false'})`;
+}
+
+module.exports = { locateScript, stateScript, waitScript, scrollScript, probeScript, checkScript, ledgerWritesScript };

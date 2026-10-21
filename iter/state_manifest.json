@@ -34,6 +34,14 @@
       "owner": "cognition.nace"
     },
     {
+      "path": "seeds/build_ledger.metta",
+      "role": "source_seed",
+      "format": "metta",
+      "portable": false,
+      "reset": false,
+      "owner": "cognition.build_ledger"
+    },
+    {
       "path": "seeds/engineering_governor.metta",
       "role": "source_seed",
       "format": "metta",

@@ -119,3 +119,22 @@ def real_tools():
             "parameters": {"type": "object", "properties": {p.name: {"type": "string"} for p in params},
                            "required": [p.name for p in params if p.default is inspect.Parameter.empty]}}})
     return out
+
+
+def run_in_file_page(html, expression, setup_js="0", wait_ms=100):
+    """Like m13_support.run_in_page, but the page is a file:// document (as IterBrow's apps are), so it has
+    localStorage (an about:blank page from set_content has an opaque origin and none)."""
+    from m6_support import run_playwright
+    folder = Path(tempfile.mkdtemp(prefix="m15-page-"))
+    page = folder / "index.html"
+    page.write_text(html, encoding="utf-8")
+    script = """
+import json
+from playwright.sync_api import sync_playwright
+with sync_playwright() as p:
+    b = p.chromium.launch(); pg = b.new_page(viewport={"width": 900, "height": 600})
+    pg.goto(%s); pg.wait_for_timeout(50)
+    pg.evaluate(%s); pg.wait_for_timeout(%d)
+    print(json.dumps(pg.evaluate(%s))); b.close()
+""" % (json.dumps(page.as_uri()), json.dumps(setup_js), wait_ms, json.dumps(expression))
+    return json.loads(run_playwright(script).strip().splitlines()[-1])

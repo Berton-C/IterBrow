@@ -137,10 +137,11 @@ class FileToolsTests(unittest.TestCase):
         r = vault_root("m14files", with_main_js=True)
         self.addCleanup(r.close)
         r.app("todo")
-        self.assertEqual(r.text("write_file", path="vault/todo/app.js", content="console.log(1)\n"), "WROTE vault/todo/app.js (15 bytes, 1 lines)")
+        # M15-C4 appends " · ledger: changed since last check — …" to writes in a vault app.
+        self.assertEqual(r.text("write_file", path="vault/todo/app.js", content="console.log(1)\n").split(" · ledger:")[0], "WROTE vault/todo/app.js (15 bytes, 1 lines)")
         self.assertEqual((r.vault / "todo" / "app.js").read_text(encoding="utf-8"), "console.log(1)\n")
         self.assertEqual(r.text("read_file", path="vault/todo/app.js").splitlines()[0], "vault/todo/app.js (lines 1–1 of 1)")
-        self.assertEqual(r.text("edit_file", path="vault/todo/app.js", old="log(1)", new="log(2)").splitlines()[0], "EDITED vault/todo/app.js (+1 −1 lines)")
+        self.assertEqual(r.text("edit_file", path="vault/todo/app.js", old="log(1)", new="log(2)").splitlines()[0].split(" · ledger:")[0], "EDITED vault/todo/app.js (+1 −1 lines)")
         self.assertEqual(r.text("list_files", path="vault"), "vault/todo/")
         self.assertEqual(r.text("grep_files", pattern="log", path="vault/todo"), "vault/todo/app.js:1: console.log(2)")
         absolute = str(r.vault / "todo" / "index.html")

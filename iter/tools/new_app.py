@@ -97,6 +97,11 @@ def run(id, title="", from_example=""):
     folder = vault / app_id
     if folder.exists() or folder.is_symlink():
         return _files.input_error("EXISTS: vault/%s" % app_id)
+    try:  # M15-C5: a new app starts with no build ledger (state:build:<id>:* removed)
+        from iterbrow_runtime import build_ledger
+        build_ledger.forget([app_id])
+    except Exception:
+        pass
     example = str(from_example or "").strip()
     if example:
         # The shipped example first (a fresh copy even after the vault's own copy was changed), then a vault app.

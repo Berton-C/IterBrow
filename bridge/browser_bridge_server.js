@@ -11,7 +11,7 @@ const fs = require('fs');
 const path = require('path');
 const net = require('net');
 const { validateProbeSpec } = require('./foundry_apps');
-const { probeScript } = require('./page_scripts');
+const { probeScript, checkScript, ledgerWritesScript } = require('./page_scripts');
 
 const SOCKET_PATH = process.env.ITER_BRIDGE_SOCKET || '/tmp/iter-browser-bridge.sock';
 
@@ -68,6 +68,36 @@ function newestFileTime(dir, depth = 0) {
   return newest;
 }
 
+// M15-C1: the contract check in an app tab (see page_scripts.checkScript): the ask's named selectors come from
+// Iter's tool. Never on a locked tab (the check clicks submit buttons); a failure is a missing check (null),
+// never a failed open or probe. When the check's clicks changed storage it was put back and the page is
+// reloaded, so the app's memory matches its storage again.
+function selectorList(value) {
+  return (Array.isArray(value) ? value : []).filter((item) => typeof item === 'string' && item.trim() && item.length <= 200).slice(0, 40);
+}
+
+async function contractCheck(tabs, tab, appId, selectors) {
+  try {
+    if (!tab || !tab.view || tabs.isLocked(tab.id)) return null;
+    let timer;
+    let result;
+    try {
+      result = await Promise.race([
+        tab.view.webContents.executeJavaScript(checkScript({ appId, selectors: selectorList(selectors) }), true),
+        new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('contract check timed out')), 4000); }),
+      ]);
+    } finally { clearTimeout(timer); }
+    if (!result || typeof result !== 'object' || !result.selectors) return null;
+    if (result.restored) {
+      await tabs.awaitLoad(tab.id, (contents) => contents.reload());
+      await tab.view.webContents.executeJavaScript(ledgerWritesScript(appId, true), true);
+    }
+    return result;
+  } catch (_) {
+    return null;
+  }
+}
+
 function buildMethods(tabs, apps = {}) {
   return {
     async openApp(params) {
@@ -92,7 +122,8 @@ function buildMethods(tabs, apps = {}) {
       }
       tabs.attach(opened.tabId);
       const { dir, ...rest } = opened;
-      return { ...rest, focused: !!opened.focused, reloaded, ...loaded };
+      const check = params.check ? await contractCheck(tabs, tabs.tabs && tabs.tabs.get(opened.tabId), params.appId, params.selectors) : null;  // M15-C1 (apps being built)
+      return { ...rest, focused: !!opened.focused, reloaded, ...loaded, check: check || null };
     },
     // M13-C4: a scripted probe of any open app tab (plain apps included; no revision id). `ready` is the
     // app's data-iter-ready flag, reported and never required. A locked app tab refuses, like every action.
@@ -101,6 +132,7 @@ function buildMethods(tabs, apps = {}) {
       const tab = [...tabs.tabs.values()].find((item) => item.appScope && item.appScope.appId === spec.appId);
       if (!tab) throw new Error(`No open app tab for ${spec.appId}; browser_open_app("${spec.appId}") first`);
       assertUnlocked(tabs, tab.id, 'probed');
+      const check = params.check ? await contractCheck(tabs, tab, spec.appId, params.selectors) : null;  // M15-C1: before the steps
       let timer;
       let facts;
       try {
@@ -111,7 +143,18 @@ function buildMethods(tabs, apps = {}) {
       } finally { clearTimeout(timer); }
       const observations = (facts.observations || []).map((item) => ({ ...item, passed: item.actual === item.expected }));
       const passed = observations.filter((item) => item.passed).length;
-      return { observations, passed, failed: observations.length - passed, ready: facts.ready === true, title: facts.title, tabId: tab.id };
+      if (check) {
+        // M15-C1: what the page wrote during the steps is this app's own storage, attributed by the recorder.
+        try {
+          const after = await tab.view.webContents.executeJavaScript(ledgerWritesScript(spec.appId), true);
+          if (after && Array.isArray(after.writes)) {
+            const prefix = `iter:${spec.appId}:`;
+            const other = new Set([...(check.storage.other || []), ...after.writes.filter((key) => !key.startsWith(prefix))]);
+            check.storage = { prefixed: Number(after.prefixed) || 0, other: [...other].sort() };
+          }
+        } catch (_) { /* the check before the steps stands */ }
+      }
+      return { observations, passed, failed: observations.length - passed, ready: facts.ready === true, title: facts.title, tabId: tab.id, check: check || null };
     },
     // M13-B3: wait until a selector is visible, the page shows some text, or the URL contains a string (all
     // given must hold). A read: allowed on locked tabs.

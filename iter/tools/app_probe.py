@@ -71,7 +71,16 @@ def run(app, steps="", assertions="", timeout=""):
         timeout_ms = int(float(str(timeout or "3")) * 1000)
     except (ValueError, TypeError) as error:
         return _invalid("ERROR: %s (steps and assertions are JSON lists; timeout is seconds)" % error)
-    result = call("probe", appId=app, steps=steps_list, assertions=assertions_list, timeoutMs=timeout_ms)
+    from browser_open_app import building
+    built = building(app)
+    extra = {}
+    if built:  # M15-C1: the contract check runs before the steps
+        try:
+            from iterbrow_runtime import build_ledger
+            extra = {"check": True, "selectors": build_ledger.asked(app)}
+        except Exception:
+            extra = {"check": True, "selectors": []}
+    result = call("probe", appId=app, steps=steps_list, assertions=assertions_list, timeoutMs=timeout_ms, **extra)
     if refused(result):
         return result
     lines = ["PROBE %s%s: %d passed, %d failed" % (app, source, result.get("passed", 0), result.get("failed", 0))]
@@ -79,4 +88,14 @@ def run(app, steps="", assertions="", timeout=""):
         lines.append("%s %s %s: expected %s got %s" % ("✓" if item.get("passed") else "✗", item.get("kind"), item.get("selector"),
                                                      _shown(item.get("expected")), _shown(item.get("actual"))))
     lines.append("ready=%s" % ("true" if result.get("ready") else "false (the app has not set data-iter-ready; fine for a plain app)"))
+    if built:
+        # M15-C2/C4: the run and its check become facts (facts_from_probe); the ledger line comes from them,
+        # "not recorded" when the store could not take them. Never a failure of the probe itself.
+        from iterbrow_runtime import build_ledger
+        probe_json = {"steps": steps_list, "assertions": assertions_list}
+        try:
+            lines.append("· ledger: " + build_ledger.observe_probe(app, result, probe_json))
+        except Exception as error:
+            print("[build ledger] %s: %s: %s" % (app, type(error).__name__, error))
+            lines.append("· ledger: not recorded (%s)" % type(error).__name__)
     return "\n".join(lines)
