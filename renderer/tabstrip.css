@@ -122,6 +122,7 @@ button:disabled { opacity: .45; cursor: default; }
 .tab-pill .lock:hover { opacity: 1; }
 .tab-pill.locked .x { opacity: 0.35; cursor: not-allowed; }
 .tab-pill.pinned { border-color: #4a90d9; box-shadow: inset 0 0 0 1px #4a90d966; }
+.tab-pill.popped { opacity: 0.7; border-style: dashed; } /* M16-A2: the tab lives in its own window */
 .tab-pill .pin { padding: 0 2px; font-size: 10px; opacity: 0.75; }
 .tab-pill .pin:hover { opacity: 1; }
 .tab-pill[draggable="true"] { cursor: grab; }

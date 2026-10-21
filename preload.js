@@ -11,6 +11,8 @@ contextBridge.exposeInMainWorld('iterApi', {
   togglePinTab: (id) => ipcRenderer.invoke('tabs:togglePin', id),
   showTabContextMenu: (id) => ipcRenderer.invoke('tabs:contextMenu', id),
   reorderTabs: (orderedIds) => ipcRenderer.invoke('tabs:reorder', orderedIds),
+  popOutTab: (id) => ipcRenderer.invoke('tabs:popOut', id), // M16-A2
+  popInTab: (id) => ipcRenderer.invoke('tabs:popIn', id),
 
   listTabGroups: () => ipcRenderer.invoke('tabGroups:list'),
   saveTabGroup: (name) => ipcRenderer.invoke('tabGroups:save', name),

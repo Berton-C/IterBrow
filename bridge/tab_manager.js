@@ -39,6 +39,73 @@ class TabManager {
     this.onTabClosed = null; // set by main.js: (snapshot) => void, fired just before a tab is actually removed
     this.onExternalLink = null; // set by main.js: (url) => void, an app tab's http(s) link opens a new ordinary tab
     this.onTabCreated = null; // set by main.js: (webContents, tab) => void, for per-tab wiring (context menu)
+    this.makePopoutWindow = null; // M16-A1: set by main.js: (tab facts) => a bare BaseWindow for one tab
+  }
+
+  // M16-A1: a tab can live in its own window. The view moves; nothing reloads, the tab keeps its id, lock, pin and
+  // app scope. Closing that window returns the tab to the strip; closing the tab closes its window.
+  isPopped(id) {
+    const tab = this.tabs.get(Number(id));
+    return !!(tab && tab.popout && !tab.popout.isDestroyed());
+  }
+
+  // The window that owns a tab's view: its pop-out window, else the main window.
+  windowFor(id) {
+    return this.isPopped(id) ? this.tabs.get(Number(id)).popout : this.win;
+  }
+
+  _popoutBounds(popout) {
+    const [width, height] = popout.getContentSize();
+    return { x: 0, y: 0, width: Math.max(0, width), height: Math.max(0, height) };
+  }
+
+  popOut(id) {
+    const tab = this.tabs.get(Number(id));
+    if (!tab) throw new Error(`No such tab: ${id}`);
+    if (this.isPopped(tab.id)) { tab.popout.focus(); return { id: tab.id, window: tab.popout.id }; }
+    if (typeof this.makePopoutWindow !== 'function') throw new Error('Pop-out windows are not available here');
+    const popout = this.makePopoutWindow({ id: tab.id, title: tab.title, url: tab.url, appScope: tab.appScope || null,
+      locked: !!tab.locked, pinned: !!tab.pinned });
+    if (this.win.contentView.children.includes(tab.view)) this.win.contentView.removeChildView(tab.view);
+    tab.popout = popout;
+    popout.contentView.addChildView(tab.view);
+    tab.view.setBounds(this._popoutBounds(popout));
+    popout.on('resize', () => {
+      if (tab.popout === popout && !popout.isDestroyed()) tab.view.setBounds(this._popoutBounds(popout));
+    });
+    // Whoever closes the window: take the view out first so the window's teardown cannot take it along.
+    popout.on('close', () => {
+      if (tab.popout !== popout) return;
+      try { if (popout.contentView.children.includes(tab.view)) popout.contentView.removeChildView(tab.view); } catch (_) { /* gone */ }
+    });
+    // The window is gone: the tab comes back to the strip (a pop-out closing never closes the tab).
+    popout.on('closed', () => {
+      if (tab.popout !== popout) return;
+      tab.popout = null;
+      if (this.tabs.has(tab.id)) this.switchTab(tab.id);
+    });
+    if (this.activeId === tab.id) {
+      const remaining = [...this.tabs.values()].filter((t) => t.id !== tab.id && !this.isPopped(t.id)).map((t) => t.id);
+      this.activeId = remaining.length ? remaining[remaining.length - 1] : null;
+      if (this.activeId) this.switchTab(this.activeId);
+    }
+    popout.show();
+    popout.focus();
+    this._notify();
+    return { id: tab.id, window: popout.id };
+  }
+
+  popIn(id) {
+    const tab = this.tabs.get(Number(id));
+    if (!tab) throw new Error(`No such tab: ${id}`);
+    const popout = tab.popout;
+    tab.popout = null; // the window's own close/closed handlers now leave the tab alone
+    if (popout && !popout.isDestroyed()) {
+      try { if (popout.contentView.children.includes(tab.view)) popout.contentView.removeChildView(tab.view); } catch (_) { /* gone */ }
+      try { popout.close(); } catch (_) { /* already closing */ }
+    }
+    this.switchTab(tab.id);
+    return { id: tab.id, window: 'main' };
   }
 
   _notify() {
@@ -55,6 +122,7 @@ class TabManager {
       pinned: !!t.pinned,
       attached: t.id === this.attachedId, // M13-C2: Iter's explicit target, if it set one
       app: t.appScope ? t.appScope.appId : null, // M11-D2: the toolbar keeps app-tab-only buttons off
+      window: t.popout && !t.popout.isDestroyed() ? t.popout.id : 'main', // M16-A1
       canGoBack: t.view.webContents.navigationHistory.canGoBack(),
       canGoForward: t.view.webContents.navigationHistory.canGoForward(),
     }));
@@ -379,11 +447,18 @@ class TabManager {
     if (this.win.contentView.children.includes(tab.view)) {
       this.win.contentView.removeChildView(tab.view);
     }
+    if (tab.popout && !tab.popout.isDestroyed()) {
+      // M16-A1: a closing tab takes its window with it; the window's handlers must not bring it back.
+      const popout = tab.popout;
+      tab.popout = null;
+      try { if (popout.contentView.children.includes(tab.view)) popout.contentView.removeChildView(tab.view); } catch (_) { /* gone */ }
+      try { popout.close(); } catch (_) { /* already closing */ }
+    }
     tab.view.webContents.close();
     this.tabs.delete(id);
     if (this.attachedId === id) this.attachedId = null;
     if (this.activeId === id) {
-      const remaining = [...this.tabs.keys()];
+      const remaining = [...this.tabs.keys()].filter((k) => !this.isPopped(k));
       this.activeId = remaining.length ? remaining[remaining.length - 1] : null;
       if (this.activeId) this.switchTab(this.activeId);
     }
@@ -455,8 +530,11 @@ class TabManager {
   }
 
   switchTab(id) {
-    const tab = this.tabs.get(id);
+    const tab = this.tabs.get(Number(id));
     if (!tab) throw new Error(`No such tab: ${id}`);
+    id = tab.id;
+    // M16-A3: a tab in its own window is shown by focusing that window; its view never moves back here.
+    if (this.isPopped(id)) { tab.popout.focus(); return true; }
     for (const other of this.tabs.values()) {
       if (other.id !== id && this.win.contentView.children.includes(other.view)) {
         this.win.contentView.removeChildView(other.view);
@@ -473,7 +551,7 @@ class TabManager {
 
   relayout() {
     const active = this.tabs.get(this.activeId);
-    if (active) active.view.setBounds(this.getContentBounds());
+    if (active && !this.isPopped(active.id)) active.view.setBounds(this.getContentBounds());  // M16-A3: pop-outs size themselves
   }
 
   resolveTabId(explicitId) {
@@ -492,7 +570,7 @@ class TabManager {
   attach(id) {
     const tab = this._tab(id == null ? this.activeId : id);
     this.attachedId = tab.id;
-    return { attached: tab.id, url: tab.url, title: tab.title, displayed: tab.id === this.activeId };
+    return { attached: tab.id, url: tab.url, title: tab.title, displayed: tab.id === this.activeId || this.isPopped(tab.id) };
   }
 
   detach(id) {
@@ -547,7 +625,7 @@ class TabManager {
   async screenshot(id) {
     const tab = this._tab(id);
     const displayed = this.activeId;
-    const attachedToWindow = this.win.contentView.children.includes(tab.view);
+    const attachedToWindow = this.windowFor(tab.id).contentView.children.includes(tab.view);  // M16-A3: its own window counts
     try {
       const image = await tab.view.webContents.capturePage();
       const png = image.toPNG();
@@ -588,13 +666,14 @@ class TabManager {
 
   // Actions need the tab on screen: input sent to a view outside the window is dropped. Never switch the view
   // under the person; say what to do instead.
+  // M16-A3: a tab in its own window is on screen too.
   _displayed(tab) {
-    if (tab.id !== this.activeId) throw new Error(`Tab ${tab.id} is not displayed; browser_switch_tab(${tab.id}) first`);
+    if (tab.id !== this.activeId && !this.isPopped(tab.id)) throw new Error(`Tab ${tab.id} is not displayed; browser_switch_tab(${tab.id}) first`);
   }
 
   async click({ id, x, y, selector }) {
     const tab = this._tab(id);
-    if (tab.id !== this.activeId) throw new Error(`Tab ${tab.id} is not displayed; browser_switch_tab(${tab.id}) first`);
+    if (tab.id !== this.activeId && !this.isPopped(tab.id)) throw new Error(`Tab ${tab.id} is not displayed; browser_switch_tab(${tab.id}) first`);
     let located = null;
     if (selector) {
       located = await this.evaluate(tab.id, pageScripts.locateScript(selector));

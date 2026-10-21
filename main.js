@@ -1,4 +1,4 @@
-const { app, BaseWindow, WebContentsView, ipcMain, dialog, Menu, powerMonitor, systemPreferences, shell, session } = require('electron');
+const { app, BaseWindow, WebContentsView, ipcMain, dialog, Menu, powerMonitor, systemPreferences, shell, session, screen } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -2064,6 +2064,38 @@ function reopenClosedTab(index = 0) {
 // reachable. Mirrors the same actions already in the Tabs/History menus,
 // just scoped to the tab that was actually clicked (which may not be the
 // active tab).
+// M16-A1: a bare window for one popped tab — no menu bar, the strip's background, titled after the tab; the tab
+// manager puts the tab's view in it and takes it back when it closes. The app menu follows the focused window
+// (Tabs ▸ "Return to the tab strip" while a pop-out has focus).
+function makePopoutWindow(tab) {
+  let work = { width: 1100, height: 800 };
+  try { work = screen.getPrimaryDisplay().workAreaSize || work; } catch (_) { /* before ready: the defaults */ }
+  const popout = new BaseWindow({
+    width: Math.min(1100, work.width || 1100), height: Math.min(800, work.height || 800),
+    title: `IterBrow — ${tab.title || tab.url || 'tab'}`, show: false, backgroundColor: SIDEBAR_BG,
+  });
+  popout.setMenuBarVisibility(false);
+  const refresh = () => { try { Menu.setApplicationMenu(buildAppMenu()); } catch (_) { /* quitting */ } };
+  popout.on('focus', refresh);
+  popout.on('blur', refresh);
+  popout.on('closed', refresh);
+  return popout;
+}
+
+// The popped tab whose window has focus, if any (menu items act on it instead of the strip's active tab).
+function focusedPoppedTab() {
+  if (!tabs) return null;
+  for (const tab of tabs.tabs.values()) {
+    if (tab.popout && !tab.popout.isDestroyed() && typeof tab.popout.isFocused === 'function' && tab.popout.isFocused()) return tab;
+  }
+  return null;
+}
+
+function togglePopout(id) {
+  if (!tabs || id == null) return null;
+  return tabs.isPopped(id) ? tabs.popIn(id) : tabs.popOut(id);
+}
+
 function showTabContextMenu(id) {
   if (!win || !tabs) return;
   const tabId = Number(id);
@@ -2093,6 +2125,10 @@ function showTabContextMenu(id) {
     {
       label: locked ? 'Unlock Tab' : 'Lock Tab',
       click: () => tabs.setLocked(tabId, !locked),
+    },
+    {
+      label: tabs.isPopped(tabId) ? 'Return to the tab strip' : 'Open in its own window',  // M16-A2
+      click: () => togglePopout(tabId),
     },
     { type: 'separator' },
     {
@@ -2576,6 +2612,16 @@ function buildAppMenu() {
             if (tab) tabs.duplicateTab(tab.id);
           },
         },
+        {
+          // M16-A2: the focused pop-out returns; otherwise the strip's active tab opens in its own window.
+          label: focusedPoppedTab() ? 'Return to the tab strip' : 'Open in its own window',
+          accelerator: 'CmdOrCtrl+Shift+P',
+          click: () => {
+            const popped = focusedPoppedTab();
+            const tab = popped || activeTab();
+            if (tab) togglePopout(tab.id);
+          },
+        },
         { type: 'separator' },
         {
           label: 'Select Next Tab',
@@ -2810,6 +2856,7 @@ async function createWindow() {
   tabstripView.webContents.loadFile(path.join(__dirname, 'renderer', 'tabstrip.html'));
 
   tabs = new TabManager(win, { getContentBounds: contentBounds, pwqPath: path.join(ITER_DIR, 'pwq.html') });
+  tabs.makePopoutWindow = makePopoutWindow;  // M16-A1
   // Every browser tab gets the full context menu: spelling, edit, link,
   // selection search, back/forward/reload, inspect. The person's own clicks
   // are never subject to the tab lock (the lock refuses the agent, not them).
@@ -2884,6 +2931,10 @@ async function createWindow() {
     clearTimeout(tabSessionSaveTimer);
     if (autoBackupTimer) { clearInterval(autoBackupTimer); autoBackupTimer = null; }
     saveTabSession(); // flush the last state synchronously, don't rely on the debounce timer surviving shutdown
+    // M16-A1: the pop-out windows go with the main window (their views close with the rest below).
+    for (const tab of tabs.tabs.values()) {
+      if (tab.popout && !tab.popout.isDestroyed()) { const popout = tab.popout; tab.popout = null; try { popout.destroy(); } catch (_) { /* gone */ } }
+    }
     for (const tab of tabs.tabs.values()) tab.view.webContents.close();
     sidebarView.webContents.close();
     toolbarView.webContents.close();
@@ -3006,6 +3057,9 @@ ipcMain.handle('tabs:toggleLock', (_e, id) => tabs.setLocked(id, !tabs.isLocked(
 ipcMain.handle('tabs:togglePin', (_e, id) => tabs.setPinned(id, !tabs.isPinned(id)));
 ipcMain.handle('tabs:contextMenu', (_e, id) => showTabContextMenu(id));
 ipcMain.handle('tabs:reorder', (_e, orderedIds) => tabs.reorder(orderedIds));
+// M16-A2: the person's double-click on a pill (pop out) and on a popped pill (bring back).
+ipcMain.handle('tabs:popOut', (_e, id) => tabs.popOut(id));
+ipcMain.handle('tabs:popIn', (_e, id) => tabs.popIn(id));
 ipcMain.handle('tabGroups:list', () => loadTabGroups());
 ipcMain.handle('tabGroups:save', (_e, name) => saveCurrentTabsAsGroup(name));
 ipcMain.handle('tabGroups:resave', (_e, groupId) => resaveTabGroup(groupId));

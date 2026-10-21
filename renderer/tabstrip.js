@@ -26,13 +26,22 @@ function renderTabs(list) {
   tabstripScroll.innerHTML = '';
   for (const tab of list) {
     const pill = document.createElement('div');
-    pill.className = 'tab-pill' + (tab.active ? ' active' : '') + (tab.locked ? ' locked' : '') + (tab.pinned ? ' pinned' : '');
-    pill.title = tab.locked
-      ? tab.url + ' (locked — Iter cannot alter or close this tab until you click the lock)'
-      : tab.url;
+    const popped = tab.window && tab.window !== 'main'; // M16-A2: the tab lives in its own window
+    pill.className = 'tab-pill' + (tab.active ? ' active' : '') + (tab.locked ? ' locked' : '') + (tab.pinned ? ' pinned' : '') + (popped ? ' popped' : '');
+    pill.title = popped
+      ? 'In its own window — double-click to bring it back'
+      : tab.locked
+        ? tab.url + ' (locked — Iter cannot alter or close this tab until you click the lock)'
+        : tab.url + ' (double-click to open it in its own window)';
     pill.draggable = true;
-    pill.innerHTML = `<span class="pin" title="${tab.pinned ? 'Pinned — click to unpin' : 'Click to pin this tab (protects it from Close Other Tabs / Close Tabs to the Right)'}">${tab.pinned ? '📌' : '📍'}</span><span class="lock" title="${tab.locked ? 'Locked — click to release' : 'Click to lock this tab against Iter'}">${tab.locked ? '🔒' : '🔓'}</span><span class="title">${escapeHtml(tab.title || 'New Tab')}</span><span class="x">✕</span>`;
-    pill.querySelector('.title').addEventListener('click', () => window.iterApi.switchTab(tab.id));
+    pill.innerHTML = `<span class="pin" title="${tab.pinned ? 'Pinned — click to unpin' : 'Click to pin this tab (protects it from Close Other Tabs / Close Tabs to the Right)'}">${tab.pinned ? '📌' : '📍'}</span><span class="lock" title="${tab.locked ? 'Locked — click to release' : 'Click to lock this tab against Iter'}">${tab.locked ? '🔒' : '🔓'}</span><span class="title">${popped ? '⧉ ' : ''}${escapeHtml(tab.title || 'New Tab')}</span><span class="x">✕</span>`;
+    // The second click of a double-click does not switch again; the double-click pops the tab out or back.
+    pill.querySelector('.title').addEventListener('click', (e) => { if (e.detail === 2) return; window.iterApi.switchTab(tab.id); });
+    pill.addEventListener('dblclick', (e) => {
+      if (e.target.closest('.pin, .lock, .x')) return;
+      e.preventDefault();
+      if (popped) window.iterApi.popInTab(tab.id); else window.iterApi.popOutTab(tab.id);
+    });
     pill.querySelector('.pin').addEventListener('click', (e) => {
       e.stopPropagation();
       window.iterApi.togglePinTab(tab.id);

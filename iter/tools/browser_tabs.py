@@ -13,7 +13,11 @@ def run():
     lines = []
     for tab in tabs:
         target = bool(tab.get("attached")) if any_attached else bool(tab.get("active"))
-        lines.append("tabId=%s displayed=%s target=%s locked=%s app=%s title=%r url=%s" % (
-            tab["id"], str(bool(tab.get("active"))).lower(), str(target).lower(), str(bool(tab.get("locked"))).lower(),
-            tab.get("app") or "-", tab.get("title") or "", tab.get("url") or ""))
+        # M16-A3: a tab in its own window is on screen too; window=<id> names it (tabs in the main window, as before).
+        window = tab.get("window") or "main"
+        displayed = bool(tab.get("active")) or window != "main"
+        popped = "" if window == "main" else " window=%s" % window
+        lines.append("tabId=%s displayed=%s target=%s locked=%s app=%s%s title=%r url=%s" % (
+            tab["id"], str(displayed).lower(), str(target).lower(), str(bool(tab.get("locked"))).lower(),
+            tab.get("app") or "-", popped, tab.get("title") or "", tab.get("url") or ""))
     return "\n".join(lines) if lines else "no tabs"

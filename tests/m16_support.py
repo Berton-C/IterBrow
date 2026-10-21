@@ -36,6 +36,8 @@ def source(rel):
 
 
 POPOUT_PRELUDE = """
+// m10_support's fake webContents has no close(); closeTab needs one.
+FakeWebContents.prototype.close = function close() { this.closed = true; };
 // A fake pop-out window: contentView like the main window's, close() fires its own close then closed handlers.
 let nextWin = 100;
 const windows = [];

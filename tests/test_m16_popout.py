@@ -17,7 +17,6 @@ from m16_support import pending, require_m16, popout_node, source  # noqa: E402
 class MoveTests(unittest.TestCase):
     """M16-A1"""
 
-    @pending("M16-A1")
     def test_pop_out_moves_the_view_and_pop_in_brings_it_back(self):
         out = popout_node("""
 const a = tabs.createTab('https://a.example'); const b = tabs.createTab('https://b.example');
@@ -52,7 +51,6 @@ out.loaded = viewB.webContents.loaded.length - loadedBefore;
         self.assertFalse(out["isPoppedAfter"]); self.assertTrue(out["windowForMain"])
         self.assertEqual(out["loaded"], 0, "nothing reloads")
 
-    @pending("M16-A1")
     def test_closing_the_window_returns_the_tab_and_closing_the_tab_closes_the_window(self):
         out = popout_node("""
 const a = tabs.createTab('https://a.example'); const b = tabs.createTab('https://b.example'); const c = tabs.createTab('https://c.example');
@@ -69,7 +67,6 @@ out.windowClosed = windows[1].destroyed; out.cGone = !tabs.tabs.has(c); out.coun
         self.assertEqual(out["lockedPinned"], [True, True])
         self.assertTrue(out["closed"]); self.assertTrue(out["windowClosed"]); self.assertTrue(out["cGone"]); self.assertEqual(out["count"], 2)
 
-    @pending("M16-A1")
     def test_main_js_makes_a_bare_window_and_closes_pop_outs_at_quit(self):
         require_m16()
         main = source("main.js")
@@ -87,7 +84,6 @@ out.windowClosed = windows[1].destroyed; out.cGone = !tabs.tabs.has(c); out.coun
 class GestureTests(unittest.TestCase):
     """M16-A2"""
 
-    @pending("M16-A2")
     def test_double_click_and_the_popped_pill(self):
         require_m16()
         strip = source("renderer/tabstrip.js")
@@ -99,7 +95,6 @@ class GestureTests(unittest.TestCase):
         preload = source("preload.js")
         self.assertIn("popOutTab", preload); self.assertIn("popInTab", preload)
 
-    @pending("M16-A2")
     def test_menu_items(self):
         require_m16()
         main = source("main.js")
@@ -112,7 +107,6 @@ class GestureTests(unittest.TestCase):
 class IterTests(unittest.TestCase):
     """M16-A3"""
 
-    @pending("M16-A3")
     def test_a_popped_tab_is_displayed_for_iter_and_listed_with_its_window(self):
         out = popout_node("""
 const a = tabs.createTab('https://a.example'); const b = tabs.createTab('https://b.example');
@@ -132,7 +126,6 @@ tabs.setLocked(b, true); out.locked = tabs.isLocked(b);
         self.assertTrue(out["boundsKept"], "relayout leaves popped views alone")
         self.assertTrue(out["locked"])
 
-    @pending("M16-A3")
     def test_browser_tabs_names_the_window(self):
         require_m16()
         server = source("bridge/browser_bridge_server.js")
