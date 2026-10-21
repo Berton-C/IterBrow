@@ -129,7 +129,11 @@ class Iter:
         started = time.time()
         last_activity = started
         seen = 0
+        self.last_reason = None
         while time.time() < started + timeout:
+            if self.heartbeat_phase() == "request_blocked":  # M15-A4: a blocked Iter ends the app now, not after the silence
+                self.last_reason = "request_blocked"
+                return None
             replies = self.replies_since(since)
             if len(replies) > seen:
                 seen, last_activity = len(replies), time.time()
@@ -139,6 +143,12 @@ class Iter:
                 return None
             time.sleep(5)
         return None
+
+    def heartbeat_phase(self):
+        try:
+            return json.loads((self.root / ".runtime" / "recovery" / "iter_heartbeat.json").read_text(encoding="utf-8")).get("phase")
+        except (OSError, ValueError, AttributeError):
+            return None
 
     def preflight(self):
         """Why the bench must not start, or None: Iter not running (its heartbeat is stale), asks already
@@ -273,6 +283,8 @@ def run_brief(it, brief, model, baseline, iterate=True):
     report = it.wait_report(brief["id"], start, since_count=before)
     record["elapsed_s"] = round(time.time() - start, 1)
     record["reported"] = report is not None
+    if getattr(it, "last_reason", None):
+        record["reason"] = it.last_reason
     record.update(count_loop(it.experience_since(before)))
     record["sends_before_report"] = max(0, record.pop("sends") - (1 if report else 0))
     try:

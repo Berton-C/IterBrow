@@ -43,11 +43,11 @@ class BudgetLoopTests(unittest.TestCase):
         self.addCleanup(lambda: os.environ.pop("ITER_E2E_PAD", None))
         return run
 
-    @pending("M15-A2")
     def test_over_the_target_the_request_is_degraded_and_still_sent(self):
         require_m15()
-        # ≈ 15k estimated tokens of padding: over the target with every tool in, under it without the unprotected schemas.
-        run = self._run(45000, [[send("M15-DEGRADED-OK")]], "m15deg")
+        # ≈ 30k estimated tokens of padding: over the target with the chat view's ~79 schemas (≈ 13k after B2),
+        # under it with only the protected ones (≈ 4.5k). (Was 45,000 chars, sized for the 17k schemas before B2.)
+        run = self._run(90000, [[send("M15-DEGRADED-OK")]], "m15deg")
         with run:
             run.say("hello")
             run.wait_for_reply("M15-DEGRADED-OK", timeout=600)
@@ -58,7 +58,6 @@ class BudgetLoopTests(unittest.TestCase):
             self.assertFalse(any("I can't send this request" in r for r in run.replies()), "degraded, not blocked")
             self.assertTrue(all("calibration" in b for b in budgets))
 
-    @pending("M15-A3")
     def test_far_over_the_target_the_block_is_announced_once(self):
         require_m15()
         run = self._run(400000, [[send("never")]], "m15blk")

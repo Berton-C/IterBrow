@@ -3,7 +3,9 @@ import atexit
 import hashlib
 import inspect
 import json
+import math
 import os
+import re
 import sys
 import time
 import importlib.util
@@ -16,6 +18,7 @@ from pathlib import Path
 from iterbrow_runtime.hotload_manager import HotloadManager, IterHeartbeat
 # PORT: Independently bound complete input projection and model output.
 from iterbrow_runtime.request_budget import RequestBudgetExceeded, project_request, working_input_limit, relevant_memory, memory_context, rotate_experience
+from iterbrow_runtime.request_budget import calibration, degrade, estimate_input_tokens
 from iterbrow_runtime.episodic_history import archive_text, load_experience
 from iterbrow_runtime.atomspace_store import _atomic_json
 # PORT: Retain oversized observations for reading without repeating tool effects.
@@ -509,8 +512,43 @@ def slow_wait_for_input(seconds=SLOW_STEP_DELAY, *, request_error=None):
     return ""
 
 
+def blocked_notice(error):
+    """M15-A3: the one line the person sees when a request cannot be sent (pure; parses the error text)."""
+    text = str(error)
+    over = re.search(r"estimates (\d+) tokens, above the (\d+) input target", text)
+    if not over:
+        return ("I can't send this request: the model provider rejected it (%s). I'll retry as soon as anything "
+                "changes; a shorter ask may help." % " ".join(text.split())[:160])
+    estimate, limit = int(over.group(1)), int(over.group(2))
+    parts = {key: re.search(r'"%s": (\d+)' % key, text) for key in ("tool_schemas", "system", "runtime_observations")}
+    parts = {key: int(found.group(1)) if found else 0 for key, found in parts.items()}
+    return ("I can't send this request: it is ~{:,} tokens over the {:,} I work within (tool schemas {:,}, system {:,}, "
+            "observations {:,}). I'll retry as soon as anything changes; a shorter ask or fewer open tools helps."
+            .format(max(0, estimate - limit), limit, parts["tool_schemas"], parts["system"], parts["runtime_observations"]))
+
+
+_blocked_notice_sent = None  # M15-A3: the input a block was announced for; one notice per block
+
+
+def _announce_block(error):
+    """Say the block once per person's input (a new ask that is still blocked is told again)."""
+    global _blocked_notice_sent
+    key = next((str(m.get("content", "")) for m in reversed(globals().get("experience") or [])
+                if m.get("role") == "user" and not m.get("_iter_runner")), "")
+    if _blocked_notice_sent == key:
+        return
+    _blocked_notice_sent = key
+    text = blocked_notice(error)
+    for path in _component_paths("channels"):
+        try:
+            invoke_dynamic(path, "send", text)
+        except Exception as send_error:
+            print("[request blocked] notice not sent on %s: %s" % (path.stem, send_error))
+
+
 def wait_for_request_change(error):
     global request_failure_notice
+    _announce_block(error)  # M15-A3: blocked_notice(error), once, on the channel
     request_failure_notice = f"{type(error).__name__}: {error}"
     if error.__cause__ is not None:
         request_failure_notice += f" Cause: {type(error.__cause__).__name__}: {error.__cause__}"
@@ -548,6 +586,99 @@ PROTECTED_TOOL_NAMES = {"send", "nop", "shell", "python", "start_new_task", "rea
                         "browser_click", "browser_type", "browser_eval", "browser_wait_for", "browser_open_app",
                         "app_probe", "browser_tabs", "browser_navigate", "browser_new_tab",
                         "new_app", "app_rollback", "github"}  # M14-D4
+
+def _tool_name(tool):
+    return (tool.get("function") or {}).get("name") if isinstance(tool, dict) else None
+
+
+def _first_sentence(tool):
+    """A copy of the tool dict whose description is its first sentence (M15-A2 step 2)."""
+    fn = dict(tool.get("function") or {})
+    text = str(fn.get("description") or "")
+    found = re.search(r"^.*?[.!?](?=\s|$)", text, re.S)
+    fn["description"] = (found.group(0) if found else text)[:160]
+    return dict(tool, function=fn)
+
+
+def _old_exchange_indexes(messages):
+    """Indexes of assistant/tool exchanges and runner observations before the third-newest assistant turn
+    (M15-A2 step 3). System and the person's own messages are never among them."""
+    assistants = [i for i, m in enumerate(messages) if m.get("role") == "assistant"]
+    if len(assistants) <= 3:
+        return set()
+    cutoff = assistants[-3]
+    return {i for i, m in enumerate(messages[:cutoff])
+            if m.get("role") in ("assistant", "tool") or (m.get("role") == "user" and m.get("_iter_runner"))}
+
+
+def degraded_request(messages, tools, error, ratio=1.0):
+    """M15-A2: when the protected request is over the target, the degrade plan applied to copies —
+    unprotected tool schemas out of this request (PROTECTED_TOOL_NAMES stay), then descriptions cut to a
+    sentence, then old exchanges and runtime observations out. Returns (messages, tools, plan); plan is None
+    when nothing would fit (the caller blocks). Every tool is back next cycle."""
+    base = estimate_input_tokens([], [])
+
+    def cost(rows=(), schemas=()):
+        return round((estimate_input_tokens(list(rows), list(schemas)) - base) * ratio)
+
+    keep = [t for t in tools if _tool_name(t) in PROTECTED_TOOL_NAMES]
+    short = [_first_sentence(t) for t in keep]
+    old = _old_exchange_indexes(messages)
+    plan = degrade({"total": error.estimate,
+                    "tool_schemas_unprotected": cost(schemas=tools) - cost(schemas=keep),
+                    "descriptions_excess": cost(schemas=keep) - cost(schemas=short),
+                    "observations_old": cost(rows=[messages[i] for i in sorted(old)])}, error.limit)
+    if not plan:
+        return messages, tools, plan
+    if "tool_schemas" in plan:
+        tools = keep  # only PROTECTED_TOOL_NAMES remain in this request
+    if "descriptions" in plan:
+        tools = [_first_sentence(t) for t in tools]
+    if "observations" in plan:
+        messages = [m for i, m in enumerate(messages) if i not in old]
+    return messages, tools, plan
+
+
+CALIBRATION_FILE = ".runtime/model_usage_calibration.jsonl"  # M15-A1
+
+
+def calibration_ratio():
+    """The provider's count over our estimate for this provider+model (1.0 until 3 answered requests)."""
+    try:
+        lines = (ITER_ROOT / CALIBRATION_FILE).read_text(encoding="utf-8").splitlines()[-200:]
+    except OSError:
+        return 1.0
+    records = []
+    for line in lines:
+        try:
+            record = json.loads(line)
+        except ValueError:
+            continue
+        if record.get("provider") == PROVIDER and record.get("model") == MODEL:
+            records.append(record)
+    return calibration(records)
+
+
+def record_calibration(estimated, usage):
+    """One {estimated, actual, provider, model} line per answered request (actual = the provider's input count)."""
+    if isinstance(usage, dict):
+        actual = usage.get("input_tokens") or usage.get("prompt_tokens")
+    else:
+        actual = getattr(usage, "prompt_tokens", None) or getattr(usage, "input_tokens", None)
+    if not estimated or not isinstance(actual, (int, float)) or actual <= 0:
+        return
+    path = ITER_ROOT / CALIBRATION_FILE
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps({"estimated": int(estimated), "actual": int(actual), "provider": PROVIDER,
+                                     "model": MODEL, "at": round(time.time())}) + "\n")
+        if path.stat().st_size > 64000:
+            keep = path.read_text(encoding="utf-8").splitlines()[-200:]
+            path.write_text("\n".join(keep) + "\n", encoding="utf-8")
+    except OSError as error:
+        print("[model usage] calibration not recorded: " + type(error).__name__)
+
 
 def load_tools():
     # PORT: The kernel creates retained references, so their read-only consumer
@@ -948,16 +1079,31 @@ while True:
             preparation["handoff_seconds"] = round(time.monotonic() - stage_started, 4)
             stage_started = time.monotonic()
             request_messages = request_view(request_messages, PROVIDER, MODEL)
-            request_messages, request_tools, request_budget = project_request(
-                request_messages, request_tools,
-                working_input_limit(request_messages, request_tools, MAX_INPUT_TOKENS, current_user), current_user,
-                capture_assistant=retain_assistant_for_request,
-                capture_exchange=retain_completed_exchange_for_request,
-                restore_observation=lambda message, allowance: retained_text.restore_tool_observation(
-                    ITER_ROOT, message, allowance),
-                input_ceiling=MAX_INPUT_TOKENS,
-                evidence_tool_call_ids=evidence_tool_call_ids,
-            )
+            ratio = calibration_ratio()  # M15-A1
+
+            def project(messages_in, tools_in):
+                raw_working = working_input_limit(messages_in, tools_in, max(1, int(MAX_INPUT_TOKENS / ratio)), current_user)
+                return project_request(
+                    messages_in, tools_in, min(MAX_INPUT_TOKENS, math.ceil(raw_working * ratio)), current_user,
+                    capture_assistant=retain_assistant_for_request,
+                    capture_exchange=retain_completed_exchange_for_request,
+                    restore_observation=lambda message, allowance: retained_text.restore_tool_observation(
+                        ITER_ROOT, message, allowance),
+                    input_ceiling=MAX_INPUT_TOKENS,
+                    evidence_tool_call_ids=evidence_tool_call_ids,
+                    calibration_ratio=ratio,
+                )
+            try:
+                request_messages, request_tools, request_budget = project(request_messages, request_tools)
+            except RequestBudgetExceeded as over:
+                # M15-A2: degrade before blocking; a plan that still does not fit raises from the retry.
+                if over.estimate is None:
+                    raise
+                degraded_messages, degraded_tools, plan = degraded_request(request_messages, request_tools, over, ratio)
+                if not plan:
+                    raise
+                request_messages, request_tools, request_budget = project(degraded_messages, degraded_tools)
+                request_budget["degraded"] = plan
             preparation["projection_seconds"] = round(time.monotonic() - stage_started, 4)
             preparation["total_seconds"] = round(time.monotonic() - preparation_started, 4)
             print("[request preparation] " + json.dumps(preparation, sort_keys=True))
@@ -1000,6 +1146,8 @@ while True:
                                   effort=REASONING_EFFORT, extra_body=REQUEST_EXTRA_BODY,
                                   usage_path=ITER_ROOT / ".runtime" / "last_model_usage.json")
             request_failure_notice = ""  # Delivered in this actual request, not every future turn.
+            _blocked_notice_sent = None  # M15-A3: a request went out; a later block is a new one
+            record_calibration(request_budget.get("estimated_input_tokens"), getattr(response, "usage", None))
             print("AFTER LLM", {"model": MODEL, "usage": response.usage} if PROVIDER == "openai" else response)
             HEARTBEAT.write(
                 ACTIVE_COMPONENT_SNAPSHOT["generation_id"], "model_returned",

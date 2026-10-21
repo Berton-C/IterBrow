@@ -19,7 +19,6 @@ from m15_support import pending, require_m15, runtime_module, openai_tools, ITER
 class CalibrationTests(unittest.TestCase):
     """M15-A1"""
 
-    @pending("M15-A1")
     def test_ratio_is_the_median_of_recent_pairs_clamped(self):
         budget = runtime_module("request_budget")
         self.assertEqual(budget.calibration([]), 1.0)
@@ -27,14 +26,13 @@ class CalibrationTests(unittest.TestCase):
         records = [{"estimated": 44204, "actual": 25380}, {"estimated": 42831, "actual": 21891},
                    {"estimated": 44406, "actual": 24948}, {"estimated": 40000, "actual": 22000}]  # Berton's logs, 2026-10-19/20
         ratio = budget.calibration(records)
-        self.assertAlmostEqual(ratio, 0.5517, places=3)
+        self.assertAlmostEqual(ratio, 0.5559, places=3)  # median of 0.5111, 0.55, 0.5618, 0.5742
         self.assertEqual(budget.calibration([{"estimated": 100, "actual": 1}] * 5), 0.4, "clamped low")
         self.assertEqual(budget.calibration([{"estimated": 100, "actual": 500}] * 5), 1.2, "clamped high")
         self.assertEqual(budget.calibration([{"estimated": 0, "actual": 5}] * 5 + [{"estimated": 100, "actual": 60}] * 3), 0.6, "bad pairs ignored")
         self.assertEqual(budget.calibration([{"estimated": 100, "actual": 60}] * 40), 0.6)
         self.assertEqual(budget.DEFAULT_INPUT_TOKENS, 45000, "the ceiling is settled")
 
-    @pending("M15-A1")
     def test_project_request_applies_the_ratio_and_reports_it(self):
         require_m15()
         budget = runtime_module("request_budget")
@@ -49,7 +47,6 @@ class CalibrationTests(unittest.TestCase):
         self.assertRegex(text, r'"calibration": 0\.55')
         self.assertRegex(text, r'"calibrated_input_tokens": \d+')
 
-    @pending("M15-A1")
     def test_loop_records_estimate_and_actual_pairs(self):
         require_m15()
         src = (ITER_SRC / "iter.py").read_text(encoding="utf-8")
@@ -64,7 +61,6 @@ class CalibrationTests(unittest.TestCase):
 class DegradeTests(unittest.TestCase):
     """M15-A2"""
 
-    @pending("M15-A2")
     def test_degrade_order_and_fit(self):
         budget = runtime_module("request_budget")
         over = {"total": 47224, "tool_schemas_unprotected": 9000, "descriptions_excess": 3000, "observations_old": 6000}
@@ -75,7 +71,6 @@ class DegradeTests(unittest.TestCase):
         self.assertIsNone(budget.degrade(dict(over, tool_schemas_unprotected=0, descriptions_excess=0, observations_old=0), 45000))
         self.assertEqual(budget.degrade(dict(over, total=44000), 45000), [], "nothing to do when it fits")
 
-    @pending("M15-A2")
     def test_loop_applies_the_plan_before_blocking(self):
         require_m15()
         src = (ITER_SRC / "iter.py").read_text(encoding="utf-8")
@@ -87,7 +82,6 @@ class DegradeTests(unittest.TestCase):
 class NoticeTests(unittest.TestCase):
     """M15-A3"""
 
-    @pending("M15-A3")
     def test_notice_text_and_once(self):
         require_m15()
         src = (ITER_SRC / "iter.py").read_text(encoding="utf-8")
@@ -126,7 +120,6 @@ class BenchSeesItTests(unittest.TestCase):
             json.dumps({"at": time.time(), "phase": "request_blocked", "detail": "RequestBudgetExceeded: over"}), encoding="utf-8")
         self.assertIn("blocked", bench.Iter(root, socket_path="/nonexistent").preflight())
 
-    @pending("M15-A4")
     def test_wait_report_ends_early_on_a_block(self):
         require_m15()
         src = (REPO / "scripts" / "foundry_bench" / "bench.py").read_text(encoding="utf-8")

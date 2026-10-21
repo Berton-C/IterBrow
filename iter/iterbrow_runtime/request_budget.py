@@ -24,7 +24,62 @@ ASSISTANT_REFERENCE_CHARS = 4500
 
 
 class RequestBudgetExceeded(ValueError):
-    """The protected current turn, system instructions and tools do not fit."""
+    """The protected current turn, system instructions and tools do not fit.
+
+    M15-A2: when raised for size, `estimate` and `limit` carry the (calibrated) numbers so the loop can
+    plan a degrade; structural failures leave them None."""
+
+    def __init__(self, message, *, estimate=None, limit=None):
+        super().__init__(message)
+        self.estimate, self.limit = estimate, limit
+
+
+CALIBRATION_RECORDS = 20
+CALIBRATION_BOUNDS = (0.4, 1.2)
+
+
+def calibration(records):
+    """M15-A1: the provider's own count over our estimate — the median `actual / estimated` of the last 20
+    usable records, clamped to [0.4, 1.2]; 1.0 with fewer than 3. Records are {"estimated", "actual"}."""
+    ratios = []
+    for record in records or []:
+        try:
+            estimated, actual = float(record.get("estimated") or 0), float(record.get("actual") or 0)
+        except (TypeError, ValueError, AttributeError):
+            continue
+        if estimated > 0 and actual > 0:
+            ratios.append(actual / estimated)
+    ratios = ratios[-CALIBRATION_RECORDS:]
+    if len(ratios) < 3:
+        return 1.0
+    ratios.sort()
+    middle = len(ratios) // 2
+    median = ratios[middle] if len(ratios) % 2 else (ratios[middle - 1] + ratios[middle]) / 2
+    low, high = CALIBRATION_BOUNDS
+    return round(min(high, max(low, median)), 4)
+
+
+DEGRADE_STEPS = (("tool_schemas", "tool_schemas_unprotected"), ("descriptions", "descriptions_excess"),
+                 ("observations", "observations_old"))
+
+
+def degrade(components, limit):
+    """M15-A2: the ordered plan that brings `components["total"]` under `limit` — unprotected tool schemas,
+    then descriptions cut to a sentence, then old runtime observations — as far as needed; [] when it already
+    fits; None when even all three would not (the request blocks)."""
+    remaining = int(components.get("total") or 0)
+    if remaining <= limit:
+        return []
+    plan = []
+    for name, key in DEGRADE_STEPS:
+        saving = int(components.get(key) or 0)
+        if saving <= 0:
+            continue
+        plan.append(name)
+        remaining -= saving
+        if remaining <= limit:
+            return plan
+    return None
 
 
 def budget_breakdown(messages, tools):
@@ -549,7 +604,7 @@ def _assistant_reference(message, index, capture_assistant):
 def project_request(messages, tools, input_limit=DEFAULT_INPUT_TOKENS, protected_user=None,
                     *, capture_assistant=None, capture_exchange=None,
                     restore_observation=None, input_ceiling=None,
-                    evidence_tool_call_ids=()):
+                    evidence_tool_call_ids=(), calibration_ratio=1.0):
     """Return copies under the estimated budget, dropping oldest whole exchanges.
 
 System/developer messages, tool schemas, supplied user messages and
@@ -569,6 +624,13 @@ trusted reader and stay within input_ceiling (default: input_limit).
         input_ceiling = input_limit
     if type(input_ceiling) is not int or input_ceiling < input_limit:
         raise ValueError("input_ceiling must be an integer at least input_limit")
+    # M15-A1: the limits are in provider tokens; the estimator runs ~1.8x high, so compare the raw estimate
+    # with limit / ratio. Reports and errors speak calibrated numbers; the ceiling itself never changes.
+    ratio = float(calibration_ratio or 1.0)
+    calibrated_limit = input_limit
+    if ratio != 1.0:
+        input_limit = max(1, int(input_limit / ratio))
+        input_ceiling = max(input_limit, int(input_ceiling / ratio))
     focus_from = working_set_start(messages, protected_user)
     projected = copy.deepcopy(messages)
     for message in projected:
@@ -961,11 +1023,15 @@ trusted reader and stay within input_ceiling (default: input_limit).
         compacted.append(record["reference"]["result_id"])
 
     if estimate_after > input_limit:
+        calibrated = round(estimate_after * ratio)
+        components = {name: (value if name == "images" else round(value * ratio))
+                      for name, value in budget_breakdown(remaining_view(), projected_tools).items()}
         raise RequestBudgetExceeded(
-            f"Protected input estimates {estimate_after} tokens, above the {input_limit} input target. "
-            f"Over by {estimate_after - input_limit}; approximate components: "
-            + json.dumps(budget_breakdown(remaining_view(), projected_tools), sort_keys=True) + ". "
-            "Current user, latest tool exchange and stored memories were preserved; request was not sent."
+            f"Protected input estimates {calibrated} tokens, above the {calibrated_limit} input target. "
+            f"Over by {calibrated - calibrated_limit}; approximate components: "
+            + json.dumps(components, sort_keys=True) + ". "
+            "Current user, latest tool exchange and stored memories were preserved; request was not sent.",
+            estimate=calibrated, limit=calibrated_limit,
         )
     # Restore whole captured observations only into this request copy, newest
     # first and only when they fit. Do not evict another active exchange to make
@@ -1007,6 +1073,8 @@ trusted reader and stay within input_ceiling (default: input_limit).
         message.pop("_iter_runner", None)
     return projected, projected_tools, {
         "input_limit": input_limit, "estimated_input_tokens": estimate_after,
+        "calibration": ratio, "calibrated_input_tokens": round(estimate_after * ratio),
+        "calibrated_input_limit": calibrated_limit,
         "estimated_before_projection": estimate_before,
         "omitted_history_messages": len(removed), "estimate_method": ESTIMATE_METHOD,
         "retained_assistant_contents": references,

@@ -499,6 +499,14 @@
       "owner": "core.loop"
     },
     {
+      "path": ".runtime/model_usage_calibration.jsonl",
+      "role": "cache",
+      "format": "jsonl",
+      "portable": false,
+      "reset": true,
+      "owner": "core.loop"
+    },
+    {
       "path": ".runtime/last_model_usage.json",
       "role": "cache",
       "format": "json",
