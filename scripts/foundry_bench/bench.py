@@ -130,10 +130,21 @@ class Iter:
         last_activity = started
         seen = 0
         self.last_reason = None
+        failing_since = None
         while time.time() < started + timeout:
-            if self.heartbeat_phase() == "request_blocked":  # M15-A4: a blocked Iter ends the app now, not after the silence
+            phase = self.heartbeat_phase()
+            if phase == "request_blocked":  # M15-A4: a blocked Iter ends the app now, not after the silence
                 self.last_reason = "request_blocked"
                 return None
+            # M15-A5: a provider refusing for three minutes straight ends the app with the reason, not after 15 idle
+            # minutes that look like a slow build (2026-10-22: 840 silent retries during kanban).
+            if phase in ("provider_retry", "error"):
+                failing_since = failing_since or time.time()
+                if time.time() - failing_since > 180:
+                    self.last_reason = phase
+                    return None
+            else:
+                failing_since = None
             replies = self.replies_since(since)
             if len(replies) > seen:
                 seen, last_activity = len(replies), time.time()

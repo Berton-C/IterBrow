@@ -105,6 +105,47 @@ class NoticeTests(unittest.TestCase):
         self.assertRegex(src, r"notified_block|block_notified|_blocked_notice_sent", "the same block is announced once")
 
 
+class ProviderRetryTests(unittest.TestCase):
+    """M15-A5 (audit 2026-10-22): a provider error backs off, is said once after three in a row, and a new
+    message ends the wait early."""
+
+    def _namespace(self):
+        src = (ITER_SRC / "iter.py").read_text(encoding="utf-8")
+        start = src.index("PROVIDER_RETRY_BASE = ")
+        end = src.index("\ndef _announce_provider_failure(")
+        namespace = {}
+        exec(src[start:end], namespace)  # noqa: S102 — our own source, pure functions only
+        return namespace, src
+
+    def test_delay_grows_and_caps_and_the_notice_names_the_count(self):
+        ns, src = self._namespace()
+        self.assertEqual([ns["retry_delay"](n) for n in (1, 2, 3, 4, 5, 6, 7, 8)], [5, 10, 20, 40, 80, 160, 300, 300])
+        self.assertEqual(ns["retry_delay"](0), 5)
+        text = ns["provider_notice"](3, "RateLimitError: Error code: 429 - {'error': {'message': 'Rate limit exceeded'}}")
+        self.assertTrue(text.startswith("The model provider has refused 3 requests in a row"), text)
+        self.assertIn("429", text); self.assertIn("Settings", text); self.assertLess(len(text), 400)
+        self.assertEqual(ns["PROVIDER_NOTICE_AFTER"], 3)
+
+    def test_loop_waits_with_input_and_resets_on_an_answer(self):
+        _ns, src = self._namespace()
+        block = src[src.index("        if provider_retry:\n            # M15-A5"):src.index("        if provider_retry:\n            # M15-A5") + 700]
+        self.assertIn("_provider_failures += 1", block)
+        self.assertIn("slow_wait_for_input(delay)", block, "a new message from the person ends the wait")
+        self.assertIn("_announce_provider_failure(error)", block)
+        self.assertIn("_provider_failures, _provider_notice_sent = 0, False", src, "an answered request resets the streak")
+        self.assertNotIn("time.sleep(ERROR_RECOVERY_TIME)\n        continue", block)
+
+    def test_the_log_is_a_file_and_the_bench_ends_on_a_failing_provider(self):
+        main = (REPO / "main.js").read_text(encoding="utf-8")
+        self.assertIn("'.runtime', 'iter.log'", main)
+        self.assertIn("appendIterLogFile(String(line))", main[main.index("function pushLog("):main.index("function pushLog(") + 400])
+        manifest = json.loads((ITER_SRC / "state_manifest.json").read_text(encoding="utf-8"))
+        self.assertTrue(any(e["path"] == ".runtime/iter.log" and e["reset"] for e in manifest["entries"]))
+        bench = (REPO / "scripts" / "foundry_bench" / "bench.py").read_text(encoding="utf-8")
+        block = bench[bench.index("def wait_report("):bench.index("def wait_report(") + 2000]
+        self.assertIn('"provider_retry"', block); self.assertIn("180", block)
+
+
 class BenchSeesItTests(unittest.TestCase):
     """M15-A4"""
 

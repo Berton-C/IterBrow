@@ -529,6 +529,42 @@ def blocked_notice(error):
 
 _blocked_notice_sent = None  # M15-A3: the input a block was announced for; one notice per block
 
+# M15-A5 (audit 2026-10-22): a provider error (a 429 after four apps' worth of 45k-token requests, a 5xx, a
+# timeout) used to be retried after one second, forever and silently — 840 attempts in 37 minutes while the person
+# saw nothing. Now each failure in a row waits longer (5 s, 10, 20 … 5 min), a new message from the person ends
+# the wait at once, and the third failure in a row is said once on the channel.
+PROVIDER_RETRY_BASE = 5
+PROVIDER_RETRY_MAX = 300
+PROVIDER_NOTICE_AFTER = 3
+_provider_failures = 0  # failures in a row; a request that is answered resets it
+_provider_notice_sent = False
+
+
+def retry_delay(failures, base=PROVIDER_RETRY_BASE, maximum=PROVIDER_RETRY_MAX):
+    """Seconds to wait after the n-th provider failure in a row (pure): 5, 10, 20, 40 … capped."""
+    n = max(1, int(failures))
+    return int(min(maximum, base * (2 ** (n - 1))))
+
+
+def provider_notice(failures, error):
+    """The one line the person sees when the provider keeps refusing (pure)."""
+    text = " ".join(str(error).split())[:200]
+    return ("The model provider has refused %d requests in a row (last: %s). I'll keep retrying, less often each "
+            "time; a shorter ask, or another model in Settings, helps." % (failures, text))
+
+
+def _announce_provider_failure(error):
+    global _provider_notice_sent
+    if _provider_notice_sent or _provider_failures < PROVIDER_NOTICE_AFTER:
+        return
+    _provider_notice_sent = True
+    text = provider_notice(_provider_failures, error)
+    for path in _component_paths("channels"):
+        try:
+            invoke_dynamic(path, "send", text)
+        except Exception as send_error:
+            print("[provider retry] notice not sent on %s: %s" % (path.stem, send_error))
+
 
 def _announce_block(error):
     """Say the block once per person's input (a new ask that is still blocked is told again)."""
@@ -1147,6 +1183,7 @@ while True:
                                   usage_path=ITER_ROOT / ".runtime" / "last_model_usage.json")
             request_failure_notice = ""  # Delivered in this actual request, not every future turn.
             _blocked_notice_sent = None  # M15-A3: a request went out; a later block is a new one
+            _provider_failures, _provider_notice_sent = 0, False  # M15-A5: the provider answered
             record_calibration(request_budget.get("estimated_input_tokens"), getattr(response, "usage", None))
             print("AFTER LLM", {"model": MODEL, "usage": response.usage} if PROVIDER == "openai" else response)
             HEARTBEAT.write(
@@ -1376,4 +1413,12 @@ while True:
             get_current_time(), in_flight_id=IN_FLIGHT_CALL_ID)
         IN_FLIGHT_CALL_ID = None
         save_experience(experience)
-        time.sleep(ERROR_RECOVERY_TIME)
+        if provider_retry:
+            # M15-A5: back off, say it once after three in a row, and let a new message end the wait early.
+            _provider_failures += 1
+            _announce_provider_failure(error)
+            delay = retry_delay(_provider_failures)
+            print("[provider retry] %d in a row; next attempt in %d s" % (_provider_failures, delay))
+            pending_event_append = slow_wait_for_input(delay)
+        else:
+            time.sleep(ERROR_RECOVERY_TIME)

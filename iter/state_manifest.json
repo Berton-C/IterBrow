@@ -507,6 +507,14 @@
       "owner": "core.loop"
     },
     {
+      "path": ".runtime/iter.log",
+      "role": "cache",
+      "format": "text",
+      "portable": false,
+      "reset": true,
+      "owner": "core.loop"
+    },
+    {
       "path": ".runtime/model_usage_calibration.jsonl",
       "role": "cache",
       "format": "jsonl",

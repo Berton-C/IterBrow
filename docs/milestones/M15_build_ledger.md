@@ -68,6 +68,16 @@ fallback is the message before `new_app(<app>)`; ask facts are replaced by the r
 run since the newest open counts as present and visible. The NACE belief NACE formed from the bad runs stays
 NACE's to revise.
 
+**A5 — the provider's refusals back off and are said (audit 2026-10-22, bench of 2026-10-22: 4 built, 4 kept,
+0 theatre; kanban 0 cycles).** Kanban's 15 silent minutes were 840 loop cycles: a transient provider error
+(a 429 is the likely one after notes' 28 cycles × 45k tokens in four minutes) was retried after a fixed second,
+forever, with no word to the person and nothing the bench watched for; the provider's text was unrecoverable
+because Iter's log lived only in the sidebar's last 500 lines. Now each failure in a row waits 5, 10, 20 … up to
+300 s (`retry_delay`), a new message from the person ends the wait at once (`slow_wait_for_input`), the third
+failure in a row is said once on the channel (`provider_notice`) and an answered request resets the streak; main.js
+appends Iter's log to `iter/.runtime/iter.log` (5 MB, one rotation); the bench ends an app with `reason:
+provider_retry|error` after three minutes of that phase. Tests: `tests/test_m15_budget.py` (ProviderRetryTests).
+
 **Test fixes** (each in its commit message): calibration expected 0.5517, the median is 0.5559; the A2 e2e pad
 is 90,000 chars (45,000 stopped crossing the target once B shrank the schemas); the check tests run in file://
 pages (`run_in_file_page`) and assert attributed storage; the C e2e iterated `read_atoms`' keys instead of its

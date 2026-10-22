@@ -404,9 +404,28 @@ function pythonBin() {
   return fs.existsSync(VENV_PYTHON) ? VENV_PYTHON : 'python3';
 }
 
+// M15-A5 (audit 2026-10-22): Iter's log also goes to iter/.runtime/iter.log (what the provider said during a
+// silent stretch was unrecoverable from the sidebar's last 500 lines). Rotated once at 5 MB to iter.log.prev.
+const ITER_LOG_PATH = path.join(ITER_DIR, '.runtime', 'iter.log');
+let iterLogSize = null;
+function appendIterLogFile(line) {
+  try {
+    if (iterLogSize === null) { try { iterLogSize = fs.statSync(ITER_LOG_PATH).size; } catch (_) { iterLogSize = 0; } }
+    if (iterLogSize > 5 * 1024 * 1024) {
+      try { fs.renameSync(ITER_LOG_PATH, ITER_LOG_PATH + '.prev'); } catch (_) { /* first rotation */ }
+      iterLogSize = 0;
+    }
+    const text = (line.endsWith('\n') ? line : line + '\n');
+    fs.mkdirSync(path.dirname(ITER_LOG_PATH), { recursive: true });
+    fs.appendFileSync(ITER_LOG_PATH, text);
+    iterLogSize += Buffer.byteLength(text);
+  } catch (_) { /* the sidebar still has it */ }
+}
+
 function pushLog(line) {
   iterLog.push(line);
   if (iterLog.length > 500) iterLog = iterLog.slice(-500);
+  appendIterLogFile(String(line));
   if (sidebarView && !sidebarView.webContents.isDestroyed()) sidebarView.webContents.send('iter:log', line);
 }
 
