@@ -1,6 +1,6 @@
 # Milestone 15 — The build ledger: a loop that never wedges, and an atom space that remembers the build
 
-Status: **implemented 2026-10-21 (A, B, C; D deferred; E is Berton's two bench runs).** Base: M6–M14.
+Status: **implemented 2026-10-21 (A, B, C; D deferred; E done); F scoped 2026-10-22, not implemented.** Base: M6–M14.
 Tests: `tests/test_m15_{budget,tools,ledger,check}.py` and `tests/e2e/test_m15_loop.py` (30 tests, none pending;
 `test_m15_worker.py` is deferred and skipped unless `ITERBROW_M15_WORKER=1`); helpers in `tests/m15_support.py`;
 fixtures in `tests/fixtures/m15/`. Commits: `M15-A`, `M15-B`, `M15-C`, then the suite fixes and these notes.
@@ -77,6 +77,25 @@ because Iter's log lived only in the sidebar's last 500 lines. Now each failure 
 failure in a row is said once on the channel (`provider_notice`) and an answered request resets the streak; main.js
 appends Iter's log to `iter/.runtime/iter.log` (5 MB, one rotation); the bench ends an app with `reason:
 provider_retry|error` after three minutes of that phase. Tests: `tests/test_m15_budget.py` (ProviderRetryTests).
+
+## F. Two precision gaps from the 2026-10-22 bench (5 built, 4 kept, 0–1 theatre) — for Opus
+
+Files: `iter/transformations/build_mode.py`, `scripts/foundry_bench/bench.py`.
+
+- **F1 — build mode lasts until Iter rests.** `build_mode.active` looked at the last 16 messages; a build's
+  middle (clicks, evals, a reload) carries no build signal, so at 13:20 the loop text, the ledger line and the
+  build view all lapsed mid-build and Iter called `app_revision_control`, a tool the build view hides. New rule:
+  the window is every message since Iter last rested — the newest assistant turn with a `nop` whose
+  `wait_seconds` is 0 or absent (the report step ends with one); a positive wait is a pause inside work, not a
+  rest; with no rest in the history, the whole history. `window(messages)` is the seam; `active` and
+  `current_app` read it; `browser_open_app` joins `APP_TOOLS` (opening an app is a build signal). The docstring
+  and `tests/test_m14_loop.py`'s "only the last 16 messages count" line change with it.
+- **F2 — the bench recognises a probe whichever tool ran it.** Iter ran notes' probe through the `python` tool
+  (`app_probe(app="notes")` as a function), got `17 passed, 0 failed` and reported eight seconds later; the bench
+  keys on the tool name `app_probe`, waited 15 idle minutes and wrote "not reported". `probe_passed_then_
+  reported` matches the result text (`PROBE <app>…: n passed, 0 failed`) of any tool result but `send`.
+
+Tests: `tests/test_m15_rest.py` (3 `@pending("M15-F1")`, 1 `@pending("M15-F2")`).
 
 **Test fixes** (each in its commit message): calibration expected 0.5517, the median is 0.5559; the A2 e2e pad
 is 90,000 chars (45,000 stopped crossing the target once B shrank the schemas); the check tests run in file://
