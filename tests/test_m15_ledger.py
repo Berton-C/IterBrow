@@ -15,6 +15,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from m15_support import (pending, require_m15, ledger, seed_units, run_metta, hyperon_available, briefs,  # noqa: E402
                          VaultRoot, ITER_SRC, SEED)
+from m14_support import transformation  # noqa: E402
 
 TODO_ASK = next(b["ask"] for b in briefs() if b["id"] == "todo")
 NOTES_ASK = next(b["ask"] for b in briefs() if b["id"] == "notes")
@@ -126,6 +127,17 @@ class RulesTests(unittest.TestCase):
         self.assertEqual(sorted(c["contract"]), sorted(['form "#todo-form"', "storage", 'script "cdn.example.com"']))
         self.assertEqual(c["next"], "build")
         self.assertEqual(c["regressed"], [])
+        # Audit 2026-10-22: an element that only exists once the person acts (.label after Add) is absent on a fresh
+        # page but proven by a passing probe that touched it — covered counts as present; the ready flag is reported,
+        # never a breach.
+        run = probe_result(2, 0, [{"kind": "count", "selector": "#list li", "actual": 1, "expected": 1, "passed": True},
+                                  {"kind": "text", "selector": "#list li .label", "actual": "milk", "expected": "milk", "passed": True}])
+        atoms.update(atoms_of(module.facts_from_probe("todo", run, {"steps": [{"kind": "click", "selector": "#add"}],
+                                                                     "assertions": [{"kind": "text", "selector": "#list li .label", "expected": "milk"}]}, seq=2)))
+        atoms.update(atoms_of(module.facts_from_check("todo", dict(TODO_CHECK, ready=False))))
+        c = self._conclude("todo", atoms)
+        self.assertEqual(sorted(c["missing"]), [".delete", ".toggle"], ".label was proven by the probe")
+        self.assertNotIn("ready", c["contract"])
 
     def test_hidden_is_its_own_verdict(self):
         module = ledger()
@@ -172,6 +184,29 @@ class RulesTests(unittest.TestCase):
         self.assertIsNotNone(entry)
         self.assertEqual((entry["role"], entry["format"]), ("source_seed", "metta"))
         self.assertTrue(SEED.is_file())
+
+
+class AskAttributionTests(unittest.TestCase):
+    """M15-C2 (audit 2026-10-22): the ask belongs to the app it names as a word of its own, or the app new_app
+    created for it — never to an app whose name is inside another id (#todo-col) or that was merely touched later."""
+
+    def test_which_messages_are_the_ask(self):
+        bm = transformation("build_mode")
+        kanban = next(b["ask"] for b in briefs() if b["id"] == "kanban")
+        messages = [
+            {"role": "user", "content": TODO_ASK},
+            {"role": "assistant", "tool_calls": [{"id": "1", "function": {"name": "new_app", "arguments": json.dumps({"id": "todo", "title": "Todo"})}}]},
+            {"role": "user", "content": "Add a dark mode toggle to todo: a #theme-toggle button."},
+            {"role": "user", "content": kanban},
+            {"role": "assistant", "tool_calls": [{"id": "2", "function": {"name": "new_app", "arguments": json.dumps({"id": "kanban", "title": "Kanban"})}}]},
+            {"role": "user", "content": "Locate me is broken again."},
+            {"role": "assistant", "tool_calls": [{"id": "3", "function": {"name": "browser_open_app", "arguments": json.dumps({"app_id": "mapstation"})}}]},
+        ]
+        todo = bm.ask_text(messages, "todo")
+        self.assertIn("#new-todo", todo); self.assertIn("#theme-toggle", todo)
+        self.assertNotIn("#todo-col", todo, "the kanban ask names #todo-col, not the todo app")
+        self.assertIn("#todo-col", bm.ask_text(messages, "kanban"))
+        self.assertEqual(bm.ask_text(messages, "mapstation"), "", "touched later is not asked for")
 
 
 class RenderTests(unittest.TestCase):

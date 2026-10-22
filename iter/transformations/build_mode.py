@@ -83,22 +83,28 @@ def current_app(messages):
 
 
 def ask_text(messages, app):
-    """What the person asked for this app (M15-C2, read literally): their messages that name it — anywhere in
-    the history handed to transformations, since the ask scrolls out of the 16-message window within a few
-    cycles — and the one the build answers (the last before the first call that touched it)."""
-    named = re.compile(r"\b%s\b" % re.escape(app))
+    """What the person asked for this app (M15-C2, read literally): their messages that name the app as a word
+    of its own — anywhere in the history handed to transformations, since the ask scrolls out of the 16-message
+    window within a few cycles — and the message the app was created for (the last one before new_app(<app>)).
+
+    Audit 2026-10-22: `\btodo\b` matched "#todo-col" in the kanban ask, so todo's ledger demanded kanban's ids;
+    and "the last message before the first call touching the app" picked up whatever was last said when an old
+    app (mapstation) was touched again. The name must stand alone (no #, ., - or word character around it) and
+    the fallback is the new_app call only."""
+    named = re.compile(r"(?<![\w#.\-])%s(?![\w\-])" % re.escape(app))
     texts, last_user = [], None
-    touched = False
     for message in [m for m in messages or [] if isinstance(m, dict)]:
         if message.get("role") == "user" and not message.get("_iter_runner"):
             text = _text(message.get("content"))
             last_user = text
-            if named.search(text):
+            if named.search(text) and text not in texts:
                 texts.append(text)
-        elif message.get("role") == "assistant" and not touched and current_app([message]) == app:
-            touched = True
-            if last_user and last_user not in texts:
-                texts.append(last_user)
+        elif message.get("role") == "assistant" and last_user and last_user not in texts:
+            for call in message.get("tool_calls") or []:
+                if isinstance(call, dict) and (call.get("function") or {}).get("name") == "new_app" \
+                        and str(_arguments(call).get("id", "")).strip() == app:
+                    texts.append(last_user)
+                    break
     return "\n".join(texts)
 
 

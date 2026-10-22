@@ -387,20 +387,18 @@ def observe_probe(app, result, probe_json):
 
 
 def record_ask(app, text, stored):
-    """build_mode: add what the person's ask names. Ask facts grow while the app is built (a message that
-    scrolled out of the request still asked for it); new_app and a vanished app clear them (C5).
-    Returns True when something new was stored."""
-    have = {atom for key, atom in stored.items() if key.startswith(_prefix(app, "ask"))}
-    new = [atom for _key, atom in facts_from_ask(app, text) if atom not in have]
-    if not new:
+    """build_mode: the facts of what the person asked for this app. The computed set replaces the stored one
+    when it differs (so a wrongly attributed ask — audit 2026-10-22 — corrects itself on the next cycle); an
+    empty computed set changes nothing (the ask rotated out of the history: what was recorded stays).
+    new_app and a vanished app clear them (C5). Returns True when the store changed."""
+    wanted = [atom for _key, atom in facts_from_ask(app, text)]
+    if not wanted:
         return False
-    used = {key for key in stored if key.startswith(_prefix(app, "ask"))}
-    operations, index = [], 0
-    for atom in new:
-        while "%s%d" % (_prefix(app, "ask"), index) in used:
-            index += 1
-        used.add("%s%d" % (_prefix(app, "ask"), index))
-        operations.append({"op": "upsert", "key": "%s%d" % (_prefix(app, "ask"), index), "atom": atom})
+    have = {key: atom for key, atom in stored.items() if key.startswith(_prefix(app, "ask"))}
+    if set(have.values()) == set(wanted):
+        return False
+    operations = [{"op": "remove", "key": key} for key in have if key not in {"%s%d" % (_prefix(app, "ask"), i) for i in range(len(wanted))}]
+    operations.extend({"op": "upsert", "key": "%s%d" % (_prefix(app, "ask"), index), "atom": atom} for index, atom in enumerate(wanted))
     _call("transact", timeout=5, operations=operations, actor="iter", source="build_ledger",
           metadata={"domain": "build_ledger", "app": app})
     return True

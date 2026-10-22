@@ -28,11 +28,14 @@
 (= (ledger-covered $app $sel)
    (not (== (collapse (let $s (ledger-passing-run $app) (match &self (probe-covers $app $s $sel) $sel))) ())))
 
+;; Audit 2026-10-22: an element that only exists once the person acts (a .card after Add) is absent on a fresh
+;; page but proven by a passing probe that touched it — covered counts as present and visible.
 (= (ledger-missing $app)
-   (let $sel (ledger-asked $app) (if (ledger-has $app $sel) (empty) $sel)))
+   (let $sel (ledger-asked $app) (if (ledger-has $app $sel) (empty) (if (ledger-covered $app $sel) (empty) $sel))))
 
 (= (ledger-hidden $app)
-   (let $sel (ledger-asked $app) (if (ledger-has $app $sel) (if (ledger-visible $app $sel) (empty) $sel) (empty))))
+   (let $sel (ledger-asked $app)
+     (if (ledger-has $app $sel) (if (ledger-visible $app $sel) (empty) (if (ledger-covered $app $sel) (empty) $sel)) (empty))))
 
 (= (ledger-unproven $app)
    (let $sel (ledger-asked $app) (if (ledger-has $app $sel) (if (ledger-covered $app $sel) (empty) $sel) (empty))))
@@ -45,7 +48,8 @@
                            (if (< $e $now) $e (empty)))) ())
            (empty) $label))))
 
-(= (ledger-contract $app) (match &self (app-ready $app false) ready))
+;; data-iter-ready is reported, never required (M13-C4): a missing flag is not a breach (audit 2026-10-22 — it
+;; held every app at next: build and taught NACE that probe_before_report is worthless).
 (= (ledger-contract $app) (match &self (app-stores $app other) storage))
 (= (ledger-contract $app) (match &self (app-placeholder $app present) placeholder))
 (= (ledger-contract $app) (match &self (app-form $app $sel unguarded) (form $sel)))

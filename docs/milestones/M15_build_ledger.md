@@ -56,6 +56,18 @@ blocked) already serves as the "before"; one "after" run with the same model fil
 - The ledger only talks to `ITER_METTA_SOCKET` (never the legacy default socket), so a test run on the Mac can
   never touch the live store.
 
+**After the first real run (audit 2026-10-22, bench of 2026-10-21: 3 built, 4 kept, 0–1 theatre; 44 ledger
+observations).** The ledger caught todo's real defect (items kept under a non-prefixed key — the bench's "built: no")
+but three precision faults held every app at `next: build` and taught NACE `probe_before_report` is worthless:
+`\btodo\b` matched `#todo-col` in the kanban ask (todo's ledger demanded kanban's ids), the "last message before
+the first touch" fallback attributed the kanban ask to mapstation, and a missing `data-iter-ready` was a contract
+breach although M13 made the flag reported-never-required; elements that only exist after the person acts (`.card`)
+were "missing" even when a passing probe had exercised them. Fixed: the app's name must stand alone and the
+fallback is the message before `new_app(<app>)`; ask facts are replaced by the recomputed set when it differs
+(empty — the ask rotated out — changes nothing); `ready` is a fact, not a breach; a selector covered by a passing
+run since the newest open counts as present and visible. The NACE belief NACE formed from the bad runs stays
+NACE's to revise.
+
 **Test fixes** (each in its commit message): calibration expected 0.5517, the median is 0.5559; the A2 e2e pad
 is 90,000 chars (45,000 stopped crossing the target once B shrank the schemas); the check tests run in file://
 pages (`run_in_file_page`) and assert attributed storage; the C e2e iterated `read_atoms`' keys instead of its
