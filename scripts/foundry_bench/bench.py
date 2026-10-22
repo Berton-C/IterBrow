@@ -199,7 +199,9 @@ class Iter:
                     names[call.get("id")] = (call.get("function") or {}).get("name", "")
                 if passed_at is not None and any((c.get("function") or {}).get("name") == "send" for c in message.get("tool_calls") or []):
                     return True
-            elif message.get("role") == "tool" and names.get(message.get("tool_call_id")) == "app_probe":
+            elif message.get("role") == "tool" and names.get(message.get("tool_call_id")) not in ("send", None):
+                # M15-F2: the probe may run through the python tool (app_probe(app=…) as a function); the result
+                # text is the evidence, whichever tool returned it (words in a send never count).
                 text = str(message.get("content", ""))
                 if re.search(r"PROBE %s\b[^\n]*: \d+ passed, 0 failed" % re.escape(app_id), text):
                     passed_at = index

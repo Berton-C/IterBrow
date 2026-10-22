@@ -1,6 +1,6 @@
 # Milestone 15 — The build ledger: a loop that never wedges, and an atom space that remembers the build
 
-Status: **implemented 2026-10-21 (A, B, C; D deferred; E done); F scoped 2026-10-22, not implemented.** Base: M6–M14.
+Status: **implemented 2026-10-21 (A, B, C; D deferred; E done); F implemented 2026-10-22.** Base: M6–M14.
 Tests: `tests/test_m15_{budget,tools,ledger,check}.py` and `tests/e2e/test_m15_loop.py` (30 tests, none pending;
 `test_m15_worker.py` is deferred and skipped unless `ITERBROW_M15_WORKER=1`); helpers in `tests/m15_support.py`;
 fixtures in `tests/fixtures/m15/`. Commits: `M15-A`, `M15-B`, `M15-C`, then the suite fixes and these notes.
@@ -95,7 +95,7 @@ Files: `iter/transformations/build_mode.py`, `scripts/foundry_bench/bench.py`.
   keys on the tool name `app_probe`, waited 15 idle minutes and wrote "not reported". `probe_passed_then_
   reported` matches the result text (`PROBE <app>…: n passed, 0 failed`) of any tool result but `send`.
 
-Tests: `tests/test_m15_rest.py` (3 `@pending("M15-F1")`, 1 `@pending("M15-F2")`).
+Tests: `tests/test_m15_rest.py` (4 tests). Implemented as written; `tests/test_m14_loop.py`'s 16-message line now asserts the rest instead.
 
 **Test fixes** (each in its commit message): calibration expected 0.5517, the median is 0.5559; the A2 e2e pad
 is 90,000 chars (45,000 stopped crossing the target once B shrank the schemas); the check tests run in file://

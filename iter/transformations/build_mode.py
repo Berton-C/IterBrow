@@ -1,8 +1,9 @@
 """build_mode: the foundry loop in front of the model while an app is being made
 (docs/milestones/M14_vault_and_foundry_loop.md D1–D2).
 
-Build mode is on when the last 16 messages hold a new_app/app_probe/app_rollback call, a file-tool call on a
-vault/ path, or a person's message with the words build, make me, app or vault. Then BUILD_LOOP is appended
+Build mode is on when, since Iter last rested (M15-F1: a nop that waits for input), there was a new_app/app_probe/
+app_rollback/browser_open_app call, a file-tool call on a vault/ path, or a person's message with the words build,
+make me, app or vault. Then BUILD_LOOP is appended
 to the system prompt; otherwise nothing. Pure over the message list (no state file); a note for the model,
 never a gate: no tool is removed and nothing is refused.
 """
@@ -12,8 +13,7 @@ import re
 
 DESCRIPTION = "While an app is being made, puts the research → propose → build → prove → report loop in the prompt."
 
-WINDOW = 16
-APP_TOOLS = {"new_app", "app_probe", "app_rollback"}
+APP_TOOLS = {"new_app", "app_probe", "app_rollback", "browser_open_app"}  # M15-F1: opening an app is a build signal
 FILE_TOOLS = {"read_file", "write_file", "edit_file", "list_files", "grep_files"}
 WORDS = re.compile(r"\b(?:build|make me|app|vault)\b", re.IGNORECASE)
 
@@ -43,8 +43,32 @@ def _text(content):
     return str(content or "")
 
 
+def _is_rest(call):
+    """M15-F1: a nop that waits for input (wait_seconds 0 or absent) — Iter has reported and rests. A positive
+    wait is a planned pause inside the work (a timer left running), not a rest."""
+    if (call.get("function") or {}).get("name") != "nop":
+        return False
+    try:
+        return float(_arguments(call).get("wait_seconds", 0) or 0) <= 0
+    except (TypeError, ValueError):
+        return True
+
+
+def window(messages):
+    """M15-F1: the messages since Iter last rested; with no rest in the history, the whole history. A build's
+    middle (clicks, evals, a reload) carries no build signal, so a fixed 16-message window let build mode lapse
+    mid-build (2026-10-22)."""
+    items = [m for m in messages or [] if isinstance(m, dict)]
+    for index in range(len(items) - 1, -1, -1):
+        message = items[index]
+        if message.get("role") == "assistant" and any(
+                _is_rest(c) for c in message.get("tool_calls") or [] if isinstance(c, dict)):
+            return items[index + 1:]
+    return items
+
+
 def active(messages):
-    for message in [m for m in messages or [] if isinstance(m, dict)][-WINDOW:]:
+    for message in window(messages):
         role = message.get("role")
         if role == "user" and WORDS.search(_text(message.get("content"))):
             return True
@@ -67,8 +91,8 @@ REPORTED = "transformations/.runtime/build_ledger_reported"  # M15-C6: the last 
 
 
 def current_app(messages):
-    """The app the newest app-tool call or vault file-tool call names in the window, or None."""
-    for message in reversed([m for m in messages or [] if isinstance(m, dict)][-WINDOW:]):
+    """The app the newest app-tool call or vault file-tool call names since Iter last rested (M15-F1), or None."""
+    for message in reversed(window(messages)):
         for call in reversed(message.get("tool_calls") or [] if message.get("role") == "assistant" else []):
             if not isinstance(call, dict):
                 continue

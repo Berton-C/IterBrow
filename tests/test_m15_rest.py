@@ -19,7 +19,6 @@ from m14_support import transformation, system, user, assistant  # noqa: E402
 class RestTests(unittest.TestCase):
     """M15-F1"""
 
-    @pending("M15-F1")
     def test_a_build_lasts_until_iter_rests(self):
         mode = transformation("build_mode")
         rested = [system(), user("build me a todo app"), assistant(calls=[("c1", "nop", {"wait_seconds": "0"})]), user("thanks")]
@@ -31,7 +30,6 @@ class RestTests(unittest.TestCase):
         self.assertTrue(mode.active(rested + [assistant(calls=[("o", "browser_open_app", {"app_id": "todo"})])]), "opening an app is a build signal")
         self.assertEqual(len(mode.window(rested)), 1, "the window is what came after the rest")
 
-    @pending("M15-F1")
     def test_current_app_reads_the_same_window(self):
         mode = transformation("build_mode")
         messages = [system(), user("build me a todo app"), assistant(calls=[("n", "new_app", {"id": "todo", "title": "Todo"})])] \
@@ -39,7 +37,6 @@ class RestTests(unittest.TestCase):
         self.assertEqual(mode.current_app(messages), "todo")
         self.assertIsNone(mode.current_app(messages + [assistant(calls=[("r", "nop", {"wait_seconds": "0"})])]))
 
-    @pending("M15-F1")
     def test_the_old_sixteen_message_rule_is_gone(self):
         src = (REPO / "iter" / "transformations" / "build_mode.py").read_text(encoding="utf-8")
         self.assertIn("def window(", src)
@@ -50,7 +47,6 @@ class RestTests(unittest.TestCase):
 class BenchProbeTests(unittest.TestCase):
     """M15-F2"""
 
-    @pending("M15-F2")
     def test_a_probe_run_through_python_counts(self):
         import importlib.util
         spec = importlib.util.spec_from_file_location("m15_bench", REPO / "scripts" / "foundry_bench" / "bench.py")

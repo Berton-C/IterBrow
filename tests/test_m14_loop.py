@@ -27,8 +27,9 @@ class BuildModeTests(unittest.TestCase):
         self.assertTrue(mode.active(quiet + [assistant(calls=[("c1", "new_app", {"id": "x", "title": "x"})])]))
         self.assertTrue(mode.active(quiet + [assistant(calls=[("c1", "read_file", {"path": "vault/todo/index.html"})])]))
         self.assertFalse(mode.active(quiet + [assistant(calls=[("c1", "read_file", {"path": "tools/send.py"})])]))
-        old = [system(), user("build me a todo app")] + [assistant("…"), user("thanks")] * 9
-        self.assertFalse(mode.active(old), "only the last 16 messages count")
+        # M15-F1 replaced the 16-message window: a build lasts until Iter rests (tests/test_m15_rest.py).
+        rested = [system(), user("build me a todo app"), assistant(calls=[("r", "nop", {"wait_seconds": "0"})]), user("thanks")]
+        self.assertFalse(mode.active(rested), "after the rest, the build is over")
 
     def test_transform_appends_the_loop_only_when_active(self):
         mode = transformation("build_mode")
